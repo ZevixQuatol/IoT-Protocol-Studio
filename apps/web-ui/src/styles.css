@@ -2,7 +2,8 @@
   color: #e6edf3;
   background: #0d1117;
   font-family:
-    Inter, "Segoe UI", system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
+    Inter, "Segoe UI", "Microsoft YaHei UI", "PingFang SC", system-ui, -apple-system,
+    BlinkMacSystemFont, sans-serif;
   font-synthesis: none;
   text-rendering: optimizeLegibility;
 }
@@ -88,6 +89,42 @@ button {
   margin-left: auto;
   color: #98a6b7;
   font-size: 11px;
+}
+
+.language-switch {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  margin-right: 6px;
+  padding-right: 10px;
+  border-right: 1px solid #303a46;
+}
+
+.language-switch > svg {
+  margin-right: 3px;
+  color: #718193;
+}
+
+.language-switch button {
+  min-width: 30px;
+  height: 22px;
+  padding: 0 6px;
+  border: 0;
+  border-radius: 3px;
+  background: transparent;
+  color: #738295;
+  cursor: pointer;
+  font-size: 10px;
+}
+
+.language-switch button:hover {
+  background: #202b37;
+  color: #c3cdd8;
+}
+
+.language-switch button.active {
+  background: #253443;
+  color: #72d3ad;
 }
 
 .status-dot {
@@ -532,4 +569,3 @@ button {
     grid-template-columns: 190px minmax(420px, 1fr) 230px;
   }
 }
-
