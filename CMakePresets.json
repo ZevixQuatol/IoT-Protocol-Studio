@@ -1,0 +1,56 @@
+{
+  "version": 6,
+  "cmakeMinimumRequired": {
+    "major": 3,
+    "minor": 24,
+    "patch": 0
+  },
+  "configurePresets": [
+    {
+      "name": "windows-x86_64",
+      "displayName": "Windows x86_64",
+      "description": "Windows x86_64 build using Visual Studio BuildTools",
+      "generator": "Visual Studio 18 2026",
+      "architecture": "x64",
+      "binaryDir": "${sourceDir}/out/build/${presetName}",
+      "cacheVariables": {
+        "CMAKE_CXX_STANDARD": "20",
+        "BUILD_TESTING": "ON",
+        "IOTPS_BUILD_CLI": "ON",
+        "IOTPS_BUILD_DESKTOP_WIN": "ON",
+        "IOTPS_BUILD_WEB_UI": "ON"
+      }
+    }
+  ],
+  "buildPresets": [
+    {
+      "name": "windows-x86_64-debug",
+      "configurePreset": "windows-x86_64",
+      "configuration": "Debug"
+    },
+    {
+      "name": "windows-x86_64-release",
+      "configurePreset": "windows-x86_64",
+      "configuration": "Release"
+    }
+  ],
+  "testPresets": [
+    {
+      "name": "windows-x86_64-debug",
+      "configurePreset": "windows-x86_64",
+      "configuration": "Debug",
+      "output": {
+        "outputOnFailure": true
+      }
+    },
+    {
+      "name": "windows-x86_64-release",
+      "configurePreset": "windows-x86_64",
+      "configuration": "Release",
+      "output": {
+        "outputOnFailure": true
+      }
+    }
+  ]
+}
+
