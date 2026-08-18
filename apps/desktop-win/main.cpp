@@ -4,10 +4,13 @@
 #include "webview/webview.h"
 
 #include <windows.h>
+#include <wrl/client.h>
 
+#include <atomic>
 #include <filesystem>
 #include <optional>
 #include <sstream>
+#include <stdexcept>
 #include <string>
 #include <string_view>
 #include <variant>
@@ -49,30 +52,6 @@ namespace {
     }
     value.resize(length);
     return value;
-}
-
-[[nodiscard]] std::string url_encode_path(const std::filesystem::path& path) {
-    const auto generic = std::filesystem::absolute(path).generic_string();
-    std::string encoded;
-    encoded.reserve(generic.size() + 16);
-    encoded.append("file:///");
-    for (const auto character : generic) {
-        switch (character) {
-        case ' ':
-            encoded.append("%20");
-            break;
-        case '#':
-            encoded.append("%23");
-            break;
-        case '%':
-            encoded.append("%25");
-            break;
-        default:
-            encoded.push_back(character);
-            break;
-        }
-    }
-    return encoded;
 }
 
 [[nodiscard]] std::string json_string(const std::string_view value) {
@@ -243,12 +222,71 @@ constexpr auto missing_ui_html = R"html(
   </body>
 </html>)html";
 
+constexpr auto smoke_test_script = R"js(
+window.addEventListener("DOMContentLoaded", () => {
+  let attemptsRemaining = 50;
+  const report = (result) => window.iotpsSmokeResult(result);
+  const verify = () => {
+    if (document.querySelector(".app-shell")) {
+      Promise.resolve(window.iotpsCoreInfo())
+        .then((info) => report(info?.source === "native-core" ? "pass" : "core-bridge-failed"))
+        .catch(() => report("core-bridge-failed"));
+      return;
+    }
+    attemptsRemaining -= 1;
+    if (attemptsRemaining > 0) {
+      window.setTimeout(verify, 100);
+      return;
+    }
+    report("render-failed");
+  };
+  verify();
+});
+)js";
+
+constexpr auto packaged_ui_url = "https://iotps.local/index.html";
+constexpr auto packaged_ui_host = L"iotps.local";
+
+void throw_if_failed(const HRESULT result, const std::string_view operation) {
+    if (SUCCEEDED(result)) {
+        return;
+    }
+
+    std::ostringstream message;
+    message << operation << " failed with HRESULT 0x" << std::hex << std::uppercase
+            << static_cast<unsigned long>(result);
+    throw std::runtime_error(message.str());
+}
+
+void navigate_to_packaged_ui(webview::webview& window,
+                             const std::filesystem::path& ui_directory) {
+    auto controller_result = window.browser_controller();
+    controller_result.ensure_ok();
+    auto* controller = static_cast<ICoreWebView2Controller*>(controller_result.value());
+
+    Microsoft::WRL::ComPtr<ICoreWebView2> browser;
+    throw_if_failed(controller->get_CoreWebView2(browser.GetAddressOf()),
+                    "Getting the WebView2 browser");
+
+    Microsoft::WRL::ComPtr<ICoreWebView2_3> browser_v3;
+    throw_if_failed(browser.As(&browser_v3), "Getting the WebView2 virtual host API");
+
+    const auto absolute_directory = std::filesystem::absolute(ui_directory).wstring();
+    throw_if_failed(browser_v3->SetVirtualHostNameToFolderMapping(
+                        packaged_ui_host, absolute_directory.c_str(),
+                        COREWEBVIEW2_HOST_RESOURCE_ACCESS_KIND_DENY),
+                    "Mapping the packaged Web UI directory");
+    window.navigate(packaged_ui_url).ensure_ok();
+}
+
 } // namespace
 
-int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
+int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR command_line, int) {
     static_assert(sizeof(void*) == 8, "The first desktop target is Windows x86_64");
 
     try {
+        const auto smoke_test = std::string_view{command_line}.find("--smoke-test") !=
+                                std::string_view::npos;
 #if defined(_DEBUG)
         constexpr bool enable_devtools = true;
 #else
@@ -265,19 +303,33 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
         window.bind("iotpsInspectHex",
                     [&engine](const std::string& request) { return inspect_hex(request, engine); });
 
-        if (const auto url = development_url(); url.has_value()) {
+        std::atomic_bool smoke_test_passed = false;
+        if (smoke_test) {
+            window.bind("iotpsSmokeResult",
+                        [&window, &smoke_test_passed](const std::string& request) {
+                            const auto result = first_string_argument(request);
+                            smoke_test_passed.store(result.has_value() && *result == "pass",
+                                                    std::memory_order_release);
+                            window.dispatch([&window] { window.terminate(); });
+                            return "null";
+                        });
+            window.init(smoke_test_script);
+        }
+
+        if (const auto url = smoke_test ? std::nullopt : development_url(); url.has_value()) {
             window.navigate(*url);
         } else {
-            const auto ui_path = executable_directory() / "web-ui" / "index.html";
+            const auto ui_directory = executable_directory() / "web-ui";
+            const auto ui_path = ui_directory / "index.html";
             if (std::filesystem::exists(ui_path)) {
-                window.navigate(url_encode_path(ui_path));
+                navigate_to_packaged_ui(window, ui_directory);
             } else {
                 window.set_html(missing_ui_html);
             }
         }
 
         window.run();
-        return 0;
+        return smoke_test && !smoke_test_passed.load(std::memory_order_acquire) ? 2 : 0;
     } catch (const std::exception& error) {
         MessageBoxA(nullptr, error.what(), "IoT Protocol Studio", MB_OK | MB_ICONERROR);
         return 1;

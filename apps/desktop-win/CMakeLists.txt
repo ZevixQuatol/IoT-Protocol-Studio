@@ -31,6 +31,11 @@ target_compile_features(iotps_desktop PRIVATE cxx_std_20)
 target_compile_definitions(iotps_desktop PRIVATE NOMINMAX UNICODE _UNICODE)
 iotps_enable_warnings(iotps_desktop)
 
+if(BUILD_TESTING AND IOTPS_BUILD_WEB_UI)
+  add_test(NAME iotps_desktop_ui_smoke_test COMMAND iotps_desktop --smoke-test)
+  set_tests_properties(iotps_desktop_ui_smoke_test PROPERTIES TIMEOUT 15)
+endif()
+
 if(IOTPS_BUILD_WEB_UI)
   find_program(IOTPS_NPM_EXECUTABLE NAMES npm.cmd npm REQUIRED)
 
