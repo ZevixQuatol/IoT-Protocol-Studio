@@ -1,19 +1,103 @@
 #include "iotps/core/codec/codec.hpp"
 
 #include <algorithm>
+#include <bit>
 #include <limits>
+#include <optional>
 #include <utility>
 
 namespace iotps::core::codec {
 namespace {
 
-CodecError make_error(const CodecErrorCode code, std::string path, const std::size_t offset) {
-    return {.code = code, .path = std::move(path), .offset = offset};
+static_assert(sizeof(float) == 4 && std::numeric_limits<float>::is_iec559);
+static_assert(sizeof(double) == 8 && std::numeric_limits<double>::is_iec559);
+
+CodecError make_error(const CodecErrorCode code, std::string path, const std::size_t offset,
+                      std::string detail = {}) {
+    return {
+        .code = code,
+        .path = std::move(path),
+        .offset = offset,
+        .detail = std::move(detail),
+    };
 }
 
 std::string field_path(const schema::MessageDefinition& definition,
                        const schema::FieldDefinition& field) {
     return definition.name + "." + field.name;
+}
+
+std::optional<std::size_t> primitive_width(const schema::FieldType type) {
+    switch (type) {
+    case schema::FieldType::boolean:
+    case schema::FieldType::int8:
+    case schema::FieldType::uint8:
+        return 1;
+    case schema::FieldType::int16:
+    case schema::FieldType::uint16:
+        return 2;
+    case schema::FieldType::int32:
+    case schema::FieldType::uint32:
+    case schema::FieldType::float32:
+        return 4;
+    case schema::FieldType::int64:
+    case schema::FieldType::uint64:
+    case schema::FieldType::float64:
+        return 8;
+    case schema::FieldType::bytes:
+    case schema::FieldType::string:
+        return std::nullopt;
+    }
+    return std::nullopt;
+}
+
+std::uint64_t read_unsigned(const std::span<const std::uint8_t> bytes, const std::size_t offset,
+                            const std::size_t width, const schema::ByteOrder byte_order) {
+    std::uint64_t value = 0;
+    if (byte_order == schema::ByteOrder::little_endian) {
+        for (std::size_t index = 0; index < width; ++index) {
+            value |= static_cast<std::uint64_t>(bytes[offset + index]) << (index * 8U);
+        }
+        return value;
+    }
+    for (std::size_t index = 0; index < width; ++index) {
+        value = value << 8U | bytes[offset + index];
+    }
+    return value;
+}
+
+ScalarValue decode_primitive(const schema::FieldType type, const std::uint64_t bits) {
+    switch (type) {
+    case schema::FieldType::boolean:
+        return bits != 0;
+    case schema::FieldType::int8:
+        return static_cast<std::int64_t>(
+            std::bit_cast<std::int8_t>(static_cast<std::uint8_t>(bits)));
+    case schema::FieldType::uint8:
+        return bits;
+    case schema::FieldType::int16:
+        return static_cast<std::int64_t>(
+            std::bit_cast<std::int16_t>(static_cast<std::uint16_t>(bits)));
+    case schema::FieldType::uint16:
+        return bits;
+    case schema::FieldType::int32:
+        return static_cast<std::int64_t>(
+            std::bit_cast<std::int32_t>(static_cast<std::uint32_t>(bits)));
+    case schema::FieldType::uint32:
+        return bits;
+    case schema::FieldType::int64:
+        return std::bit_cast<std::int64_t>(bits);
+    case schema::FieldType::uint64:
+        return bits;
+    case schema::FieldType::float32:
+        return static_cast<double>(std::bit_cast<float>(static_cast<std::uint32_t>(bits)));
+    case schema::FieldType::float64:
+        return std::bit_cast<double>(bits);
+    case schema::FieldType::bytes:
+    case schema::FieldType::string:
+        return std::uint64_t{0};
+    }
+    return std::uint64_t{0};
 }
 
 } // namespace
@@ -52,7 +136,8 @@ EncodeResult FixedLayoutCodec::encode(const schema::MessageDefinition& definitio
 }
 
 DecodeResult FixedLayoutCodec::decode(const schema::MessageDefinition& definition,
-                                      const std::span<const std::uint8_t> bytes) const {
+                                      const std::span<const std::uint8_t> bytes,
+                                      const schema::ByteOrder default_byte_order) const {
     DecodedMessage decoded{.message = {.message_name = definition.name}};
     decoded.message.fields.reserve(definition.fields.size());
     decoded.field_ranges.reserve(definition.fields.size());
@@ -60,21 +145,35 @@ DecodeResult FixedLayoutCodec::decode(const schema::MessageDefinition& definitio
     std::size_t offset = 0;
     for (const auto& field : definition.fields) {
         const auto path = field_path(definition, field);
-        if (field.type != schema::FieldType::uint8) {
-            return make_error(CodecErrorCode::unsupported_field_type, path, offset);
+        const auto width = primitive_width(field.type);
+        if (!width.has_value()) {
+            return make_error(CodecErrorCode::unsupported_field_type, path, offset,
+                              "field type is not a fixed-width primitive");
         }
-        if (offset >= bytes.size()) {
-            return make_error(CodecErrorCode::insufficient_data, path, offset);
+        if (offset > bytes.size() || bytes.size() - offset < *width) {
+            const auto remaining = offset <= bytes.size() ? bytes.size() - offset : 0;
+            return make_error(CodecErrorCode::insufficient_data, path, offset,
+                              "field requires " + std::to_string(*width) + " bytes but only " +
+                                  std::to_string(remaining) + " remain");
         }
 
-        decoded.message.fields.push_back(
-            {.name = field.name, .value = static_cast<std::uint64_t>(bytes[offset])});
-        decoded.field_ranges.push_back({.path = path, .offset = offset, .length = 1});
-        ++offset;
+        const auto byte_order = field.byte_order.value_or(default_byte_order);
+        const auto bits = read_unsigned(bytes, offset, *width, byte_order);
+        if (field.type == schema::FieldType::boolean && bits > 1U) {
+            return make_error(CodecErrorCode::value_out_of_range, path, offset,
+                              "boolean byte must be 0 or 1");
+        }
+        auto decoded_value = decode_primitive(field.type, bits);
+        decoded.message.fields.push_back({.name = field.name, .value = std::move(decoded_value)});
+        decoded.field_ranges.push_back({.path = path, .offset = offset, .length = *width});
+        offset += *width;
     }
 
     if (offset != bytes.size()) {
-        return make_error(CodecErrorCode::unexpected_data, definition.name, offset);
+        const auto trailing = bytes.size() - offset;
+        return make_error(CodecErrorCode::unexpected_data, definition.name, offset,
+                          std::to_string(trailing) + (trailing == 1 ? " trailing byte remains"
+                                                                    : " trailing bytes remain"));
     }
     return decoded;
 }

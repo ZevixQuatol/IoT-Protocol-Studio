@@ -1,0 +1,7 @@
+enabled=true @0+1
+status=-2 @1+1
+sequence=4660 @2+2
+temperature=-300 @4+2
+counter=2309737967 @6+4
+pressure=12.5 @10+4
+precise=-2.25 @14+8

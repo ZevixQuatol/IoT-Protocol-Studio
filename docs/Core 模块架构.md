@@ -125,17 +125,19 @@ core/
 
 公共模型包括 `ScalarValue`、`StructuredMessage`、`DecodedMessage`、字段字节范围和稳定错误码。`MessageCodec` 是可替换编解码接口。
 
-当前 `FixedLayoutCodec` 只实现一个经过测试的 `uint8` 固定顺序切片：
+`FixedLayoutCodec` 当前分别处于两个成熟度：Encode 仍只支持 `uint8`；Decode 已支持固定长度 Primitive：
 
 ```text
-MessageDefinition + StructuredMessage
-  → Encode
-  → ByteBuffer
-  → Decode
+MessageDefinition + ByteBuffer + Protocol 默认字节序
+  → 按字段顺序 Decode
+  → Field endian 覆盖
+  → bool / 8-64 位整数 / float32 / float64
   → StructuredMessage + FieldRange
 ```
 
-其他整数、浮点、字节序、数组、结构体、Length 和 Checksum 尚未实现。
+Decode 对非法 bool、输入不足、不支持类型和尾随数据返回稳定路径、偏移和原因。字节序优先级、类型映射和错误契约见 [Primitive Decode](<./Primitive Decode.md>)。
+
+尚未实现的部分包括：Primitive Encode、显式 offset、字符串/动态 bytes、BCD、timestamp、Enum、BitField、数组、结构体、Length 和 Checksum。
 
 ### 5.3 Transport API
 
@@ -222,7 +224,8 @@ simulator::SimulatorErrorCode
 | `iotps_result_unit_test` | Common | 成功值、错误值、指针访问和 `Status` |
 | `iotps_schema_unit_test` | Schema | 合法 Schema、重复名称、字段路径和错误码 |
 | `iotps_schema_loader_unit_test` | Schema | YAML/文件加载、节点类型、枚举、领域校验和源码位置 |
-| `iotps_codec_unit_test` | Codec | `uint8` Encode/Decode round-trip、字节范围和越界错误 |
+| `iotps_codec_unit_test` | Codec | `uint8` Encode、全部固定宽度 Primitive Decode、字节序、范围和错误诊断 |
+| `iotps_primitive_decode_integration_test` | Codec、Schema | Schema YAML → HEX → 多类型 Decode → expected golden vector |
 | `iotps_simulator_integration_test` | Simulator | Codec → Simulator → Transport 发送链路和生命周期 |
 | `iotps_testing_unit_test` | Testing | 断言求值和测试报告汇总 |
 
@@ -230,15 +233,15 @@ Simulator 集成测试只替换 Transport，因为 Transport 是操作系统和�
 
 ## 8. 下一步
 
-`M02-F01 Protocol Schema v0.1` 的 YAML 加载链路已经完成。当前产品主线进入 `M03-F02 Schema Decode` 的 Primitive Decode：
+`M03-F02 Schema Decode` 的固定长度 Primitive 已完成。当前产品主线进入 `M03-F03 Schema Encode` 的 Primitive Encode：
 
 ```text
-ProtocolSchema + MessageDefinition
-  → 选择 Message
-  → 按字段顺序读取基础整数和浮点类型
-  → 应用 Big/Little Endian
-  → 返回字段值与 byte offset/length span
-  → 建立多类型 Decode 测试向量
+MessageDefinition + StructuredMessage
+  → 校验 ScalarValue 类型和数值范围
+  → 编码 bool / 8-64 位整数 / float32 / float64
+  → 应用 Protocol 默认与 Field 覆盖字节序
+  → 生成 ByteBuffer
+  → 建立多类型 Decode/Encode round-trip
 ```
 
-在 Primitive Decode/Encode round-trip 稳定之前，不扩展真实 TCP/Serial、Simulator 行为 DSL 或完整 Test Runner。
+在 Primitive Encode 和 round-trip 稳定之前，不扩展真实 TCP/Serial、Simulator 行为 DSL 或完整 Test Runner。

@@ -7,7 +7,7 @@
 > 当前目标平台：Windows x86_64  
 > 用途：项目唯一功能树、进度看板和下一步开发入口
 
-相关文档：[功能设计基线](<./IoT Protocol Studio 功能设计文档.md>) · [Protocol Schema v0.1](<./Protocol Schema v0.1.md>) · [Core 模块架构](<./Core 模块架构.md>) · [开发环境与构建](./开发环境与构建.md)
+相关文档：[功能设计基线](<./IoT Protocol Studio 功能设计文档.md>) · [Protocol Schema v0.1](<./Protocol Schema v0.1.md>) · [Primitive Decode](<./Primitive Decode.md>) · [Core 模块架构](<./Core 模块架构.md>) · [开发环境与构建](./开发环境与构建.md)
 
 ---
 
@@ -52,11 +52,12 @@
 flowchart LR
     A["✅ M0：工程与 Windows 客户端基础"] --> B["✅ Core 五模块分层"]
     B --> C["✅ Protocol Schema v0.1 YAML 加载"]
-    C --> D["🚧 下一步：Primitive Decode"]
-    D --> E["⬜ Workspace + Protocol Designer"]
-    E --> F["⬜ Message Studio + 真实 Transport + Debugger"]
-    F --> G["⬜ 完整 Simulator + Test Runner"]
-    G --> H["⬜ MVP 验收"]
+    C --> D["✅ 固定长度 Primitive Decode"]
+    D --> E["🚧 下一步：Primitive Encode"]
+    E --> F["⬜ Workspace + Protocol Designer"]
+    F --> G["⬜ Message Studio + 真实 Transport + Debugger"]
+    G --> H["⬜ 完整 Simulator + Test Runner"]
+    H --> I["⬜ MVP 验收"]
 ```
 
 ### 2.2 当前结论
@@ -113,6 +114,9 @@ Schema 纵向链路也已经打通：YAML 文件可以映射为领域模型，�
 - [x] Core API 统一使用 `Result<Value, ErrorType>`、`Status<ErrorType>` 和 `Error<Code>`。
 - [x] 加载 Protocol Schema v0.1 YAML，映射为稳定领域模型并报告文件、路径和源码位置。
 - [x] 使用 SmartSensor 示例与合法/非法向量复现 Schema 加载和校验结果。
+- [x] 按 Schema 解码固定长度 bool、8/16/32/64 位整数和 float32/float64。
+- [x] 应用 Protocol 默认字节序和 Field `endian` 覆盖，并返回字段字节范围。
+- [x] 通过 Schema YAML、HEX 和 expected 三文件 golden vector 验证 Primitive Decode。
 
 ### 2.4 当前界面中尚未实现的占位功能
 
@@ -127,26 +131,26 @@ Schema 纵向链路也已经打通：YAML 文件可以映射为领域模型，�
 
 ## 3. 接下来应该做什么
 
-### 3.1 当前唯一首要任务：完成 Schema Primitive Decode
+### 3.1 当前唯一首要任务：完成 Schema Primitive Encode
 
-`M02-F01 Protocol Schema v0.1` 已完成。下一个工作包进入正文中的 **M03-F02 Schema Decode：HEX → Object**，先把固定布局 Codec 从单一 `uint8` 扩展为基础类型解码：
+固定长度 Primitive Decode 已完成。下一个工作包进入正文中的 **M03-F03 Schema Encode：Object → HEX**，让 `FixedLayoutCodec` 对同一组基础类型提供反向编码：
 
-- 按 Message Schema 和字段顺序消费 ByteBuffer。
-- Decode `bool`、有符号/无符号整数和浮点数。
+- 按 FieldType 校验 `ScalarValue` 的实际类型。
+- 校验有符号、无符号整数的数值范围。
+- Encode `bool`、有符号/无符号整数和浮点数。
 - 正确应用 Protocol 默认字节序和 Field `endian` 覆盖。
-- 返回结构化字段值与每个字段的 byte offset/length span。
-- 对输入不足、类型不支持和剩余字节输出稳定错误。
-- 创建多类型、大小端、边界值和非法输入测试向量。
+- 为缺失字段、类型不匹配和越界值返回稳定路径与偏移。
+- 建立多类型 Decode/Encode round-trip 和 golden vectors。
 
-Primitive Decode 第一阶段的完成标准：
+Primitive Encode 第一阶段的完成标准：
 
 ```text
-给定 ProtocolSchema + MessageDefinition + ByteBuffer
-  → Core 按字段定义读取基础类型
-  → 正确处理 Big/Little Endian
-  → 返回结构化值和精确字节范围
-  → 非法输入返回稳定错误码和字段路径
-  → golden vectors 在 Debug/Release 中稳定通过
+给定 MessageDefinition + StructuredMessage
+  → Core 校验字段类型和数值范围
+  → 按 Protocol/Field 字节序编码基础类型
+  → 生成稳定 ByteBuffer
+  → Decode(Encode(Object)) == Object
+  → 非法输入返回稳定错误码、字段路径和偏移
 ```
 
 ### 3.2 Schema 之后的执行顺序
@@ -171,7 +175,7 @@ Primitive Decode 第一阶段的完成标准：
 | M00 工程与平台基础 | 🟡 部分完成 | M0 | 模块分层、格式化、统一 Result/Error 和 Windows 基线可运行；静态分析、安装发布和其他平台未完成 |
 | M01 Workspace 工作空间 | ⬜ 待开始 | MVP | 只有静态 Explorer UI |
 | M02 Protocol Designer / Schema | 🟡 部分完成 | MVP | Protocol Schema v0.1 的 YAML 加载、诊断、示例、向量和 CLI 已完成；可视化设计器与动态结构未实现 |
-| M03 Codec 编解码 | 🚧 下一步 | MVP | 已验证 `uint8` 固定布局 Encode/Decode；下一步扩展基础类型和字节序 |
+| M03 Codec 编解码 | 🚧 下一步 | MVP | 固定长度 Primitive Decode 和字节序已完成；下一步实现对应 Primitive Encode 与 round-trip |
 | M04 HEX Studio | 🟡 部分完成 | MVP | 已完成基础 HEX 检查和三种校验计算 |
 | M05 Transport 通信层 | 🟡 API 已建立 | MVP/P2 | 统一字节、生命周期、状态、事件和统计接口已建立；没有真实连接实现 |
 | M06 Debugger / Timeline | ⬜ 待开始 | MVP | 只有 Console/Timeline 静态布局 |
@@ -414,11 +418,11 @@ Primitive Decode 第一阶段的完成标准：
 
 ### M02-F06 字节序
 
-- [ ] Big Endian。
-- [ ] Little Endian。
-- [ ] 协议默认字节序。
+- [x] Big Endian。
+- [x] Little Endian。
+- [x] 协议默认字节序。
 - [ ] Message 字节序覆盖。
-- [ ] Field 独立字节序覆盖。
+- [x] Field 独立字节序覆盖。
 - [ ] 字节序配置冲突诊断。
 
 ### M02-F07 动态长度和条件字段
@@ -520,16 +524,16 @@ Primitive Decode 第一阶段的完成标准：
 ### M03-F02 Schema Decode：HEX → Object
 
 - [ ] 按 Message Schema 选择报文类型。
-- [ ] 🟡 按字段顺序和 offset 读取字节：当前仅固定布局 `uint8`。
-- [ ] 🚧 Decode 基础整数和浮点类型：当前仅 `uint8`，下一步补齐固定长度 Primitive。
+- [ ] 🟡 按字段顺序和 offset 读取字节：固定顺序 Primitive 已完成，显式 offset 尚未实现。
+- [x] Decode bool、8/16/32/64 位有符号和无符号整数、float32/float64。
 - [ ] Decode 字符串、bytes、BCD、timestamp。
-- [ ] 应用 Big/Little Endian。
+- [x] 应用 Protocol 默认与 Field 覆盖的 Big/Little Endian。
 - [ ] 应用 scale 和 offsetValue。
 - [ ] Decode Enum 和 BitField。
 - [ ] Decode Struct 和 Array。
 - [ ] Decode Conditional Field。
 - [ ] 验证 Length 和 Checksum。
-- [ ] 🟡 返回结构化字段树：当前为一层字段列表。
+- [ ] 🟡 返回结构化字段树：固定 Primitive 返回一层字段列表，嵌套结构尚未实现。
 - [x] 返回每个已解析字段的 byte offset/length span。
 - [ ] 保留未知和未消费字节。
 
@@ -538,7 +542,7 @@ Primitive Decode 第一阶段的完成标准：
 - [x] 接收结构化字段值的 Core API。
 - [ ] 🟡 校验 required、type、min/max：当前校验缺失字段、类型和 `uint8` 范围。
 - [ ] 反向应用 scale 和 offsetValue。
-- [ ] 🟡 Encode 基础类型和字节序：当前仅 `uint8`。
+- [ ] 🚧 Encode 基础类型和字节序：当前仅 `uint8`，下一步与 Decode 能力对齐。
 - [ ] Encode Enum 和 BitField。
 - [ ] Encode Struct 和 Array。
 - [ ] Encode Conditional Field。
@@ -551,9 +555,9 @@ Primitive Decode 第一阶段的完成标准：
 
 - [ ] 🟡 `Decode(Encode(Object)) == Object`：当前覆盖固定布局 `uint8`。
 - [ ] `Encode(Decode(Bytes)) == Bytes`。
-- [ ] Golden vector 测试。
-- [ ] 边界值测试。
-- [ ] 不同字节序测试。
+- [x] Primitive Decode golden vector 测试。
+- [ ] 🟡 边界值测试：覆盖 bool、负数、截断和尾随数据，完整类型矩阵待 Encode 阶段补齐。
+- [x] Primitive Decode 不同字节序测试。
 - [ ] 动态结构组合测试。
 - [ ] 协议版本兼容测试。
 
@@ -959,6 +963,8 @@ Primitive Decode 第一阶段的完成标准：
 - [x] 可选 Fuzz 入口。
 - [x] Schema 领域模型和基础校验单元测试。
 - [x] Codec `uint8` round-trip 和错误单元测试。
+- [x] 固定长度 Primitive Decode、大小端和错误诊断单元测试。
+- [x] Schema YAML → HEX → Primitive Decode → expected golden vector 集成测试。
 - [x] Simulator → Codec → Transport 集成测试。
 - [x] Protocol Schema YAML/文件加载、源码位置和 CLI 成功/失败测试。
 - [x] Testing 断言和报告单元测试。
@@ -1428,13 +1434,21 @@ CI/CD
 - 增加 SmartSensor 示例、合法/非法测试向量和 `iotps schema validate <file>` 成功/失败链路。
 - 固化 Schema v0.1 格式和兼容规则，下一步进入 Primitive Decode。
 
+### 2026-08-22：固定长度 Primitive Decode
+
+- 本地提交：见包含本记录的 `feat: decode fixed-width primitives` 提交。
+- `FixedLayoutCodec` 支持 bool、8/16/32/64 位整数、float32 和 float64，并统一输出 `ScalarValue`。
+- 支持 Protocol 默认 Big/Little Endian 和 Field `endian` 覆盖，保留精确 `FieldRange`。
+- 对非法 bool、输入截断、不支持类型和尾随数据返回稳定错误码、字段路径、偏移和原因。
+- 新增 Schema YAML、HEX、expected 三文件 golden vector，下一步进入 Primitive Encode。
+
 ---
 
 ## 9. 下一次更新入口
 
 下次开始开发时，直接从以下功能点继续：
 
-> **M03-F02：扩展 FixedLayoutCodec，完成基础类型和字节序 Primitive Decode**
+> **M03-F03：扩展 FixedLayoutCodec，完成基础类型和字节序 Primitive Encode**
 
 完成一个功能点后：
 

@@ -1,0 +1,25 @@
+schemaVersion: "0.1"
+protocol:
+  name: primitive-frame
+  version: "1.0"
+  defaultByteOrder: little
+messages:
+  telemetry:
+    typeId: 1
+    fields:
+      - name: enabled
+        type: bool
+      - name: status
+        type: int8
+      - name: sequence
+        type: uint16
+      - name: temperature
+        type: int16
+        endian: big
+      - name: counter
+        type: uint32
+      - name: pressure
+        type: float32
+      - name: precise
+        type: float64
+        endian: big

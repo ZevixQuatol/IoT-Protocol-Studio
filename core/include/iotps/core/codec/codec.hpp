@@ -58,16 +58,18 @@ class MessageCodec {
 
     [[nodiscard]] virtual EncodeResult encode(const schema::MessageDefinition& definition,
                                               const StructuredMessage& message) const = 0;
-    [[nodiscard]] virtual DecodeResult decode(const schema::MessageDefinition& definition,
-                                              std::span<const std::uint8_t> bytes) const = 0;
+    [[nodiscard]] virtual DecodeResult
+    decode(const schema::MessageDefinition& definition, std::span<const std::uint8_t> bytes,
+           schema::ByteOrder default_byte_order = schema::ByteOrder::big_endian) const = 0;
 };
 
 class FixedLayoutCodec final : public MessageCodec {
   public:
     [[nodiscard]] EncodeResult encode(const schema::MessageDefinition& definition,
                                       const StructuredMessage& message) const override;
-    [[nodiscard]] DecodeResult decode(const schema::MessageDefinition& definition,
-                                      std::span<const std::uint8_t> bytes) const override;
+    [[nodiscard]] DecodeResult
+    decode(const schema::MessageDefinition& definition, std::span<const std::uint8_t> bytes,
+           schema::ByteOrder default_byte_order = schema::ByteOrder::big_endian) const override;
 };
 
 [[nodiscard]] std::string_view to_string(CodecErrorCode code) noexcept;
