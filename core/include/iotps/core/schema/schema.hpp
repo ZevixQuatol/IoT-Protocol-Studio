@@ -76,6 +76,16 @@ struct ProtocolSchema {
 };
 
 enum class SchemaErrorCode {
+    file_open_failed,
+    file_read_failed,
+    yaml_parse_error,
+    yaml_root_mapping_required,
+    yaml_required_node_missing,
+    yaml_node_type_mismatch,
+    yaml_invalid_scalar,
+    yaml_unknown_byte_order,
+    yaml_unknown_field_type,
+    yaml_unknown_checksum_algorithm,
     schema_version_required,
     unsupported_schema_version,
     protocol_name_required,

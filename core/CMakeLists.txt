@@ -8,6 +8,23 @@ function(iotps_configure_core_target target)
   iotps_enable_warnings(${target})
 endfunction()
 
+include(FetchContent)
+
+set(RYML_BUILD_TOOLS OFF CACHE BOOL "" FORCE)
+set(RYML_DEFAULT_CALLBACK_USES_EXCEPTIONS ON CACHE BOOL "" FORCE)
+set(RYML_INSTALL OFF CACHE BOOL "" FORCE)
+
+FetchContent_Declare(
+  rapidyaml
+  URL https://codeload.github.com/biojppm/rapidyaml/tar.gz/refs/tags/v0.16.0
+  URL_HASH SHA256=ad4337d468c5f5d8624651bdc2900f7fe601c83fc3cff669dc972bf8634af4e9
+  DOWNLOAD_EXTRACT_TIMESTAMP FALSE)
+FetchContent_MakeAvailable(rapidyaml)
+
+if(MSVC)
+  target_compile_options(ryml PRIVATE /utf-8)
+endif()
+
 add_library(iotps_core_common INTERFACE)
 add_library(iotps::common ALIAS iotps_core_common)
 target_include_directories(
@@ -17,10 +34,10 @@ target_include_directories(
     $<INSTALL_INTERFACE:include>)
 target_compile_features(iotps_core_common INTERFACE cxx_std_20)
 
-add_library(iotps_schema STATIC src/schema/schema.cpp)
+add_library(iotps_schema STATIC src/schema/loader.cpp src/schema/schema.cpp)
 add_library(iotps::schema ALIAS iotps_schema)
 iotps_configure_core_target(iotps_schema)
-target_link_libraries(iotps_schema PUBLIC iotps::common)
+target_link_libraries(iotps_schema PUBLIC iotps::common PRIVATE ryml::ryml)
 
 add_library(
   iotps_codec STATIC

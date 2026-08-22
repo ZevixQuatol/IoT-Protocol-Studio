@@ -80,6 +80,26 @@ SchemaValidation validate(const ProtocolSchema& schema) {
 
 std::string_view to_string(const SchemaErrorCode code) noexcept {
     switch (code) {
+    case SchemaErrorCode::file_open_failed:
+        return "file_open_failed";
+    case SchemaErrorCode::file_read_failed:
+        return "file_read_failed";
+    case SchemaErrorCode::yaml_parse_error:
+        return "yaml_parse_error";
+    case SchemaErrorCode::yaml_root_mapping_required:
+        return "yaml_root_mapping_required";
+    case SchemaErrorCode::yaml_required_node_missing:
+        return "yaml_required_node_missing";
+    case SchemaErrorCode::yaml_node_type_mismatch:
+        return "yaml_node_type_mismatch";
+    case SchemaErrorCode::yaml_invalid_scalar:
+        return "yaml_invalid_scalar";
+    case SchemaErrorCode::yaml_unknown_byte_order:
+        return "yaml_unknown_byte_order";
+    case SchemaErrorCode::yaml_unknown_field_type:
+        return "yaml_unknown_field_type";
+    case SchemaErrorCode::yaml_unknown_checksum_algorithm:
+        return "yaml_unknown_checksum_algorithm";
     case SchemaErrorCode::schema_version_required:
         return "schema_version_required";
     case SchemaErrorCode::unsupported_schema_version:

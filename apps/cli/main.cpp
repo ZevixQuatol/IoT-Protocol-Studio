@@ -1,17 +1,20 @@
 #include "iotps/core/engine.hpp"
+#include "iotps/core/schema/loader.hpp"
 #include "iotps/core/version.hpp"
 
 #include <iomanip>
 #include <iostream>
 #include <sstream>
 #include <string>
+#include <string_view>
 
 namespace {
 
 void print_usage() {
     std::cout << "Usage:\n"
                  "  iotps version\n"
-                 "  iotps inspect <hex bytes>\n";
+                 "  iotps inspect <hex bytes>\n"
+                 "  iotps schema validate <file>\n";
 }
 
 std::string join_arguments(const int argc, char* argv[], const int first) {
@@ -28,6 +31,15 @@ std::string join_arguments(const int argc, char* argv[], const int first) {
 void print_byte(const std::uint8_t value) {
     std::cout << "0x" << std::uppercase << std::hex << std::setw(2) << std::setfill('0')
               << static_cast<unsigned int>(value) << std::dec;
+}
+
+void print_schema_error(const iotps::core::schema::SchemaDiagnostic& error) {
+    std::cerr << "error[" << iotps::core::schema::to_string(error.code) << "] " << error.path;
+    if (error.source_location.has_value()) {
+        const auto& location = *error.source_location;
+        std::cerr << " at " << location.source << ':' << location.line << ':' << location.column;
+    }
+    std::cerr << ": " << error.detail << '\n';
 }
 
 } // namespace
@@ -68,6 +80,25 @@ int main(const int argc, char* argv[]) {
         print_byte(inspection.xor8);
         std::cout << "\nCRC16/MODBUS: 0x" << std::uppercase << std::hex << std::setw(4)
                   << std::setfill('0') << inspection.crc16_modbus << std::dec << '\n';
+        return 0;
+    }
+
+    if (command == "schema") {
+        if (argc != 4 || std::string_view{argv[2]} != "validate") {
+            std::cerr << "schema requires: validate <file>\n";
+            return 2;
+        }
+
+        const auto result = iotps::core::schema::load_yaml_file(argv[3]);
+        if (const auto* error = result.error_if()) {
+            print_schema_error(*error);
+            return 1;
+        }
+
+        const auto& schema = result.value();
+        std::cout << "Schema valid: " << schema.protocol.name << ' ' << schema.protocol.version
+                  << '\n';
+        std::cout << "Messages: " << schema.messages.size() << '\n';
         return 0;
     }
 

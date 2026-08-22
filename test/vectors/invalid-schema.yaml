@@ -1,0 +1,9 @@
+schemaVersion: "0.1"
+protocol:
+  name: smart-sensor
+  version: "1.0"
+messages:
+  telemetry:
+    fields:
+      - name: command
+        type: uint128

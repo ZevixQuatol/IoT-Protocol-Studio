@@ -1,0 +1,25 @@
+schemaVersion: "0.1"
+protocol:
+  name: smart-sensor
+  displayName: Smart Sensor
+  version: "1.0"
+  description: Smart temperature sensor protocol
+  defaultByteOrder: little
+messages:
+  telemetry:
+    displayName: Telemetry
+    typeId: 1
+    fields:
+      - name: command
+        displayName: Command
+        type: uint8
+      - name: temperature
+        displayName: Temperature
+        type: int16
+        endian: little
+      - name: checksum
+        type: uint16
+    checksum:
+      name: checksum
+      algorithm: crc16-modbus
+      targetField: checksum

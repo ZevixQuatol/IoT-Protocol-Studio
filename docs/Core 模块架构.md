@@ -84,7 +84,7 @@ core/
 | CMake target | 公共别名 | 直接依赖 | 当前职责 |
 |---|---|---|---|
 | `iotps_core_common` | `iotps::common` | 无 | `ByteBuffer`、`Result`、`Status`、`Error` 等跨模块基础类型 |
-| `iotps_schema` | `iotps::schema` | Common | Schema 领域模型、版本和校验 |
+| `iotps_schema` | `iotps::schema` | Common、Rapid YAML（私有） | Schema 领域模型、YAML/文件加载、版本和校验 |
 | `iotps_codec` | `iotps::codec` | Common、Schema | HEX/Checksum、Codec API、最小固定布局编解码 |
 | `iotps_transport` | `iotps::transport` | Common | Transport 生命周期、事件、错误和统计 API |
 | `iotps_simulator` | `iotps::simulator` | Codec、Transport | 单设备生命周期和编码后发送链路 |
@@ -97,7 +97,7 @@ core/
 
 ### 5.1 Schema
 
-公共入口：`iotps/core/schema/schema.hpp`
+公共入口：`iotps/core/schema/schema.hpp`、`iotps/core/schema/loader.hpp`
 
 当前已经提供：
 
@@ -108,11 +108,15 @@ core/
 - Checksum 名称、算法和目标字段模型。
 - 必填值、重复报文、重复类型 ID、重复字段和 Checksum 目标校验。
 - 稳定 `SchemaErrorCode` 和领域路径。
+- Rapid YAML `v0.16.0` 驱动的 YAML 字符串和文件加载。
+- YAML 节点形状、必填属性和严格枚举值检查。
+- 文件名、YAML 路径、字节偏移、行号和列号诊断。
+- SmartSensor 示例、合法/非法向量和 `iotps schema validate <file>`。
+- Schema v0.1 兼容规则，详见 [Protocol Schema v0.1](<./Protocol Schema v0.1.md>)。
 
 当前没有提供：
 
-- YAML 依赖、文件加载和源码位置。
-- Schema 文件升级。
+- Schema 文件自动迁移和无损写回。
 - 完整 Field 属性和动态结构校验。
 
 ### 5.2 Codec
@@ -217,6 +221,7 @@ simulator::SimulatorErrorCode
 |---|---|---|
 | `iotps_result_unit_test` | Common | 成功值、错误值、指针访问和 `Status` |
 | `iotps_schema_unit_test` | Schema | 合法 Schema、重复名称、字段路径和错误码 |
+| `iotps_schema_loader_unit_test` | Schema | YAML/文件加载、节点类型、枚举、领域校验和源码位置 |
 | `iotps_codec_unit_test` | Codec | `uint8` Encode/Decode round-trip、字节范围和越界错误 |
 | `iotps_simulator_integration_test` | Simulator | Codec → Simulator → Transport 发送链路和生命周期 |
 | `iotps_testing_unit_test` | Testing | 断言求值和测试报告汇总 |
@@ -225,15 +230,15 @@ Simulator 集成测试只替换 Transport，因为 Transport 是操作系统和�
 
 ## 8. 下一步
 
-Core 分层完成后，当前产品主线仍是完成 `M02-F01 Protocol Schema v0.1`：
+`M02-F01 Protocol Schema v0.1` 的 YAML 加载链路已经完成。当前产品主线进入 `M03-F02 Schema Decode` 的 Primitive Decode：
 
 ```text
-选择 YAML 依赖
-  → 加载 YAML
-  → 映射到现有 Schema 领域模型
-  → 输出文件路径、字段路径和源码位置
-  → SmartSensor 示例与合法/非法向量
-  → iotps schema validate
+ProtocolSchema + MessageDefinition
+  → 选择 Message
+  → 按字段顺序读取基础整数和浮点类型
+  → 应用 Big/Little Endian
+  → 返回字段值与 byte offset/length span
+  → 建立多类型 Decode 测试向量
 ```
 
-在 YAML Schema 基线稳定之前，不扩展真实 TCP/Serial、Simulator 行为 DSL 或完整 Test Runner。
+在 Primitive Decode/Encode round-trip 稳定之前，不扩展真实 TCP/Serial、Simulator 行为 DSL 或完整 Test Runner。

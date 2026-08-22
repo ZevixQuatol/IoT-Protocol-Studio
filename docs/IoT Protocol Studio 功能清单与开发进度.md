@@ -7,7 +7,7 @@
 > 当前目标平台：Windows x86_64  
 > 用途：项目唯一功能树、进度看板和下一步开发入口
 
-相关文档：[功能设计基线](<./IoT Protocol Studio 功能设计文档.md>) · [Core 模块架构](<./Core 模块架构.md>) · [开发环境与构建](./开发环境与构建.md)
+相关文档：[功能设计基线](<./IoT Protocol Studio 功能设计文档.md>) · [Protocol Schema v0.1](<./Protocol Schema v0.1.md>) · [Core 模块架构](<./Core 模块架构.md>) · [开发环境与构建](./开发环境与构建.md)
 
 ---
 
@@ -51,8 +51,8 @@
 ```mermaid
 flowchart LR
     A["✅ M0：工程与 Windows 客户端基础"] --> B["✅ Core 五模块分层"]
-    B --> C["🚧 下一步：YAML Schema 加载"]
-    C --> D["⬜ 完整 Schema Decode / Encode"]
+    B --> C["✅ Protocol Schema v0.1 YAML 加载"]
+    C --> D["🚧 下一步：Primitive Decode"]
     D --> E["⬜ Workspace + Protocol Designer"]
     E --> F["⬜ Message Studio + 真实 Transport + Debugger"]
     F --> G["⬜ 完整 Simulator + Test Runner"]
@@ -94,7 +94,7 @@ Schema 领域模型
   → Transport API 测试边界
 ```
 
-该链路用于验证模块依赖和公共 API，不代表 YAML、完整 Codec 或真实 Transport 已完成。
+Schema 纵向链路也已经打通：YAML 文件可以映射为领域模型，错误可以定位到文件、字段路径和源码行列，并可通过 `iotps schema validate <file>` 自动验证。完整 Codec 和真实 Transport 仍未完成。
 
 ### 2.3 已经可以使用的能力
 
@@ -104,13 +104,15 @@ Schema 领域模型
 - [x] 查看规范化 HEX、字节偏移、十进制值和 ASCII 预览。
 - [x] 计算 SUM8、XOR8 和 CRC16/MODBUS。
 - [x] 查看空输入、非法字符和不完整字节错误。
-- [x] 通过 CLI 执行 `iotps version` 和 `iotps inspect`。
+- [x] 通过 CLI 执行 `iotps version`、`iotps inspect` 和 `iotps schema validate <file>`。
 - [x] 通过真实 WebView2 烟雾测试验证 React 渲染和原生 Core Bridge。
 - [x] 分别构建 Schema、Codec、Transport、Simulator、Testing 静态库目标。
 - [x] 在 Core 中校验最小 Schema 领域对象，并完成 `uint8` 固定布局 Encode/Decode round-trip。
 - [x] 通过测试验证 Simulator → Codec → Transport 发送链路和 Testing 基础断言。
 - [x] 通过 `format` / `format-check` 统一检查 C++ 与 Web UI 代码格式。
 - [x] Core API 统一使用 `Result<Value, ErrorType>`、`Status<ErrorType>` 和 `Error<Code>`。
+- [x] 加载 Protocol Schema v0.1 YAML，映射为稳定领域模型并报告文件、路径和源码位置。
+- [x] 使用 SmartSensor 示例与合法/非法向量复现 Schema 加载和校验结果。
 
 ### 2.4 当前界面中尚未实现的占位功能
 
@@ -125,28 +127,26 @@ Schema 领域模型
 
 ## 3. 接下来应该做什么
 
-### 3.1 当前唯一首要任务：完成 Protocol Schema v0.1 的 YAML 链路
+### 3.1 当前唯一首要任务：完成 Schema Primitive Decode
 
-本工作包的唯一进度来源是正文中的 **M02-F01 Protocol Schema v0.1**，不要在两个位置重复勾选。Schema 版本、C++ 领域模型和基础校验已经建立；剩余工作包括：
+`M02-F01 Protocol Schema v0.1` 已完成。下一个工作包进入正文中的 **M03-F02 Schema Decode：HEX → Object**，先把固定布局 Codec 从单一 `uint8` 扩展为基础类型解码：
 
-- 确定 YAML 解析库和依赖引入方式。
-- 实现 YAML 文件加载和结构校验。
-- 将 YAML 节点映射到现有 `ProtocolSchema` 领域模型。
-- 在现有稳定错误码和领域路径上增加文件位置与 YAML 源码位置。
-- 创建 `SmartSensor` 示例协议和对应 golden vectors。
-- 为 Schema 加载、校验和错误情况编写单元测试。
-- 在 CLI 增加最小的 `iotps schema validate <file>` 命令。
-- 定义 Schema `0.1` 的升级和向后兼容规则。
+- 按 Message Schema 和字段顺序消费 ByteBuffer。
+- Decode `bool`、有符号/无符号整数和浮点数。
+- 正确应用 Protocol 默认字节序和 Field `endian` 覆盖。
+- 返回结构化字段值与每个字段的 byte offset/length span。
+- 对输入不足、类型不支持和剩余字节输出稳定错误。
+- 创建多类型、大小端、边界值和非法输入测试向量。
 
-Protocol Schema v0.1 的完成标准：
+Primitive Decode 第一阶段的完成标准：
 
 ```text
-给定一个 YAML 协议文件
-  → Core 可以加载
-  → Core 可以生成稳定领域模型
-  → Core 可以报告精确的字段路径和错误码
-  → CLI 可以验证文件并用退出码表示成功或失败
-  → 示例和测试可以稳定复现
+给定 ProtocolSchema + MessageDefinition + ByteBuffer
+  → Core 按字段定义读取基础类型
+  → 正确处理 Big/Little Endian
+  → 返回结构化值和精确字节范围
+  → 非法输入返回稳定错误码和字段路径
+  → golden vectors 在 Debug/Release 中稳定通过
 ```
 
 ### 3.2 Schema 之后的执行顺序
@@ -170,8 +170,8 @@ Protocol Schema v0.1 的完成标准：
 |---|---|---|---|
 | M00 工程与平台基础 | 🟡 部分完成 | M0 | 模块分层、格式化、统一 Result/Error 和 Windows 基线可运行；静态分析、安装发布和其他平台未完成 |
 | M01 Workspace 工作空间 | ⬜ 待开始 | MVP | 只有静态 Explorer UI |
-| M02 Protocol Designer / Schema | 🚧 下一步 | MVP | v0.1 C++ 领域模型和基础校验已建立；YAML 加载尚未实现 |
-| M03 Codec 编解码 | 🟡 部分完成 | MVP | 已验证 `uint8` 固定布局 Encode/Decode；完整类型、动态结构、Length/CRC 未实现 |
+| M02 Protocol Designer / Schema | 🟡 部分完成 | MVP | Protocol Schema v0.1 的 YAML 加载、诊断、示例、向量和 CLI 已完成；可视化设计器与动态结构未实现 |
+| M03 Codec 编解码 | 🚧 下一步 | MVP | 已验证 `uint8` 固定布局 Encode/Decode；下一步扩展基础类型和字节序 |
 | M04 HEX Studio | 🟡 部分完成 | MVP | 已完成基础 HEX 检查和三种校验计算 |
 | M05 Transport 通信层 | 🟡 API 已建立 | MVP/P2 | 统一字节、生命周期、状态、事件和统计接口已建立；没有真实连接实现 |
 | M06 Debugger / Timeline | ⬜ 待开始 | MVP | 只有 Console/Timeline 静态布局 |
@@ -186,7 +186,7 @@ Protocol Schema v0.1 的完成标准：
 | M15 Code Generator | 🔒 后续阶段 | P3 | 尚未开始 |
 | M16 Plugin System | 🔒 后续阶段 | P3 | 尚未开始 |
 | M17 系统与通用体验 | 🟡 部分完成 | M0/MVP | 中英双语、窗口和基础错误展示已完成 |
-| M18 CLI / Automation / CI | 🟡 部分完成 | M0/P3 | 只有 `version` 和原始 HEX `inspect` |
+| M18 CLI / Automation / CI | 🟡 部分完成 | M0/P3 | 已有 `version`、原始 HEX `inspect` 和 Schema 文件校验；JSON/stdin/批量能力未完成 |
 | M19 AI Protocol Assistant | 🔒 远期能力 | Later | 尚未开始，且只作为辅助能力 |
 
 ---
@@ -352,14 +352,15 @@ Protocol Schema v0.1 的完成标准：
 - [x] 定义 Message 元数据和唯一标识。
 - [x] 定义 Field 领域模型。
 - [x] 定义 Checksum 领域模型。
-- [ ] 🚧 确定 YAML 解析依赖。
-- [ ] 🚧 实现 YAML 加载。
+- [x] 确定 YAML 解析依赖：Rapid YAML `v0.16.0`，固定 URL 和 SHA-256。
+- [x] 实现 YAML 字符串和文件加载。
 - [x] 实现 C++ 领域对象基础 Schema 校验。
 - [x] 实现稳定错误码和领域对象路径。
-- [ ] 🚧 实现 YAML 路径、文件位置和源码诊断位置。
-- [ ] 🚧 创建 SmartSensor 示例 Schema。
-- [ ] 🚧 创建合法/非法 Schema 测试向量。
-- [ ] 定义 Schema 升级和向后兼容规则。
+- [x] 实现 YAML 路径、文件位置和源码诊断位置。
+- [x] 创建 SmartSensor 示例 Schema。
+- [x] 创建合法/非法 Schema 测试向量。
+- [x] 增加 `iotps schema validate <file>` 和成功/失败退出码测试。
+- [x] 定义 Schema 升级和向后兼容规则。
 
 ### M02-F02 协议和报文结构
 
@@ -520,7 +521,7 @@ Protocol Schema v0.1 的完成标准：
 
 - [ ] 按 Message Schema 选择报文类型。
 - [ ] 🟡 按字段顺序和 offset 读取字节：当前仅固定布局 `uint8`。
-- [ ] 🟡 Decode 基础整数和浮点类型：当前仅 `uint8`。
+- [ ] 🚧 Decode 基础整数和浮点类型：当前仅 `uint8`，下一步补齐固定长度 Primitive。
 - [ ] Decode 字符串、bytes、BCD、timestamp。
 - [ ] 应用 Big/Little Endian。
 - [ ] 应用 scale 和 offsetValue。
@@ -959,6 +960,7 @@ Protocol Schema v0.1 的完成标准：
 - [x] Schema 领域模型和基础校验单元测试。
 - [x] Codec `uint8` round-trip 和错误单元测试。
 - [x] Simulator → Codec → Transport 集成测试。
+- [x] Protocol Schema YAML/文件加载、源码位置和 CLI 成功/失败测试。
 - [x] Testing 断言和报告单元测试。
 - [ ] Schema/Codec/Transport/Simulator 的完整系统化测试矩阵。
 
@@ -1272,6 +1274,7 @@ Protocol Schema v0.1 的完成标准：
 
 - [x] `iotps version`。
 - [x] `iotps inspect <hex>`。
+- [x] `iotps schema validate <file>`。
 - [x] 成功、输入错误和命令错误退出码。
 - [ ] JSON 输出模式。
 - [ ] 从文件/stdin 读取输入。
@@ -1279,7 +1282,7 @@ Protocol Schema v0.1 的完成标准：
 
 ### M18-F02 Schema 和 Codec CLI
 
-- [ ] 🚧 `iotps schema validate <protocol.yaml>`。
+- [x] `iotps schema validate <protocol.yaml>`。
 - [ ] `iotps decode <protocol.yaml> <data.hex>`。
 - [ ] `iotps encode <protocol.yaml> <message.json>`。
 - [ ] Message Type 指定或自动识别。
@@ -1417,13 +1420,21 @@ CI/CD
 - 建立 C++20 `Result<Value, ErrorType>`、`Status<ErrorType>` 和 `Error<Code>`，迁移 HEX、Engine、Schema、Codec、Transport、Simulator、CLI 和桌面 Bridge。
 - 保持各模块强类型错误码和现有 WebView Bridge 返回协议，不引入跨模块巨型错误枚举。
 
+### 2026-08-22：Protocol Schema v0.1 YAML 加载
+
+- 本地提交：见包含本记录的 `feat: load Protocol Schema YAML` 提交。
+- 固定引入 Rapid YAML `v0.16.0`，并保持第三方类型不进入 Core 公共 API。
+- 完成 YAML 字符串/文件加载、严格节点与枚举检查、领域模型映射以及文件、路径、行列诊断。
+- 增加 SmartSensor 示例、合法/非法测试向量和 `iotps schema validate <file>` 成功/失败链路。
+- 固化 Schema v0.1 格式和兼容规则，下一步进入 Primitive Decode。
+
 ---
 
 ## 9. 下一次更新入口
 
 下次开始开发时，直接从以下功能点继续：
 
-> **M02-F01：选择 YAML 依赖并实现 Protocol Schema v0.1 加载**
+> **M03-F02：扩展 FixedLayoutCodec，完成基础类型和字节序 Primitive Decode**
 
 完成一个功能点后：
 

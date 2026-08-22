@@ -9,11 +9,20 @@
 
 namespace iotps::core {
 
+struct SourceLocation {
+    std::string source;
+    std::size_t line;
+    std::size_t column;
+
+    friend bool operator==(const SourceLocation&, const SourceLocation&) = default;
+};
+
 template <typename Code> struct Error {
     Code code;
     std::string path;
     std::optional<std::size_t> offset;
     std::string detail;
+    std::optional<SourceLocation> source_location;
 
     friend bool operator==(const Error&, const Error&) = default;
 };
