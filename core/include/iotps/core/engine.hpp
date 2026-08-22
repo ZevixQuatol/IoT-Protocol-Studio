@@ -5,7 +5,6 @@
 #include <cstdint>
 #include <string>
 #include <string_view>
-#include <variant>
 
 namespace iotps::core {
 
@@ -18,7 +17,7 @@ struct HexInspection {
     std::uint16_t crc16_modbus;
 };
 
-using HexInspectionResult = std::variant<HexInspection, HexError>;
+using HexInspectionResult = Result<HexInspection, HexError>;
 
 class Engine final {
   public:

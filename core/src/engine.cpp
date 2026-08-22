@@ -6,11 +6,11 @@ namespace iotps::core {
 
 HexInspectionResult Engine::inspect_hex(const std::string_view input) const {
     auto parsed = parse_hex(input);
-    if (const auto* error = std::get_if<HexError>(&parsed)) {
+    if (const auto* error = parsed.error_if()) {
         return *error;
     }
 
-    auto bytes = std::get<ByteBuffer>(std::move(parsed));
+    auto bytes = std::move(parsed).value();
     HexInspection inspection{
         .bytes = std::move(bytes),
     };

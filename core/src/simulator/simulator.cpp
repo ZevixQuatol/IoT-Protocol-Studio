@@ -7,7 +7,11 @@ namespace {
 
 SimulatorError make_error(const SimulatorErrorCode code, std::string source_code = {},
                           std::string path = {}) {
-    return {.code = code, .source_code = std::move(source_code), .path = std::move(path)};
+    return {
+        .code = code,
+        .path = std::move(path),
+        .detail = std::move(source_code),
+    };
 }
 
 } // namespace
@@ -17,7 +21,8 @@ DeviceSimulator::DeviceSimulator(SimulatorConfig config, const codec::MessageCod
     : config_(std::move(config)), codec_(codec), transport_(transport) {}
 
 SimulatorResult DeviceSimulator::start() {
-    if (config_.device_id.empty() || config_.protocol_name.empty() || config_.connection_id.empty()) {
+    if (config_.device_id.empty() || config_.protocol_name.empty() ||
+        config_.connection_id.empty()) {
         return make_error(SimulatorErrorCode::invalid_configuration);
     }
     if (state_ == SimulatorState::online) {
@@ -26,7 +31,7 @@ SimulatorResult DeviceSimulator::start() {
 
     state_ = SimulatorState::starting;
     const auto opened = transport_.open();
-    if (const auto* error = std::get_if<transport::TransportError>(&opened)) {
+    if (const auto* error = opened.error_if()) {
         state_ = SimulatorState::error;
         return make_error(SimulatorErrorCode::transport_failure,
                           std::string{transport::to_string(error->code)});
@@ -43,7 +48,7 @@ SimulatorResult DeviceSimulator::stop() {
 
     state_ = SimulatorState::stopping;
     const auto closed = transport_.close();
-    if (const auto* error = std::get_if<transport::TransportError>(&closed)) {
+    if (const auto* error = closed.error_if()) {
         state_ = SimulatorState::error;
         return make_error(SimulatorErrorCode::transport_failure,
                           std::string{transport::to_string(error->code)});
@@ -60,14 +65,14 @@ SendResult DeviceSimulator::send(const schema::MessageDefinition& definition,
     }
 
     auto encoded = codec_.encode(definition, message);
-    if (const auto* error = std::get_if<codec::CodecError>(&encoded)) {
+    if (const auto* error = encoded.error_if()) {
         return make_error(SimulatorErrorCode::codec_failure,
                           std::string{codec::to_string(error->code)}, error->path);
     }
 
-    auto bytes = std::get<ByteBuffer>(std::move(encoded));
+    auto bytes = std::move(encoded).value();
     const auto sent = transport_.send(bytes);
-    if (const auto* error = std::get_if<transport::TransportError>(&sent)) {
+    if (const auto* error = sent.error_if()) {
         state_ = SimulatorState::error;
         return make_error(SimulatorErrorCode::transport_failure,
                           std::string{transport::to_string(error->code)});

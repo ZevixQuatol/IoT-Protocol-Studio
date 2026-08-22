@@ -203,7 +203,9 @@ export default function App() {
               {translation.language.english}
             </button>
           </div>
-          <span className={`status-dot ${coreInfo?.source === "native-core" ? "native" : "preview"}`} />
+          <span
+            className={`status-dot ${coreInfo?.source === "native-core" ? "native" : "preview"}`}
+          />
           <span>{platformLabel(translation, coreInfo?.platform)}</span>
           <span className="separator">/</span>
           <span>{architectureLabel(translation, coreInfo?.architecture)}</span>
@@ -285,7 +287,9 @@ export default function App() {
               <h1>{translation.editor.telemetrySample}</h1>
             </div>
             <span className="byte-count">
-              {result?.ok ? translation.editor.bytes(result.byteCount) : translation.editor.unparsed}
+              {result?.ok
+                ? translation.editor.bytes(result.byteCount)
+                : translation.editor.unparsed}
             </span>
           </div>
           <textarea

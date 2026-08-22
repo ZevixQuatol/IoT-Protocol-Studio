@@ -32,9 +32,8 @@ EncodeResult FixedLayoutCodec::encode(const schema::MessageDefinition& definitio
             return make_error(CodecErrorCode::unsupported_field_type, path, bytes.size());
         }
 
-        const auto value = std::ranges::find_if(message.fields, [&field](const FieldValue& item) {
-            return item.name == field.name;
-        });
+        const auto value = std::ranges::find_if(
+            message.fields, [&field](const FieldValue& item) { return item.name == field.name; });
         if (value == message.fields.end()) {
             return make_error(CodecErrorCode::missing_field, path, bytes.size());
         }

@@ -2,8 +2,14 @@
   color: #e6edf3;
   background: #0d1117;
   font-family:
-    Inter, "Segoe UI", "Microsoft YaHei UI", "PingFang SC", system-ui, -apple-system,
-    BlinkMacSystemFont, sans-serif;
+    Inter,
+    "Segoe UI",
+    "Microsoft YaHei UI",
+    "PingFang SC",
+    system-ui,
+    -apple-system,
+    BlinkMacSystemFont,
+    sans-serif;
   font-synthesis: none;
   text-rendering: optimizeLegibility;
 }

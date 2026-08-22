@@ -3,7 +3,7 @@
 namespace iotps::core::transport {
 
 bool is_success(const TransportResult& result) noexcept {
-    return std::holds_alternative<std::monostate>(result);
+    return result.has_value();
 }
 
 std::string_view to_string(const TransportErrorCode code) noexcept {

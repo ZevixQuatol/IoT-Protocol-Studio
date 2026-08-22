@@ -1,5 +1,6 @@
 #pragma once
 
+#include "iotps/core/result.hpp"
 #include "iotps/core/schema/schema.hpp"
 #include "iotps/core/types.hpp"
 
@@ -47,25 +48,18 @@ enum class CodecErrorCode {
     unsupported_field_type,
 };
 
-struct CodecError {
-    CodecErrorCode code;
-    std::string path;
-    std::size_t offset;
-};
-
-using EncodeResult = std::variant<ByteBuffer, CodecError>;
-using DecodeResult = std::variant<DecodedMessage, CodecError>;
+using CodecError = Error<CodecErrorCode>;
+using EncodeResult = Result<ByteBuffer, CodecError>;
+using DecodeResult = Result<DecodedMessage, CodecError>;
 
 class MessageCodec {
   public:
     virtual ~MessageCodec() = default;
 
-    [[nodiscard]] virtual EncodeResult
-    encode(const schema::MessageDefinition& definition,
-           const StructuredMessage& message) const = 0;
-    [[nodiscard]] virtual DecodeResult
-    decode(const schema::MessageDefinition& definition,
-           std::span<const std::uint8_t> bytes) const = 0;
+    [[nodiscard]] virtual EncodeResult encode(const schema::MessageDefinition& definition,
+                                              const StructuredMessage& message) const = 0;
+    [[nodiscard]] virtual DecodeResult decode(const schema::MessageDefinition& definition,
+                                              std::span<const std::uint8_t> bytes) const = 0;
 };
 
 class FixedLayoutCodec final : public MessageCodec {

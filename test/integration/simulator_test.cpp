@@ -21,7 +21,9 @@ void check(const bool condition, const char* expression, const int line) {
 
 class RecordingTransport final : public iotps::core::transport::Transport {
   public:
-    [[nodiscard]] std::string_view kind() const noexcept override { return "recording"; }
+    [[nodiscard]] std::string_view kind() const noexcept override {
+        return "recording";
+    }
     [[nodiscard]] iotps::core::transport::TransportState state() const noexcept override {
         return state_;
     }
@@ -62,8 +64,7 @@ class RecordingTransport final : public iotps::core::transport::Transport {
         }
     }
 
-    iotps::core::transport::TransportState state_{
-        iotps::core::transport::TransportState::closed};
+    iotps::core::transport::TransportState state_{iotps::core::transport::TransportState::closed};
     iotps::core::transport::TransportStatistics statistics_;
     iotps::core::transport::TransportEventSink sink_;
 };
@@ -85,26 +86,24 @@ int main() {
     const codec::FixedLayoutCodec codec;
     RecordingTransport transport;
     simulator::DeviceSimulator simulator(
-        {.device_id = "device-001",
-         .protocol_name = "smart-sensor",
-         .connection_id = "loopback"},
+        {.device_id = "device-001", .protocol_name = "smart-sensor", .connection_id = "loopback"},
         codec, transport);
 
     CHECK(simulator.state() == simulator::SimulatorState::offline);
-    CHECK(std::holds_alternative<std::monostate>(simulator.start()));
+    CHECK(simulator.start().has_value());
     CHECK(simulator.state() == simulator::SimulatorState::online);
 
     const auto sent = simulator.send(definition, message);
-    CHECK(std::holds_alternative<simulator::SendReceipt>(sent));
+    CHECK(sent.has_value());
     CHECK(transport.last_sent == ByteBuffer({0x02U}));
     CHECK(transport.statistics().messages_sent == 1);
 
-    CHECK(std::holds_alternative<std::monostate>(simulator.stop()));
+    CHECK(simulator.stop().has_value());
     CHECK(simulator.state() == simulator::SimulatorState::offline);
 
     const auto rejected = simulator.send(definition, message);
-    CHECK(std::holds_alternative<simulator::SimulatorError>(rejected));
-    if (const auto* error = std::get_if<simulator::SimulatorError>(&rejected)) {
+    CHECK(!rejected.has_value());
+    if (const auto* error = rejected.error_if()) {
         CHECK(error->code == simulator::SimulatorErrorCode::not_running);
     }
 

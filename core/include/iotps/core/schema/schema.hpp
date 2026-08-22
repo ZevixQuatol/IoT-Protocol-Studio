@@ -1,5 +1,7 @@
 #pragma once
 
+#include "iotps/core/result.hpp"
+
 #include <cstdint>
 #include <optional>
 #include <string>
@@ -86,15 +88,14 @@ enum class SchemaErrorCode {
     checksum_field_not_found,
 };
 
-struct SchemaDiagnostic {
-    SchemaErrorCode code;
-    std::string path;
-};
+using SchemaDiagnostic = Error<SchemaErrorCode>;
 
 struct SchemaValidation {
     std::vector<SchemaDiagnostic> diagnostics;
 
-    [[nodiscard]] bool ok() const noexcept { return diagnostics.empty(); }
+    [[nodiscard]] bool ok() const noexcept {
+        return diagnostics.empty();
+    }
 };
 
 [[nodiscard]] SchemaValidation validate(const ProtocolSchema& schema);

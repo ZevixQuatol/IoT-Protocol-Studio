@@ -1,5 +1,6 @@
 #pragma once
 
+#include "iotps/core/result.hpp"
 #include "iotps/core/types.hpp"
 
 #include <cstddef>
@@ -7,7 +8,6 @@
 #include <span>
 #include <string>
 #include <string_view>
-#include <variant>
 
 namespace iotps::core {
 
@@ -17,13 +17,8 @@ enum class HexErrorCode {
     incomplete_byte,
 };
 
-struct HexError {
-    HexErrorCode code;
-    std::size_t position;
-    std::string message;
-};
-
-using HexParseResult = std::variant<ByteBuffer, HexError>;
+using HexError = Error<HexErrorCode>;
+using HexParseResult = Result<ByteBuffer, HexError>;
 
 [[nodiscard]] HexParseResult parse_hex(std::string_view input);
 [[nodiscard]] std::string format_hex(std::span<const std::uint8_t> bytes);

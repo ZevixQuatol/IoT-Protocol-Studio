@@ -52,13 +52,13 @@ int main(const int argc, char* argv[]) {
 
         const iotps::core::Engine engine;
         const auto result = engine.inspect_hex(join_arguments(argc, argv, 2));
-        if (const auto* error = std::get_if<iotps::core::HexError>(&result)) {
+        if (const auto* error = result.error_if()) {
             std::cerr << "error[" << iotps::core::to_string(error->code) << "] at offset "
-                      << error->position << ": " << error->message << '\n';
+                      << error->offset.value_or(0) << ": " << error->detail << '\n';
             return 1;
         }
 
-        const auto& inspection = std::get<iotps::core::HexInspection>(result);
+        const auto& inspection = result.value();
         std::cout << "HEX:   " << inspection.normalized_hex << '\n';
         std::cout << "ASCII: " << inspection.ascii << '\n';
         std::cout << "Bytes: " << inspection.bytes.size() << '\n';

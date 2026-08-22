@@ -17,15 +17,13 @@ AssertionResult evaluate(const Assertion& assertion, const codec::ScalarValue& a
 }
 
 TestReport make_report(const TestCase& test_case, std::vector<StepResult> steps) {
-    const auto has_failed = std::ranges::any_of(steps, [](const StepResult& step) {
-        return step.status == StepStatus::failed;
-    });
-    const auto has_passed = std::ranges::any_of(steps, [](const StepResult& step) {
-        return step.status == StepStatus::passed;
-    });
+    const auto has_failed = std::ranges::any_of(
+        steps, [](const StepResult& step) { return step.status == StepStatus::failed; });
+    const auto has_passed = std::ranges::any_of(
+        steps, [](const StepResult& step) { return step.status == StepStatus::passed; });
 
-    const auto status = has_failed ? TestStatus::failed
-                                   : (has_passed ? TestStatus::passed : TestStatus::skipped);
+    const auto status =
+        has_failed ? TestStatus::failed : (has_passed ? TestStatus::passed : TestStatus::skipped);
     return {
         .test_case_id = test_case.id,
         .status = status,

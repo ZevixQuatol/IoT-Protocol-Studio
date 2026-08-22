@@ -1,10 +1,6 @@
 #include "iotps/core/engine.hpp"
 #include "iotps/core/version.hpp"
-
 #include "webview/webview.h"
-
-#include <windows.h>
-#include <wrl/client.h>
 
 #include <atomic>
 #include <filesystem>
@@ -14,6 +10,8 @@
 #include <string>
 #include <string_view>
 #include <variant>
+#include <windows.h>
+#include <wrl/client.h>
 
 namespace {
 
@@ -184,12 +182,12 @@ namespace {
         }
 
         const auto result = engine.inspect_hex(*input);
-        if (const auto* error = std::get_if<iotps::core::HexError>(&result)) {
-            return error_response(iotps::core::to_string(error->code), error->message,
-                                  error->position);
+        if (const auto* error = result.error_if()) {
+            return error_response(iotps::core::to_string(error->code), error->detail,
+                                  error->offset.value_or(0));
         }
 
-        const auto& inspection = std::get<iotps::core::HexInspection>(result);
+        const auto& inspection = result.value();
         std::ostringstream bytes;
         bytes << '[';
         for (std::size_t index = 0; index < inspection.bytes.size(); ++index) {
@@ -258,8 +256,7 @@ void throw_if_failed(const HRESULT result, const std::string_view operation) {
     throw std::runtime_error(message.str());
 }
 
-void navigate_to_packaged_ui(webview::webview& window,
-                             const std::filesystem::path& ui_directory) {
+void navigate_to_packaged_ui(webview::webview& window, const std::filesystem::path& ui_directory) {
     auto controller_result = window.browser_controller();
     controller_result.ensure_ok();
     auto* controller = static_cast<ICoreWebView2Controller*>(controller_result.value());
@@ -272,10 +269,10 @@ void navigate_to_packaged_ui(webview::webview& window,
     throw_if_failed(browser.As(&browser_v3), "Getting the WebView2 virtual host API");
 
     const auto absolute_directory = std::filesystem::absolute(ui_directory).wstring();
-    throw_if_failed(browser_v3->SetVirtualHostNameToFolderMapping(
-                        packaged_ui_host, absolute_directory.c_str(),
-                        COREWEBVIEW2_HOST_RESOURCE_ACCESS_KIND_DENY),
-                    "Mapping the packaged Web UI directory");
+    throw_if_failed(
+        browser_v3->SetVirtualHostNameToFolderMapping(packaged_ui_host, absolute_directory.c_str(),
+                                                      COREWEBVIEW2_HOST_RESOURCE_ACCESS_KIND_DENY),
+        "Mapping the packaged Web UI directory");
     window.navigate(packaged_ui_url).ensure_ok();
 }
 
@@ -285,8 +282,8 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR command_line, int) {
     static_assert(sizeof(void*) == 8, "The first desktop target is Windows x86_64");
 
     try {
-        const auto smoke_test = std::string_view{command_line}.find("--smoke-test") !=
-                                std::string_view::npos;
+        const auto smoke_test =
+            std::string_view{command_line}.find("--smoke-test") != std::string_view::npos;
 #if defined(_DEBUG)
         constexpr bool enable_devtools = true;
 #else

@@ -28,7 +28,11 @@ namespace {
 
 [[nodiscard]] HexError make_error(const HexErrorCode code, const std::size_t position,
                                   std::string message) {
-    return HexError{code, position, std::move(message)};
+    return {
+        .code = code,
+        .offset = position,
+        .detail = std::move(message),
+    };
 }
 
 } // namespace

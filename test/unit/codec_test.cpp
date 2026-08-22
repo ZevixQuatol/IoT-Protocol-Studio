@@ -26,28 +26,30 @@ int main() {
 
     const MessageDefinition definition{
         .name = "response",
-        .fields = {
-            {.name = "command", .type = FieldType::uint8},
-            {.name = "status", .type = FieldType::uint8},
-        },
+        .fields =
+            {
+                {.name = "command", .type = FieldType::uint8},
+                {.name = "status", .type = FieldType::uint8},
+            },
     };
     const StructuredMessage message{
         .message_name = "response",
-        .fields = {
-            {.name = "command", .value = std::uint64_t{0x81U}},
-            {.name = "status", .value = std::uint64_t{0U}},
-        },
+        .fields =
+            {
+                {.name = "command", .value = std::uint64_t{0x81U}},
+                {.name = "status", .value = std::uint64_t{0U}},
+            },
     };
 
     const FixedLayoutCodec codec;
     const auto encoded = codec.encode(definition, message);
-    CHECK(std::holds_alternative<ByteBuffer>(encoded));
-    if (const auto* bytes = std::get_if<ByteBuffer>(&encoded)) {
+    CHECK(encoded.has_value());
+    if (const auto* bytes = encoded.value_if()) {
         CHECK(*bytes == ByteBuffer({0x81U, 0x00U}));
 
         const auto decoded = codec.decode(definition, *bytes);
-        CHECK(std::holds_alternative<DecodedMessage>(decoded));
-        if (const auto* output = std::get_if<DecodedMessage>(&decoded)) {
+        CHECK(decoded.has_value());
+        if (const auto* output = decoded.value_if()) {
             CHECK(output->message.message_name == "response");
             CHECK(output->message.fields.size() == 2);
             CHECK(std::get<std::uint64_t>(output->message.fields[0].value) == 0x81U);
@@ -59,8 +61,8 @@ int main() {
     auto invalid = message;
     invalid.fields[1].value = std::uint64_t{256U};
     const auto rejected = codec.encode(definition, invalid);
-    CHECK(std::holds_alternative<CodecError>(rejected));
-    if (const auto* error = std::get_if<CodecError>(&rejected)) {
+    CHECK(!rejected.has_value());
+    if (const auto* error = rejected.error_if()) {
         CHECK(error->code == CodecErrorCode::value_out_of_range);
         CHECK(error->path == "response.status");
     }

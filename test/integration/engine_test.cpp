@@ -36,9 +36,9 @@ int main() {
 
     const iotps::core::Engine engine;
     const auto result = engine.inspect_hex(input);
-    CHECK(std::holds_alternative<iotps::core::HexInspection>(result));
+    CHECK(result.has_value());
 
-    if (const auto* inspection = std::get_if<iotps::core::HexInspection>(&result)) {
+    if (const auto* inspection = result.value_if()) {
         auto normalized_expected = expected;
         while (!normalized_expected.empty() &&
                (normalized_expected.back() == '\n' || normalized_expected.back() == '\r')) {

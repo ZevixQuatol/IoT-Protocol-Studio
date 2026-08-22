@@ -109,6 +109,8 @@ Schema 领域模型
 - [x] 分别构建 Schema、Codec、Transport、Simulator、Testing 静态库目标。
 - [x] 在 Core 中校验最小 Schema 领域对象，并完成 `uint8` 固定布局 Encode/Decode round-trip。
 - [x] 通过测试验证 Simulator → Codec → Transport 发送链路和 Testing 基础断言。
+- [x] 通过 `format` / `format-check` 统一检查 C++ 与 Web UI 代码格式。
+- [x] Core API 统一使用 `Result<Value, ErrorType>`、`Status<ErrorType>` 和 `Error<Code>`。
 
 ### 2.4 当前界面中尚未实现的占位功能
 
@@ -166,7 +168,7 @@ Protocol Schema v0.1 的完成标准：
 
 | 模块 | 当前状态 | 阶段 | 当前说明 |
 |---|---|---|---|
-| M00 工程与平台基础 | 🟡 部分完成 | M0 | Windows x86_64 基线可运行；安装、发布治理和其他平台未完成 |
+| M00 工程与平台基础 | 🟡 部分完成 | M0 | 模块分层、格式化、统一 Result/Error 和 Windows 基线可运行；静态分析、安装发布和其他平台未完成 |
 | M01 Workspace 工作空间 | ⬜ 待开始 | MVP | 只有静态 Explorer UI |
 | M02 Protocol Designer / Schema | 🚧 下一步 | MVP | v0.1 C++ 领域模型和基础校验已建立；YAML 加载尚未实现 |
 | M03 Codec 编解码 | 🟡 部分完成 | MVP | 已验证 `uint8` 固定布局 Encode/Decode；完整类型、动态结构、Length/CRC 未实现 |
@@ -197,11 +199,11 @@ Protocol Schema v0.1 的完成标准：
 
 - [x] 建立 `core/`、`apps/`、`test/`、`docs/` 顶层结构。
 - [x] 建立本地 Git 仓库和 `main` 分支。
-- [x] 保持项目无远端配置。
+- [x] 配置 GitHub `origin` 并让 `main` 跟踪 `origin/main`。
 - [x] 建立根 CMake 工程。
 - [x] 建立 Windows x86_64 CMake Configure/Build/Test Preset。
 - [x] 将 Core、CLI、Windows Host、Web UI 和测试纳入构建。
-- [ ] 增加统一代码格式化配置。
+- [x] 增加统一代码格式化配置。
 - [ ] 增加静态分析配置。
 - [ ] 增加可选 Sanitizer Preset。
 - [ ] 增加 Linux/macOS 构建 Preset。
@@ -214,7 +216,7 @@ Protocol Schema v0.1 的完成标准：
 - [x] Core 可以构建为静态库。
 - [x] Core 提供稳定错误码和结构化结果。
 - [x] 建立 Core 模块分层：Schema、Codec、Transport API、Simulator、Testing。
-- [ ] 建立统一 Result/Error 类型。
+- [x] 建立统一 Result/Error 类型。
 - [ ] 建立可注入 Trace/Event Sink。
 - [ ] 建立公共 API 兼容与版本策略。
 
@@ -254,6 +256,7 @@ Protocol Schema v0.1 的完成标准：
 
 - [x] HEX 解析单元测试。
 - [x] Checksum/CRC 单元测试。
+- [x] 通用 Result/Error 单元测试。
 - [x] Engine 测试向量集成测试。
 - [x] Windows WebView UI 烟雾测试。
 - [x] 可选 libFuzzer 入口。
@@ -1406,6 +1409,13 @@ CI/CD
 - 将 Core 拆分为 Schema、Codec、Transport、Simulator、Testing 独立 CMake 目标，并保留 `iotps::core` 聚合 Facade。
 - 完成 Schema v0.1 C++ 领域模型与基础校验、`uint8` 固定布局 Codec、Transport API、Simulator 最小发送链路、Testing 基础断言和报告。
 - Debug 全量构建成功，新增模块测试后全部 8 个 CTest 通过。
+
+### 2026-08-22：统一格式化与 Result/Error
+
+- 本地提交：见包含本记录的 `build: standardize formatting and core results` 提交。
+- 建立 EditorConfig、clang-format、Prettier 以及 CMake `format`/`format-check` 目标。
+- 建立 C++20 `Result<Value, ErrorType>`、`Status<ErrorType>` 和 `Error<Code>`，迁移 HEX、Engine、Schema、Codec、Transport、Simulator、CLI 和桌面 Bridge。
+- 保持各模块强类型错误码和现有 WebView Bridge 返回协议，不引入跨模块巨型错误枚举。
 
 ---
 

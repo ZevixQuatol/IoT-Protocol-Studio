@@ -62,6 +62,7 @@ flowchart LR
 core/
 ├── include/iotps/core/
 │   ├── types.hpp
+│   ├── result.hpp
 │   ├── schema/schema.hpp
 │   ├── codec/codec.hpp
 │   ├── transport/transport.hpp
@@ -82,7 +83,7 @@ core/
 
 | CMake target | 公共别名 | 直接依赖 | 当前职责 |
 |---|---|---|---|
-| `iotps_core_common` | `iotps::common` | 无 | `ByteBuffer` 等跨模块基础类型 |
+| `iotps_core_common` | `iotps::common` | 无 | `ByteBuffer`、`Result`、`Status`、`Error` 等跨模块基础类型 |
 | `iotps_schema` | `iotps::schema` | Common | Schema 领域模型、版本和校验 |
 | `iotps_codec` | `iotps::codec` | Common、Schema | HEX/Checksum、Codec API、最小固定布局编解码 |
 | `iotps_transport` | `iotps::transport` | Common | Transport 生命周期、事件、错误和统计 API |
@@ -178,6 +179,25 @@ Transport 与 Schema/Codec 完全解耦，统一暴露：
 
 Core 返回稳定错误枚举、机器可读字符串和结构化路径，不返回中文或英文用户文案。React Web UI 根据错误码完成本地化。
 
+所有只返回一个成功值或一个错误的 Core API 统一使用：
+
+```cpp
+Result<Value, ErrorType>
+Status<ErrorType> // 等价于 Result<std::monostate, ErrorType>
+Error<ModuleErrorCode>
+```
+
+统一错误上下文包含：
+
+```text
+code    模块强类型错误码
+path    Message/Field/配置等领域路径
+offset  可选字节偏移或源码偏移
+detail  非本地化技术细节或下层原因码
+```
+
+调用方统一通过 `has_value()`、`value()`、`error()`、`value_if()` 和 `error_if()` 读取结果。Schema 校验需要一次返回多个诊断，因此保留 `SchemaValidation` 容器，但其中每个 `SchemaDiagnostic` 都是统一的 `Error<SchemaErrorCode>`。
+
 模块错误保持各自命名空间：
 
 ```text
@@ -187,7 +207,7 @@ transport::TransportErrorCode
 simulator::SimulatorErrorCode
 ```
 
-暂不建立一个覆盖所有模块的巨型错误枚举。只有在调用方出现明确重复处理需求后，才设计统一 Result/Error 外层。
+模块仍保留各自的强类型错误码，不建立覆盖所有模块的巨型错误枚举。这样既统一调用方式和错误上下文，也不会让 Schema、Codec、Transport、Simulator 互相依赖错误定义。
 
 ## 7. 测试边界
 
@@ -195,6 +215,7 @@ simulator::SimulatorErrorCode
 
 | 测试 | 链接模块 | 验证行为 |
 |---|---|---|
+| `iotps_result_unit_test` | Common | 成功值、错误值、指针访问和 `Status` |
 | `iotps_schema_unit_test` | Schema | 合法 Schema、重复名称、字段路径和错误码 |
 | `iotps_codec_unit_test` | Codec | `uint8` Encode/Decode round-trip、字节范围和越界错误 |
 | `iotps_simulator_integration_test` | Simulator | Codec → Simulator → Transport 发送链路和生命周期 |

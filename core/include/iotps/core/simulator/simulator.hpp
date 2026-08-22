@@ -31,26 +31,26 @@ enum class SimulatorErrorCode {
     transport_failure,
 };
 
-struct SimulatorError {
-    SimulatorErrorCode code;
-    std::string source_code;
-    std::string path;
-};
+using SimulatorError = Error<SimulatorErrorCode>;
 
 struct SendReceipt {
     ByteBuffer bytes;
 };
 
-using SimulatorResult = std::variant<std::monostate, SimulatorError>;
-using SendResult = std::variant<SendReceipt, SimulatorError>;
+using SimulatorResult = Status<SimulatorError>;
+using SendResult = Result<SendReceipt, SimulatorError>;
 
 class DeviceSimulator final {
   public:
     DeviceSimulator(SimulatorConfig config, const codec::MessageCodec& codec,
                     transport::Transport& transport);
 
-    [[nodiscard]] const SimulatorConfig& config() const noexcept { return config_; }
-    [[nodiscard]] SimulatorState state() const noexcept { return state_; }
+    [[nodiscard]] const SimulatorConfig& config() const noexcept {
+        return config_;
+    }
+    [[nodiscard]] SimulatorState state() const noexcept {
+        return state_;
+    }
 
     [[nodiscard]] SimulatorResult start();
     [[nodiscard]] SimulatorResult stop();

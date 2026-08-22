@@ -1,5 +1,6 @@
 #pragma once
 
+#include "iotps/core/result.hpp"
 #include "iotps/core/types.hpp"
 
 #include <cstddef>
@@ -8,7 +9,6 @@
 #include <span>
 #include <string>
 #include <string_view>
-#include <variant>
 
 namespace iotps::core::transport {
 
@@ -31,12 +31,8 @@ enum class TransportErrorCode {
     cancelled,
 };
 
-struct TransportError {
-    TransportErrorCode code;
-    std::string detail;
-};
-
-using TransportResult = std::variant<std::monostate, TransportError>;
+using TransportError = Error<TransportErrorCode>;
+using TransportResult = Status<TransportError>;
 
 struct TransportStatistics {
     std::uint64_t bytes_sent{0};

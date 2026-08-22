@@ -82,7 +82,10 @@ function inspectInBrowser(input: string): InspectionResult {
   const bytes = Array.from({ length: compact.length / 2 }, (_, index) =>
     Number.parseInt(compact.slice(index * 2, index * 2 + 2), 16),
   );
-  const normalizedHex = bytes.map((byte) => byte.toString(16).padStart(2, "0")).join(" ").toUpperCase();
+  const normalizedHex = bytes
+    .map((byte) => byte.toString(16).padStart(2, "0"))
+    .join(" ")
+    .toUpperCase();
   const ascii = bytes
     .map((byte) => (byte >= 0x20 && byte <= 0x7e ? String.fromCharCode(byte) : "."))
     .join("");
@@ -119,4 +122,3 @@ export async function inspectHex(input: string): Promise<InspectionResult> {
   }
   return inspectInBrowser(input);
 }
-

@@ -38,21 +38,21 @@ int main() {
     const testing::TestCase test_case{
         .id = "status-test",
         .name = "Status should be zero",
-        .steps = {
-            {.name = "connect", .kind = testing::TestStepKind::connect},
-            {.name = "assert status", .kind = testing::TestStepKind::assertion},
-            {.name = "cleanup", .kind = testing::TestStepKind::cleanup},
-        },
+        .steps =
+            {
+                {.name = "connect", .kind = testing::TestStepKind::connect},
+                {.name = "assert status", .kind = testing::TestStepKind::assertion},
+                {.name = "cleanup", .kind = testing::TestStepKind::cleanup},
+            },
     };
     const auto report = testing::make_report(
-        test_case,
-        {
-            {.name = "connect", .status = testing::StepStatus::passed},
-            {.name = "assert status",
-             .status = testing::StepStatus::failed,
-             .error_code = "assertion_failed"},
-            {.name = "cleanup", .status = testing::StepStatus::passed},
-        });
+        test_case, {
+                       {.name = "connect", .status = testing::StepStatus::passed},
+                       {.name = "assert status",
+                        .status = testing::StepStatus::failed,
+                        .error_code = "assertion_failed"},
+                       {.name = "cleanup", .status = testing::StepStatus::passed},
+                   });
     CHECK(report.test_case_id == "status-test");
     CHECK(report.status == testing::TestStatus::failed);
     CHECK(report.steps.size() == 3);

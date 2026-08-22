@@ -149,8 +149,7 @@ export const messages: Record<Locale, TranslationMessages> = {
       coreConnected: (version, source) => `Core ${version} 已通过${source}连接`,
       coreConnectionFailed: (detail) => `Core 连接失败${detail ? `：${detail}` : ""}`,
       inspectionSucceeded: (byteCount, source) => `已通过${source}解析 ${byteCount} 字节`,
-      inspectionFailed: (message, code, position) =>
-        `${message}（${code}，偏移 ${position}）`,
+      inspectionFailed: (message, code, position) => `${message}（${code}，偏移 ${position}）`,
     },
   },
   "en-US": {
@@ -227,8 +226,7 @@ export const messages: Record<Locale, TranslationMessages> = {
       coreConnectionFailed: (detail) => `Core connection failed${detail ? `: ${detail}` : ""}`,
       inspectionSucceeded: (byteCount, source) =>
         `Inspected ${byteCount} ${byteCount === 1 ? "byte" : "bytes"} with ${source}`,
-      inspectionFailed: (message, code, position) =>
-        `${message} (${code} at offset ${position})`,
+      inspectionFailed: (message, code, position) => `${message} (${code} at offset ${position})`,
     },
   },
 };

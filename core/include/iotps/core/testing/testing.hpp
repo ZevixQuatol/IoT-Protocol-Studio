@@ -74,8 +74,7 @@ struct TestReport {
     std::vector<StepResult> steps;
 };
 
-[[nodiscard]] TestReport make_report(const TestCase& test_case,
-                                     std::vector<StepResult> steps);
+[[nodiscard]] TestReport make_report(const TestCase& test_case, std::vector<StepResult> steps);
 [[nodiscard]] std::string_view to_string(TestStatus status) noexcept;
 
 } // namespace iotps::core::testing

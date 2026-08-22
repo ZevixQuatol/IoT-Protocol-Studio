@@ -16,8 +16,8 @@ std::string message_path(const std::size_t message_index, const std::string_view
 
 std::string field_path(const std::size_t message_index, const std::size_t field_index,
                        const std::string_view suffix) {
-    return "messages[" + std::to_string(message_index) + "].fields[" +
-           std::to_string(field_index) + "]." + std::string{suffix};
+    return "messages[" + std::to_string(message_index) + "].fields[" + std::to_string(field_index) +
+           "]." + std::string{suffix};
 }
 
 } // namespace
@@ -69,8 +69,7 @@ SchemaValidation validate(const ProtocolSchema& schema) {
             }
         }
 
-        if (message.checksum.has_value() &&
-            !field_names.contains(message.checksum->target_field)) {
+        if (message.checksum.has_value() && !field_names.contains(message.checksum->target_field)) {
             add_diagnostic(validation, SchemaErrorCode::checksum_field_not_found,
                            message_path(message_index, "checksum.targetField"));
         }
