@@ -1,14 +1,21 @@
-function(iotps_add_test target source)
+function(iotps_add_test target source module)
   add_executable(${target} ${source})
-  target_link_libraries(${target} PRIVATE iotps::core)
+  target_link_libraries(${target} PRIVATE ${module})
   target_compile_features(${target} PRIVATE cxx_std_20)
   iotps_enable_warnings(${target})
   add_test(NAME ${target} COMMAND ${target})
 endfunction()
 
-iotps_add_test(iotps_hex_unit_test unit/hex_test.cpp)
-iotps_add_test(iotps_checksum_unit_test unit/checksum_test.cpp)
-iotps_add_test(iotps_engine_integration_test integration/engine_test.cpp)
+iotps_add_test(iotps_hex_unit_test unit/hex_test.cpp iotps::codec)
+iotps_add_test(iotps_checksum_unit_test unit/checksum_test.cpp iotps::codec)
+iotps_add_test(iotps_schema_unit_test unit/schema_test.cpp iotps::schema)
+iotps_add_test(iotps_codec_unit_test unit/codec_test.cpp iotps::codec)
+iotps_add_test(iotps_testing_unit_test unit/testing_test.cpp iotps::testing)
+iotps_add_test(
+  iotps_simulator_integration_test
+  integration/simulator_test.cpp
+  iotps::simulator)
+iotps_add_test(iotps_engine_integration_test integration/engine_test.cpp iotps::core)
 
 target_compile_definitions(
   iotps_engine_integration_test
@@ -20,8 +27,7 @@ if(IOTPS_BUILD_FUZZ)
   endif()
 
   add_executable(iotps_hex_fuzz fuzz/hex_fuzz.cpp)
-  target_link_libraries(iotps_hex_fuzz PRIVATE iotps::core)
+  target_link_libraries(iotps_hex_fuzz PRIVATE iotps::codec)
   target_compile_options(iotps_hex_fuzz PRIVATE -fsanitize=fuzzer,address)
   target_link_options(iotps_hex_fuzz PRIVATE -fsanitize=fuzzer,address)
 endif()
-

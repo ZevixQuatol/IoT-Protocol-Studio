@@ -1,16 +1,15 @@
 #pragma once
 
+#include "iotps/core/types.hpp"
+
 #include <cstddef>
 #include <cstdint>
 #include <span>
 #include <string>
 #include <string_view>
 #include <variant>
-#include <vector>
 
 namespace iotps::core {
-
-using ByteBuffer = std::vector<std::uint8_t>;
 
 enum class HexErrorCode {
     empty_input,

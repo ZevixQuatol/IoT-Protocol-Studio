@@ -7,7 +7,7 @@
 > 当前目标平台：Windows x86_64  
 > 用途：项目唯一功能树、进度看板和下一步开发入口
 
-相关文档：[功能设计基线](<./IoT Protocol Studio 功能设计文档.md>) · [开发环境与构建](./开发环境与构建.md)
+相关文档：[功能设计基线](<./IoT Protocol Studio 功能设计文档.md>) · [Core 模块架构](<./Core 模块架构.md>) · [开发环境与构建](./开发环境与构建.md)
 
 ---
 
@@ -50,12 +50,12 @@
 
 ```mermaid
 flowchart LR
-    A["✅ M0：工程与 Windows 客户端基础"] --> B["🚧 下一步：Protocol Schema v0.1"]
-    B --> C["⬜ Schema Decode"]
-    C --> D["⬜ Schema Encode"]
+    A["✅ M0：工程与 Windows 客户端基础"] --> B["✅ Core 五模块分层"]
+    B --> C["🚧 下一步：YAML Schema 加载"]
+    C --> D["⬜ 完整 Schema Decode / Encode"]
     D --> E["⬜ Workspace + Protocol Designer"]
-    E --> F["⬜ Message Studio + Transport + Debugger"]
-    F --> G["⬜ Simulator + Testing"]
+    E --> F["⬜ Message Studio + 真实 Transport + Debugger"]
+    F --> G["⬜ 完整 Simulator + Test Runner"]
     G --> H["⬜ MVP 验收"]
 ```
 
@@ -85,6 +85,17 @@ Protocol Schema
   → 自动解析 / Timeline
 ```
 
+Core 内部已经新增一条不依赖 GUI 的最小架构链路：
+
+```text
+Schema 领域模型
+  → uint8 固定布局 Codec
+  → Simulator
+  → Transport API 测试边界
+```
+
+该链路用于验证模块依赖和公共 API，不代表 YAML、完整 Codec 或真实 Transport 已完成。
+
 ### 2.3 已经可以使用的能力
 
 - [x] 启动 Windows x86_64 桌面客户端。
@@ -95,6 +106,9 @@ Protocol Schema
 - [x] 查看空输入、非法字符和不完整字节错误。
 - [x] 通过 CLI 执行 `iotps version` 和 `iotps inspect`。
 - [x] 通过真实 WebView2 烟雾测试验证 React 渲染和原生 Core Bridge。
+- [x] 分别构建 Schema、Codec、Transport、Simulator、Testing 静态库目标。
+- [x] 在 Core 中校验最小 Schema 领域对象，并完成 `uint8` 固定布局 Encode/Decode round-trip。
+- [x] 通过测试验证 Simulator → Codec → Transport 发送链路和 Testing 基础断言。
 
 ### 2.4 当前界面中尚未实现的占位功能
 
@@ -109,18 +123,18 @@ Protocol Schema
 
 ## 3. 接下来应该做什么
 
-### 3.1 当前唯一首要任务：Protocol Schema v0.1
+### 3.1 当前唯一首要任务：完成 Protocol Schema v0.1 的 YAML 链路
 
-本工作包的唯一进度来源是正文中的 **M02-F01 Protocol Schema v0.1**，不要在两个位置重复勾选。工作内容包括：
+本工作包的唯一进度来源是正文中的 **M02-F01 Protocol Schema v0.1**，不要在两个位置重复勾选。Schema 版本、C++ 领域模型和基础校验已经建立；剩余工作包括：
 
-- 确定 Schema 文件版本字段和兼容策略。
-- 定义 `Protocol`、`Message`、`Field`、`Checksum` 的 C++ 领域模型。
 - 确定 YAML 解析库和依赖引入方式。
 - 实现 YAML 文件加载和结构校验。
-- 定义稳定的 Schema 错误码、路径和诊断信息。
+- 将 YAML 节点映射到现有 `ProtocolSchema` 领域模型。
+- 在现有稳定错误码和领域路径上增加文件位置与 YAML 源码位置。
 - 创建 `SmartSensor` 示例协议和对应 golden vectors。
 - 为 Schema 加载、校验和错误情况编写单元测试。
 - 在 CLI 增加最小的 `iotps schema validate <file>` 命令。
+- 定义 Schema `0.1` 的升级和向后兼容规则。
 
 Protocol Schema v0.1 的完成标准：
 
@@ -154,14 +168,14 @@ Protocol Schema v0.1 的完成标准：
 |---|---|---|---|
 | M00 工程与平台基础 | 🟡 部分完成 | M0 | Windows x86_64 基线可运行；安装、发布治理和其他平台未完成 |
 | M01 Workspace 工作空间 | ⬜ 待开始 | MVP | 只有静态 Explorer UI |
-| M02 Protocol Designer / Schema | 🚧 下一步 | MVP | 尚无 Schema 领域模型和 YAML 加载 |
-| M03 Codec 编解码 | 🟡 基础准备 | MVP | 只有 HEX→bytes，不是协议字段 Decode；Encode 未实现 |
+| M02 Protocol Designer / Schema | 🚧 下一步 | MVP | v0.1 C++ 领域模型和基础校验已建立；YAML 加载尚未实现 |
+| M03 Codec 编解码 | 🟡 部分完成 | MVP | 已验证 `uint8` 固定布局 Encode/Decode；完整类型、动态结构、Length/CRC 未实现 |
 | M04 HEX Studio | 🟡 部分完成 | MVP | 已完成基础 HEX 检查和三种校验计算 |
-| M05 Transport 通信层 | ⬜ 待开始 | MVP/P2 | 尚无统一 Transport 接口和连接实现 |
+| M05 Transport 通信层 | 🟡 API 已建立 | MVP/P2 | 统一字节、生命周期、状态、事件和统计接口已建立；没有真实连接实现 |
 | M06 Debugger / Timeline | ⬜ 待开始 | MVP | 只有 Console/Timeline 静态布局 |
 | M07 Message Studio | ⬜ 待开始 | MVP | 尚无报文模板、表单组包和发送 |
-| M08 Device Simulator | ⬜ 待开始 | MVP/P2 | 尚无设备状态和行为模型 |
-| M09 Testing 测试中心 | 🟡 工程测试已有 | MVP/P2 | 有代码测试，没有面向协议项目的 Test Case/Test Suite |
+| M08 Device Simulator | 🟡 骨架已建立 | MVP/P2 | 有最小配置、生命周期和 Codec→Transport 发送链路；没有行为 DSL 和 GUI |
+| M09 Testing 测试中心 | 🟡 骨架已建立 | MVP/P2 | 有 Test Case/Step/Report 模型和基础断言；没有步骤执行器和 Test Suite |
 | M10 Load Testing | 🔒 后续阶段 | P3 | 尚未开始 |
 | M11 Capture / Replay / PCAP | 🔒 后续阶段 | P2 | 尚未开始 |
 | M12 Script / Custom Codec | 🔒 后续阶段 | P2 | 尚未开始 |
@@ -199,7 +213,7 @@ Protocol Schema v0.1 的完成标准：
 - [x] Core 公共头文件不依赖 Win32/WebView/React/JSON。
 - [x] Core 可以构建为静态库。
 - [x] Core 提供稳定错误码和结构化结果。
-- [ ] 建立 Core 模块分层：Schema、Codec、Transport API、Simulator、Testing。
+- [x] 建立 Core 模块分层：Schema、Codec、Transport API、Simulator、Testing。
 - [ ] 建立统一 Result/Error 类型。
 - [ ] 建立可注入 Trace/Event Sink。
 - [ ] 建立公共 API 兼容与版本策略。
@@ -330,15 +344,16 @@ Protocol Schema v0.1 的完成标准：
 
 ### M02-F01 Protocol Schema v0.1
 
-- [ ] 🚧 定义 Schema 版本字段。
-- [ ] 🚧 定义 Protocol 元数据：名称、显示名、版本、描述、默认字节序。
-- [ ] 🚧 定义 Message 元数据和唯一标识。
-- [ ] 🚧 定义 Field 领域模型。
-- [ ] 🚧 定义 Checksum 领域模型。
+- [x] 定义 Schema 版本字段。
+- [x] 定义 Protocol 元数据：名称、显示名、版本、描述、默认字节序。
+- [x] 定义 Message 元数据和唯一标识。
+- [x] 定义 Field 领域模型。
+- [x] 定义 Checksum 领域模型。
 - [ ] 🚧 确定 YAML 解析依赖。
 - [ ] 🚧 实现 YAML 加载。
-- [ ] 🚧 实现 Schema 校验。
-- [ ] 🚧 实现稳定错误码、YAML 路径和诊断位置。
+- [x] 实现 C++ 领域对象基础 Schema 校验。
+- [x] 实现稳定错误码和领域对象路径。
+- [ ] 🚧 实现 YAML 路径、文件位置和源码诊断位置。
 - [ ] 🚧 创建 SmartSensor 示例 Schema。
 - [ ] 🚧 创建合法/非法 Schema 测试向量。
 - [ ] 定义 Schema 升级和向后兼容规则。
@@ -501,8 +516,8 @@ Protocol Schema v0.1 的完成标准：
 ### M03-F02 Schema Decode：HEX → Object
 
 - [ ] 按 Message Schema 选择报文类型。
-- [ ] 按字段顺序和 offset 读取字节。
-- [ ] Decode 基础整数和浮点类型。
+- [ ] 🟡 按字段顺序和 offset 读取字节：当前仅固定布局 `uint8`。
+- [ ] 🟡 Decode 基础整数和浮点类型：当前仅 `uint8`。
 - [ ] Decode 字符串、bytes、BCD、timestamp。
 - [ ] 应用 Big/Little Endian。
 - [ ] 应用 scale 和 offsetValue。
@@ -510,27 +525,27 @@ Protocol Schema v0.1 的完成标准：
 - [ ] Decode Struct 和 Array。
 - [ ] Decode Conditional Field。
 - [ ] 验证 Length 和 Checksum。
-- [ ] 返回结构化字段树。
-- [ ] 返回每个字段的 byte start/end span。
+- [ ] 🟡 返回结构化字段树：当前为一层字段列表。
+- [x] 返回每个已解析字段的 byte offset/length span。
 - [ ] 保留未知和未消费字节。
 
 ### M03-F03 Schema Encode：Object → HEX
 
-- [ ] 接收结构化字段值。
-- [ ] 校验 required、type、min/max。
+- [x] 接收结构化字段值的 Core API。
+- [ ] 🟡 校验 required、type、min/max：当前校验缺失字段、类型和 `uint8` 范围。
 - [ ] 反向应用 scale 和 offsetValue。
-- [ ] Encode 基础类型和字节序。
+- [ ] 🟡 Encode 基础类型和字节序：当前仅 `uint8`。
 - [ ] Encode Enum 和 BitField。
 - [ ] Encode Struct 和 Array。
 - [ ] Encode Conditional Field。
 - [ ] 自动计算 Length。
 - [ ] 自动计算 Checksum。
-- [ ] 生成 ByteBuffer 和规范化 HEX。
-- [ ] 返回字段到字节范围映射。
+- [ ] 🟡 生成 ByteBuffer 和规范化 HEX：当前生成 ByteBuffer，未接入 HEX 输出。
+- [ ] 返回 Encode 字段到字节范围映射。
 
 ### M03-F04 Round-trip 和兼容性
 
-- [ ] `Decode(Encode(Object)) == Object`。
+- [ ] 🟡 `Decode(Encode(Object)) == Object`：当前覆盖固定布局 `uint8`。
 - [ ] `Encode(Decode(Bytes)) == Bytes`。
 - [ ] Golden vector 测试。
 - [ ] 边界值测试。
@@ -549,15 +564,15 @@ Protocol Schema v0.1 的完成标准：
 
 ### M03-F06 Codec 错误诊断
 
-- [ ] 数据不足。
-- [ ] 多余数据。
+- [x] 数据不足。
+- [x] 多余数据。
 - [ ] 固定头不匹配。
 - [ ] Length 不匹配。
 - [ ] Checksum 错误。
-- [ ] 类型转换错误。
+- [x] 类型转换错误。
 - [ ] 条件表达式错误。
 - [ ] 数组长度错误。
-- [ ] 错误包含 Message、Field Path、Byte Offset 和原因。
+- [x] 错误包含 Message/Field Path、Byte Offset 和稳定错误码。
 
 ---
 
@@ -623,13 +638,14 @@ Protocol Schema v0.1 的完成标准：
 
 ### M05-F01 Transport 抽象
 
-- [ ] 定义与 Protocol/Codec 解耦的 Transport 接口。
-- [ ] 统一 open/close/send/receive 生命周期。
-- [ ] 统一连接状态和错误码。
-- [ ] 统一异步事件和取消机制。
+- [x] 定义与 Protocol/Codec 解耦的 Transport 接口。
+- [x] 统一 open/close/send 生命周期，receive 通过事件交付。
+- [x] 统一连接状态和错误码。
+- [x] 统一事件 Sink 和 `data_received` 事件模型。
+- [ ] 统一取消机制。
 - [ ] 统一连接配置序列化。
-- [ ] 统一统计信息。
-- [ ] Mock/Loopback Transport。
+- [x] 统一统计信息接口。
+- [ ] 🟡 Mock/Loopback Transport：集成测试有边界替身，尚无可复用 Core 实现。
 
 ### M05-F02 Serial `[MVP]`
 
@@ -819,28 +835,28 @@ Protocol Schema v0.1 的完成标准：
 ### M08-F01 单设备模拟 `[MVP]`
 
 - [ ] Simulator 配置保存。
-- [ ] Device ID。
-- [ ] Protocol 绑定。
-- [ ] Connection 绑定。
-- [ ] 启动、停止、重启。
+- [x] Device ID 配置模型。
+- [ ] 🟡 Protocol 绑定：当前保存标识并注入 Message Codec。
+- [ ] 🟡 Connection 绑定：当前保存标识并注入 Transport。
+- [ ] 🟡 启动、停止、重启：当前有同步 start/stop，无 restart。
 - [ ] 连接和运行状态展示。
 - [ ] 单设备日志和 Timeline。
 
 ### M08-F02 Device State `[MVP]`
 
-- [ ] offline。
+- [x] offline。
 - [ ] connecting。
-- [ ] online。
+- [x] online。
 - [ ] sleep。
 - [ ] alarm。
-- [ ] error。
-- [ ] 状态变量和状态转换。
+- [x] error。
+- [ ] 🟡 状态变量和状态转换：当前覆盖 starting/online/stopping/offline/error 最小链路。
 - [ ] 状态影响行为执行。
 
 ### M08-F03 Behavior 行为模型 `[MVP/P2]`
 
 - [ ] ON CONNECT。
-- [ ] SEND Message。
+- [ ] 🟡 SEND Message：当前支持 Codec 编码后交给 Transport。
 - [ ] WAIT Message/Condition。
 - [ ] EVERY interval。
 - [ ] DELAY。
@@ -880,6 +896,7 @@ Protocol Schema v0.1 的完成标准：
 
 ### M09-F01 Basic Test Case `[MVP]`
 
+- [x] Core Test Case、Test Step、Step Result、Test Report 领域模型。
 - [ ] 新建、保存、复制和删除 Test Case。
 - [ ] Setup。
 - [ ] Connect。
@@ -893,7 +910,7 @@ Protocol Schema v0.1 的完成标准：
 
 ### M09-F02 Assertion `[MVP]`
 
-- [ ] equals / notEquals。
+- [x] equals / notEquals Core 求值。
 - [ ] greaterThan / lessThan。
 - [ ] contains。
 - [ ] matches。
@@ -901,7 +918,7 @@ Protocol Schema v0.1 的完成标准：
 - [ ] length。
 - [ ] responseTime。
 - [ ] Request/Response 字段关联断言。
-- [ ] 断言失败显示 Expected/Actual 和字段路径。
+- [x] 断言失败结果包含 Expected/Actual 和字段路径。
 
 ### M09-F03 Test Suite `[P2]`
 
@@ -922,7 +939,7 @@ Protocol Schema v0.1 的完成标准：
 
 ### M09-F05 测试结果和报告
 
-- [ ] Passed/Failed/Skipped。
+- [x] Core 报告汇总 Passed/Failed/Skipped。
 - [ ] 步骤耗时。
 - [ ] 请求和响应证据。
 - [ ] 断言详情。
@@ -936,7 +953,11 @@ Protocol Schema v0.1 的完成标准：
 - [x] Golden vector 集成测试。
 - [x] WebView UI 烟雾测试。
 - [x] 可选 Fuzz 入口。
-- [ ] Schema/Codec/Transport/Simulator 的系统化测试矩阵。
+- [x] Schema 领域模型和基础校验单元测试。
+- [x] Codec `uint8` round-trip 和错误单元测试。
+- [x] Simulator → Codec → Transport 集成测试。
+- [x] Testing 断言和报告单元测试。
+- [ ] Schema/Codec/Transport/Simulator 的完整系统化测试矩阵。
 
 ---
 
@@ -1379,13 +1400,20 @@ CI/CD
 - 本地提交：`83e8dfb fix: load packaged UI from virtual host`
 - 完成 WebView2 虚拟 HTTPS 主机加载和真实桌面 UI 烟雾测试。
 
+### 2026-08-22：Core 五模块分层
+
+- 本地提交：见包含本记录的 `feat: establish layered core modules` 提交。
+- 将 Core 拆分为 Schema、Codec、Transport、Simulator、Testing 独立 CMake 目标，并保留 `iotps::core` 聚合 Facade。
+- 完成 Schema v0.1 C++ 领域模型与基础校验、`uint8` 固定布局 Codec、Transport API、Simulator 最小发送链路、Testing 基础断言和报告。
+- Debug 全量构建成功，新增模块测试后全部 8 个 CTest 通过。
+
 ---
 
 ## 9. 下一次更新入口
 
 下次开始开发时，直接从以下功能点继续：
 
-> **M02-F01 Protocol Schema v0.1**
+> **M02-F01：选择 YAML 依赖并实现 Protocol Schema v0.1 加载**
 
 完成一个功能点后：
 

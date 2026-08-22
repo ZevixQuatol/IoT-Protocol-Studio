@@ -1,0 +1,108 @@
+#include "iotps/core/schema/schema.hpp"
+
+#include <string>
+#include <unordered_map>
+
+namespace iotps::core::schema {
+namespace {
+
+void add_diagnostic(SchemaValidation& validation, const SchemaErrorCode code, std::string path) {
+    validation.diagnostics.push_back({.code = code, .path = std::move(path)});
+}
+
+std::string message_path(const std::size_t message_index, const std::string_view suffix) {
+    return "messages[" + std::to_string(message_index) + "]." + std::string{suffix};
+}
+
+std::string field_path(const std::size_t message_index, const std::size_t field_index,
+                       const std::string_view suffix) {
+    return "messages[" + std::to_string(message_index) + "].fields[" +
+           std::to_string(field_index) + "]." + std::string{suffix};
+}
+
+} // namespace
+
+SchemaValidation validate(const ProtocolSchema& schema) {
+    SchemaValidation validation;
+
+    if (schema.schema_version.empty()) {
+        add_diagnostic(validation, SchemaErrorCode::schema_version_required, "schemaVersion");
+    } else if (schema.schema_version != current_schema_version) {
+        add_diagnostic(validation, SchemaErrorCode::unsupported_schema_version, "schemaVersion");
+    }
+
+    if (schema.protocol.name.empty()) {
+        add_diagnostic(validation, SchemaErrorCode::protocol_name_required, "protocol.name");
+    }
+    if (schema.protocol.version.empty()) {
+        add_diagnostic(validation, SchemaErrorCode::protocol_version_required, "protocol.version");
+    }
+
+    std::unordered_map<std::string, std::size_t> message_names;
+    std::unordered_map<std::uint64_t, std::size_t> message_type_ids;
+
+    for (std::size_t message_index = 0; message_index < schema.messages.size(); ++message_index) {
+        const auto& message = schema.messages[message_index];
+        if (message.name.empty()) {
+            add_diagnostic(validation, SchemaErrorCode::message_name_required,
+                           message_path(message_index, "name"));
+        } else if (!message_names.emplace(message.name, message_index).second) {
+            add_diagnostic(validation, SchemaErrorCode::duplicate_message_name,
+                           message_path(message_index, "name"));
+        }
+
+        if (message.type_id.has_value() &&
+            !message_type_ids.emplace(*message.type_id, message_index).second) {
+            add_diagnostic(validation, SchemaErrorCode::duplicate_message_type_id,
+                           message_path(message_index, "typeId"));
+        }
+
+        std::unordered_map<std::string, std::size_t> field_names;
+        for (std::size_t field_index = 0; field_index < message.fields.size(); ++field_index) {
+            const auto& field = message.fields[field_index];
+            if (field.name.empty()) {
+                add_diagnostic(validation, SchemaErrorCode::empty_field_name,
+                               field_path(message_index, field_index, "name"));
+            } else if (!field_names.emplace(field.name, field_index).second) {
+                add_diagnostic(validation, SchemaErrorCode::duplicate_field_name,
+                               field_path(message_index, field_index, "name"));
+            }
+        }
+
+        if (message.checksum.has_value() &&
+            !field_names.contains(message.checksum->target_field)) {
+            add_diagnostic(validation, SchemaErrorCode::checksum_field_not_found,
+                           message_path(message_index, "checksum.targetField"));
+        }
+    }
+
+    return validation;
+}
+
+std::string_view to_string(const SchemaErrorCode code) noexcept {
+    switch (code) {
+    case SchemaErrorCode::schema_version_required:
+        return "schema_version_required";
+    case SchemaErrorCode::unsupported_schema_version:
+        return "unsupported_schema_version";
+    case SchemaErrorCode::protocol_name_required:
+        return "protocol_name_required";
+    case SchemaErrorCode::protocol_version_required:
+        return "protocol_version_required";
+    case SchemaErrorCode::message_name_required:
+        return "message_name_required";
+    case SchemaErrorCode::duplicate_message_name:
+        return "duplicate_message_name";
+    case SchemaErrorCode::duplicate_message_type_id:
+        return "duplicate_message_type_id";
+    case SchemaErrorCode::empty_field_name:
+        return "empty_field_name";
+    case SchemaErrorCode::duplicate_field_name:
+        return "duplicate_field_name";
+    case SchemaErrorCode::checksum_field_not_found:
+        return "checksum_field_not_found";
+    }
+    return "unknown";
+}
+
+} // namespace iotps::core::schema
