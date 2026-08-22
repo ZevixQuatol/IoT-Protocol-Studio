@@ -2,8 +2,10 @@
 
 #include <algorithm>
 #include <bit>
+#include <cmath>
 #include <limits>
 #include <optional>
+#include <type_traits>
 #include <utility>
 
 namespace iotps::core::codec {
@@ -66,6 +68,111 @@ std::uint64_t read_unsigned(const std::span<const std::uint8_t> bytes, const std
     return value;
 }
 
+void append_unsigned(ByteBuffer& bytes, const std::uint64_t value, const std::size_t width,
+                     const schema::ByteOrder byte_order) {
+    if (byte_order == schema::ByteOrder::little_endian) {
+        for (std::size_t index = 0; index < width; ++index) {
+            bytes.push_back(static_cast<std::uint8_t>(value >> (index * 8U)));
+        }
+        return;
+    }
+    for (std::size_t index = width; index > 0; --index) {
+        const auto shift = (index - 1U) * 8U;
+        bytes.push_back(static_cast<std::uint8_t>(value >> shift));
+    }
+}
+
+using PrimitiveBitsResult = Result<std::uint64_t, CodecError>;
+
+template <typename Target>
+PrimitiveBitsResult encode_signed_integer(const ScalarValue& value, const std::string& path,
+                                          const std::size_t offset) {
+    const auto* signed_value = std::get_if<std::int64_t>(&value);
+    if (signed_value == nullptr) {
+        return make_error(CodecErrorCode::type_mismatch, path, offset,
+                          "expected std::int64_t ScalarValue");
+    }
+    if (*signed_value < std::numeric_limits<Target>::min() ||
+        *signed_value > std::numeric_limits<Target>::max()) {
+        return make_error(CodecErrorCode::value_out_of_range, path, offset,
+                          "value is outside int" + std::to_string(sizeof(Target) * 8U) + " range");
+    }
+    using UnsignedTarget = std::make_unsigned_t<Target>;
+    return static_cast<std::uint64_t>(
+        std::bit_cast<UnsignedTarget>(static_cast<Target>(*signed_value)));
+}
+
+template <typename Target>
+PrimitiveBitsResult encode_unsigned_integer(const ScalarValue& value, const std::string& path,
+                                            const std::size_t offset) {
+    const auto* unsigned_value = std::get_if<std::uint64_t>(&value);
+    if (unsigned_value == nullptr) {
+        return make_error(CodecErrorCode::type_mismatch, path, offset,
+                          "expected std::uint64_t ScalarValue");
+    }
+    if (*unsigned_value > std::numeric_limits<Target>::max()) {
+        return make_error(CodecErrorCode::value_out_of_range, path, offset,
+                          "value is outside uint" + std::to_string(sizeof(Target) * 8U) + " range");
+    }
+    return *unsigned_value;
+}
+
+PrimitiveBitsResult encode_primitive_bits(const schema::FieldType type, const ScalarValue& value,
+                                          const std::string& path, const std::size_t offset) {
+    switch (type) {
+    case schema::FieldType::boolean: {
+        const auto* boolean_value = std::get_if<bool>(&value);
+        if (boolean_value == nullptr) {
+            return make_error(CodecErrorCode::type_mismatch, path, offset,
+                              "expected bool ScalarValue");
+        }
+        return *boolean_value ? 1U : 0U;
+    }
+    case schema::FieldType::int8:
+        return encode_signed_integer<std::int8_t>(value, path, offset);
+    case schema::FieldType::uint8:
+        return encode_unsigned_integer<std::uint8_t>(value, path, offset);
+    case schema::FieldType::int16:
+        return encode_signed_integer<std::int16_t>(value, path, offset);
+    case schema::FieldType::uint16:
+        return encode_unsigned_integer<std::uint16_t>(value, path, offset);
+    case schema::FieldType::int32:
+        return encode_signed_integer<std::int32_t>(value, path, offset);
+    case schema::FieldType::uint32:
+        return encode_unsigned_integer<std::uint32_t>(value, path, offset);
+    case schema::FieldType::int64:
+        return encode_signed_integer<std::int64_t>(value, path, offset);
+    case schema::FieldType::uint64:
+        return encode_unsigned_integer<std::uint64_t>(value, path, offset);
+    case schema::FieldType::float32: {
+        const auto* floating_value = std::get_if<double>(&value);
+        if (floating_value == nullptr) {
+            return make_error(CodecErrorCode::type_mismatch, path, offset,
+                              "expected double ScalarValue");
+        }
+        if (std::isfinite(*floating_value) &&
+            std::abs(*floating_value) > std::numeric_limits<float>::max()) {
+            return make_error(CodecErrorCode::value_out_of_range, path, offset,
+                              "value is outside float32 range");
+        }
+        return static_cast<std::uint64_t>(
+            std::bit_cast<std::uint32_t>(static_cast<float>(*floating_value)));
+    }
+    case schema::FieldType::float64: {
+        const auto* floating_value = std::get_if<double>(&value);
+        if (floating_value == nullptr) {
+            return make_error(CodecErrorCode::type_mismatch, path, offset,
+                              "expected double ScalarValue");
+        }
+        return std::bit_cast<std::uint64_t>(*floating_value);
+    }
+    case schema::FieldType::bytes:
+    case schema::FieldType::string:
+        return make_error(CodecErrorCode::unsupported_field_type, path, offset);
+    }
+    return make_error(CodecErrorCode::unsupported_field_type, path, offset);
+}
+
 ScalarValue decode_primitive(const schema::FieldType type, const std::uint64_t bits) {
     switch (type) {
     case schema::FieldType::boolean:
@@ -103,7 +210,8 @@ ScalarValue decode_primitive(const schema::FieldType type, const std::uint64_t b
 } // namespace
 
 EncodeResult FixedLayoutCodec::encode(const schema::MessageDefinition& definition,
-                                      const StructuredMessage& message) const {
+                                      const StructuredMessage& message,
+                                      const schema::ByteOrder default_byte_order) const {
     if (message.message_name != definition.name) {
         return make_error(CodecErrorCode::message_name_mismatch, "messageName", 0);
     }
@@ -112,24 +220,41 @@ EncodeResult FixedLayoutCodec::encode(const schema::MessageDefinition& definitio
     bytes.reserve(definition.fields.size());
     for (const auto& field : definition.fields) {
         const auto path = field_path(definition, field);
-        if (field.type != schema::FieldType::uint8) {
-            return make_error(CodecErrorCode::unsupported_field_type, path, bytes.size());
+        const auto width = primitive_width(field.type);
+        if (!width.has_value()) {
+            return make_error(CodecErrorCode::unsupported_field_type, path, bytes.size(),
+                              "field type is not a fixed-width primitive");
         }
 
         const auto value = std::ranges::find_if(
             message.fields, [&field](const FieldValue& item) { return item.name == field.name; });
         if (value == message.fields.end()) {
-            return make_error(CodecErrorCode::missing_field, path, bytes.size());
+            return make_error(CodecErrorCode::missing_field, path, bytes.size(),
+                              "required field is missing");
+        }
+        const auto occurrences = std::ranges::count_if(
+            message.fields, [&field](const FieldValue& item) { return item.name == field.name; });
+        if (occurrences > 1) {
+            return make_error(CodecErrorCode::duplicate_field, path, bytes.size(),
+                              "field appears more than once");
         }
 
-        const auto* unsigned_value = std::get_if<std::uint64_t>(&value->value);
-        if (unsigned_value == nullptr) {
-            return make_error(CodecErrorCode::type_mismatch, path, bytes.size());
+        auto bits = encode_primitive_bits(field.type, value->value, path, bytes.size());
+        if (!bits.has_value()) {
+            return std::move(bits).error();
         }
-        if (*unsigned_value > std::numeric_limits<std::uint8_t>::max()) {
-            return make_error(CodecErrorCode::value_out_of_range, path, bytes.size());
+        append_unsigned(bytes, bits.value(), *width, field.byte_order.value_or(default_byte_order));
+    }
+
+    for (const auto& value : message.fields) {
+        const auto definition_field =
+            std::ranges::find_if(definition.fields, [&value](const schema::FieldDefinition& field) {
+                return field.name == value.name;
+            });
+        if (definition_field == definition.fields.end()) {
+            return make_error(CodecErrorCode::unexpected_field, definition.name + "." + value.name,
+                              bytes.size(), "field is not defined by the message schema");
         }
-        bytes.push_back(static_cast<std::uint8_t>(*unsigned_value));
     }
 
     return bytes;
@@ -184,6 +309,10 @@ std::string_view to_string(const CodecErrorCode code) noexcept {
         return "message_name_mismatch";
     case CodecErrorCode::missing_field:
         return "missing_field";
+    case CodecErrorCode::duplicate_field:
+        return "duplicate_field";
+    case CodecErrorCode::unexpected_field:
+        return "unexpected_field";
     case CodecErrorCode::type_mismatch:
         return "type_mismatch";
     case CodecErrorCode::value_out_of_range:

@@ -54,8 +54,9 @@ class DeviceSimulator final {
 
     [[nodiscard]] SimulatorResult start();
     [[nodiscard]] SimulatorResult stop();
-    [[nodiscard]] SendResult send(const schema::MessageDefinition& definition,
-                                  const codec::StructuredMessage& message);
+    [[nodiscard]] SendResult
+    send(const schema::MessageDefinition& definition, const codec::StructuredMessage& message,
+         schema::ByteOrder default_byte_order = schema::ByteOrder::big_endian);
 
   private:
     SimulatorConfig config_;

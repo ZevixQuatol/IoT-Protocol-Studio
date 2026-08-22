@@ -122,7 +122,7 @@ FieldRange
 
 ## 8. 后续阶段
 
-下一阶段是 Primitive Encode：
+固定长度 Primitive Encode 已完成，具体契约见 [Primitive Encode](<./Primitive Encode.md>)：
 
 ```text
 StructuredMessage
@@ -133,4 +133,4 @@ StructuredMessage
   → Decode(Encode(Object)) == Object
 ```
 
-Encode 完成后再扩展字符串/bytes 的长度规则和动态结构，避免在缺少 Length/Offset 语义时猜测数据边界。
+下一阶段先扩展固定布局 Field `length`/`offset`、重叠诊断和 padding，再实现字符串/bytes 的长度规则与动态结构，避免在缺少明确边界语义时猜测数据范围。

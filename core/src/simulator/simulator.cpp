@@ -59,12 +59,13 @@ SimulatorResult DeviceSimulator::stop() {
 }
 
 SendResult DeviceSimulator::send(const schema::MessageDefinition& definition,
-                                 const codec::StructuredMessage& message) {
+                                 const codec::StructuredMessage& message,
+                                 const schema::ByteOrder default_byte_order) {
     if (state_ != SimulatorState::online) {
         return make_error(SimulatorErrorCode::not_running);
     }
 
-    auto encoded = codec_.encode(definition, message);
+    auto encoded = codec_.encode(definition, message, default_byte_order);
     if (const auto* error = encoded.error_if()) {
         return make_error(SimulatorErrorCode::codec_failure,
                           std::string{codec::to_string(error->code)}, error->path);

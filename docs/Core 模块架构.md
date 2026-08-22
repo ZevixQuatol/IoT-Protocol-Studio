@@ -125,19 +125,20 @@ core/
 
 公共模型包括 `ScalarValue`、`StructuredMessage`、`DecodedMessage`、字段字节范围和稳定错误码。`MessageCodec` 是可替换编解码接口。
 
-`FixedLayoutCodec` 当前分别处于两个成熟度：Encode 仍只支持 `uint8`；Decode 已支持固定长度 Primitive：
+`FixedLayoutCodec` 已对固定长度 Primitive 提供对称 Encode/Decode：
 
 ```text
-MessageDefinition + ByteBuffer + Protocol 默认字节序
-  → 按字段顺序 Decode
+MessageDefinition + StructuredMessage / ByteBuffer
+  → 校验字段集合、ScalarValue 类型和表示范围
+  → 按 Schema 字段顺序 Encode / Decode
   → Field endian 覆盖
   → bool / 8-64 位整数 / float32 / float64
-  → StructuredMessage + FieldRange
+  → ByteBuffer / StructuredMessage + FieldRange
 ```
 
-Decode 对非法 bool、输入不足、不支持类型和尾随数据返回稳定路径、偏移和原因。字节序优先级、类型映射和错误契约见 [Primitive Decode](<./Primitive Decode.md>)。
+Encode 对名称不匹配、缺失/重复/额外字段、ScalarValue 类型不匹配、数值越界和不支持类型返回稳定路径、偏移和原因；Decode 对非法 bool、输入不足、不支持类型和尾随数据提供同类诊断。详细契约见 [Primitive Encode](<./Primitive Encode.md>) 和 [Primitive Decode](<./Primitive Decode.md>)。
 
-尚未实现的部分包括：Primitive Encode、显式 offset、字符串/动态 bytes、BCD、timestamp、Enum、BitField、数组、结构体、Length 和 Checksum。
+尚未实现的部分包括：Field `length`/`offset`、字符串/动态 bytes、BCD、timestamp、Enum、BitField、数组、结构体、Length 和 Checksum。
 
 ### 5.3 Transport API
 
@@ -162,7 +163,7 @@ Transport 与 Schema/Codec 完全解耦，统一暴露：
 - Device、Protocol 和 Connection 标识配置。
 - `offline/starting/online/stopping/error` 生命周期。
 - 启动和停止 Transport。
-- 通过 Codec 编码结构化消息，再通过 Transport 发送。
+- 通过 Codec 编码结构化消息，允许调用方传入 Protocol 默认字节序，再通过 Transport 发送。
 - 将 Codec/Transport 错误转换为稳定 Simulator 错误。
 
 当前尚无配置文件、定时任务、WAIT、IF/ELSE、多设备和 GUI。
@@ -224,8 +225,9 @@ simulator::SimulatorErrorCode
 | `iotps_result_unit_test` | Common | 成功值、错误值、指针访问和 `Status` |
 | `iotps_schema_unit_test` | Schema | 合法 Schema、重复名称、字段路径和错误码 |
 | `iotps_schema_loader_unit_test` | Schema | YAML/文件加载、节点类型、枚举、领域校验和源码位置 |
-| `iotps_codec_unit_test` | Codec | `uint8` Encode、全部固定宽度 Primitive Decode、字节序、范围和错误诊断 |
+| `iotps_codec_unit_test` | Codec | 全部固定宽度 Primitive Encode/Decode、字节序、范围和错误诊断 |
 | `iotps_primitive_decode_integration_test` | Codec、Schema | Schema YAML → HEX → 多类型 Decode → expected golden vector |
+| `iotps_primitive_encode_integration_test` | Codec、Schema | Schema YAML → Decode → Encode → golden HEX → Decode round-trip |
 | `iotps_simulator_integration_test` | Simulator | Codec → Simulator → Transport 发送链路和生命周期 |
 | `iotps_testing_unit_test` | Testing | 断言求值和测试报告汇总 |
 
@@ -233,15 +235,15 @@ Simulator 集成测试只替换 Transport，因为 Transport 是操作系统和�
 
 ## 8. 下一步
 
-`M03-F02 Schema Decode` 的固定长度 Primitive 已完成。当前产品主线进入 `M03-F03 Schema Encode` 的 Primitive Encode：
+固定长度 Primitive Encode/Decode 和 round-trip 已完成。当前产品主线进入 `M02-F04 Field 基础属性` 的固定 `length`/`offset`：
 
 ```text
-MessageDefinition + StructuredMessage
-  → 校验 ScalarValue 类型和数值范围
-  → 编码 bool / 8-64 位整数 / float32 / float64
-  → 应用 Protocol 默认与 Field 覆盖字节序
-  → 生成 ByteBuffer
-  → 建立多类型 Decode/Encode round-trip
+Schema YAML + Field length / offset
+  → 映射到 FieldDefinition
+  → 校验固定字段重叠和非法范围
+  → Decode 按位置读取并保留 FieldRange
+  → Encode 按位置写入并处理 padding
+  → 建立非连续布局 golden vector
 ```
 
-在 Primitive Encode 和 round-trip 稳定之前，不扩展真实 TCP/Serial、Simulator 行为 DSL 或完整 Test Runner。
+在固定布局边界稳定之前，不扩展动态 Length/Array/Struct、真实 TCP/Serial、Simulator 行为 DSL 或完整 Test Runner。

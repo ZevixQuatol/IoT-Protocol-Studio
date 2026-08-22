@@ -98,6 +98,20 @@ int main() {
     CHECK(transport.last_sent == ByteBuffer({0x02U}));
     CHECK(transport.statistics().messages_sent == 1);
 
+    const schema::MessageDefinition little_definition{
+        .name = "measurement",
+        .fields = {{.name = "reading", .type = schema::FieldType::uint16}},
+    };
+    const codec::StructuredMessage little_message{
+        .message_name = "measurement",
+        .fields = {{.name = "reading", .value = std::uint64_t{0x1234U}}},
+    };
+    const auto little_sent =
+        simulator.send(little_definition, little_message, schema::ByteOrder::little_endian);
+    CHECK(little_sent.has_value());
+    CHECK(transport.last_sent == ByteBuffer({0x34U, 0x12U}));
+    CHECK(transport.statistics().messages_sent == 2);
+
     CHECK(simulator.stop().has_value());
     CHECK(simulator.state() == simulator::SimulatorState::offline);
 

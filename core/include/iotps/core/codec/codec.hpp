@@ -41,6 +41,8 @@ struct DecodedMessage {
 enum class CodecErrorCode {
     message_name_mismatch,
     missing_field,
+    duplicate_field,
+    unexpected_field,
     type_mismatch,
     value_out_of_range,
     insufficient_data,
@@ -56,8 +58,9 @@ class MessageCodec {
   public:
     virtual ~MessageCodec() = default;
 
-    [[nodiscard]] virtual EncodeResult encode(const schema::MessageDefinition& definition,
-                                              const StructuredMessage& message) const = 0;
+    [[nodiscard]] virtual EncodeResult
+    encode(const schema::MessageDefinition& definition, const StructuredMessage& message,
+           schema::ByteOrder default_byte_order = schema::ByteOrder::big_endian) const = 0;
     [[nodiscard]] virtual DecodeResult
     decode(const schema::MessageDefinition& definition, std::span<const std::uint8_t> bytes,
            schema::ByteOrder default_byte_order = schema::ByteOrder::big_endian) const = 0;
@@ -65,8 +68,9 @@ class MessageCodec {
 
 class FixedLayoutCodec final : public MessageCodec {
   public:
-    [[nodiscard]] EncodeResult encode(const schema::MessageDefinition& definition,
-                                      const StructuredMessage& message) const override;
+    [[nodiscard]] EncodeResult
+    encode(const schema::MessageDefinition& definition, const StructuredMessage& message,
+           schema::ByteOrder default_byte_order = schema::ByteOrder::big_endian) const override;
     [[nodiscard]] DecodeResult
     decode(const schema::MessageDefinition& definition, std::span<const std::uint8_t> bytes,
            schema::ByteOrder default_byte_order = schema::ByteOrder::big_endian) const override;

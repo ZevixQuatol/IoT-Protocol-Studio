@@ -1,7 +1,9 @@
 #include "iotps/core/codec/codec.hpp"
 
+#include <cmath>
 #include <cstdint>
 #include <iostream>
+#include <limits>
 #include <variant>
 
 namespace {
@@ -57,6 +59,19 @@ int main() {
             CHECK(output->field_ranges[1].length == 1);
         }
     }
+    const StructuredMessage reordered_message{
+        .message_name = "response",
+        .fields =
+            {
+                {.name = "status", .value = std::uint64_t{0U}},
+                {.name = "command", .value = std::uint64_t{0x81U}},
+            },
+    };
+    const auto reordered_encoded = codec.encode(definition, reordered_message);
+    CHECK(reordered_encoded.has_value());
+    if (const auto* bytes = reordered_encoded.value_if()) {
+        CHECK(*bytes == ByteBuffer({0x81U, 0x00U}));
+    }
 
     const MessageDefinition uint16_definition{
         .name = "measurement",
@@ -68,6 +83,34 @@ int main() {
         CHECK(std::get<std::uint64_t>(output->message.fields[0].value) == 0x1234U);
         CHECK(output->field_ranges[0].offset == 0);
         CHECK(output->field_ranges[0].length == 2);
+    }
+
+    const StructuredMessage uint16_message{
+        .message_name = "measurement",
+        .fields = {{.name = "reading", .value = std::uint64_t{0x1234U}}},
+    };
+    const auto uint16_encoded = codec.encode(uint16_definition, uint16_message);
+    CHECK(uint16_encoded.has_value());
+    if (const auto* bytes = uint16_encoded.value_if()) {
+        CHECK(*bytes == ByteBuffer({0x12U, 0x34U}));
+    }
+    const auto uint16_little_encoded =
+        codec.encode(uint16_definition, uint16_message, ByteOrder::little_endian);
+    CHECK(uint16_little_encoded.has_value());
+    if (const auto* bytes = uint16_little_encoded.value_if()) {
+        CHECK(*bytes == ByteBuffer({0x34U, 0x12U}));
+    }
+    const MessageDefinition uint16_big_override_definition{
+        .name = "measurement",
+        .fields = {{.name = "reading",
+                    .type = FieldType::uint16,
+                    .byte_order = ByteOrder::big_endian}},
+    };
+    const auto uint16_big_override =
+        codec.encode(uint16_big_override_definition, uint16_message, ByteOrder::little_endian);
+    CHECK(uint16_big_override.has_value());
+    if (const auto* bytes = uint16_big_override.value_if()) {
+        CHECK(*bytes == ByteBuffer({0x12U, 0x34U}));
     }
 
     const MessageDefinition little_signed_definition{
@@ -120,6 +163,25 @@ int main() {
         CHECK(std::get<std::uint64_t>(output->message.fields[6].value) == 0x0123456789ABCDEFULL);
         CHECK(output->field_ranges[6].offset == 19);
         CHECK(output->field_ranges[6].length == 8);
+    }
+    const StructuredMessage integer_message{
+        .message_name = "integer-values",
+        .fields =
+            {
+                {.name = "enabled", .value = true},
+                {.name = "delta8", .value = std::int64_t{-128}},
+                {.name = "code8", .value = std::uint64_t{255U}},
+                {.name = "delta32", .value = std::int64_t{0x12345678}},
+                {.name = "code32", .value = std::uint64_t{0x89ABCDEFU}},
+                {.name = "delta64", .value = std::int64_t{-2}},
+                {.name = "code64", .value = std::uint64_t{0x0123456789ABCDEFULL}},
+            },
+    };
+    const auto integers_encoded =
+        codec.encode(integer_definition, integer_message, ByteOrder::little_endian);
+    CHECK(integers_encoded.has_value());
+    if (const auto* bytes = integers_encoded.value_if()) {
+        CHECK(*bytes == integer_bytes);
     }
 
     const MessageDefinition boolean_definition{
@@ -175,6 +237,20 @@ int main() {
         CHECK(output->field_ranges[1].offset == 4);
         CHECK(output->field_ranges[1].length == 8);
     }
+    const StructuredMessage floating_message{
+        .message_name = "floating-values",
+        .fields =
+            {
+                {.name = "ratio", .value = 1.5},
+                {.name = "precise", .value = -2.25},
+            },
+    };
+    const auto floating_encoded =
+        codec.encode(floating_definition, floating_message, ByteOrder::little_endian);
+    CHECK(floating_encoded.has_value());
+    if (const auto* bytes = floating_encoded.value_if()) {
+        CHECK(*bytes == floating_bytes);
+    }
 
     const MessageDefinition string_definition{
         .name = "text-message",
@@ -183,6 +259,18 @@ int main() {
     const auto unsupported = codec.decode(string_definition, ByteBuffer{});
     CHECK(!unsupported.has_value());
     if (const auto* error = unsupported.error_if()) {
+        CHECK(error->code == CodecErrorCode::unsupported_field_type);
+        CHECK(error->path == "text-message.payload");
+        CHECK(error->offset == 0);
+        CHECK(error->detail == "field type is not a fixed-width primitive");
+    }
+    const StructuredMessage string_message{
+        .message_name = "text-message",
+        .fields = {{.name = "payload", .value = std::string{"hello"}}},
+    };
+    const auto unsupported_encode = codec.encode(string_definition, string_message);
+    CHECK(!unsupported_encode.has_value());
+    if (const auto* error = unsupported_encode.error_if()) {
         CHECK(error->code == CodecErrorCode::unsupported_field_type);
         CHECK(error->path == "text-message.payload");
         CHECK(error->offset == 0);
@@ -205,6 +293,128 @@ int main() {
     if (const auto* error = rejected.error_if()) {
         CHECK(error->code == CodecErrorCode::value_out_of_range);
         CHECK(error->path == "response.status");
+        CHECK(error->offset == 1);
+        CHECK(error->detail == "value is outside uint8 range");
+    }
+
+    const StructuredMessage missing_field_message{
+        .message_name = "response",
+        .fields = {{.name = "command", .value = std::uint64_t{0x81U}}},
+    };
+    const auto missing_field = codec.encode(definition, missing_field_message);
+    CHECK(!missing_field.has_value());
+    if (const auto* error = missing_field.error_if()) {
+        CHECK(error->code == CodecErrorCode::missing_field);
+        CHECK(error->path == "response.status");
+        CHECK(error->offset == 1);
+        CHECK(error->detail == "required field is missing");
+    }
+
+    const StructuredMessage wrong_boolean_type{
+        .message_name = "flags",
+        .fields = {{.name = "enabled", .value = std::uint64_t{1U}}},
+    };
+    const auto boolean_type_mismatch = codec.encode(boolean_definition, wrong_boolean_type);
+    CHECK(!boolean_type_mismatch.has_value());
+    if (const auto* error = boolean_type_mismatch.error_if()) {
+        CHECK(error->code == CodecErrorCode::type_mismatch);
+        CHECK(error->path == "flags.enabled");
+        CHECK(error->offset == 0);
+        CHECK(error->detail == "expected bool ScalarValue");
+    }
+
+    const StructuredMessage wrong_signed_type{
+        .message_name = "measurement",
+        .fields = {{.name = "temperature", .value = std::uint64_t{1U}}},
+    };
+    const auto signed_type_mismatch = codec.encode(little_signed_definition, wrong_signed_type);
+    CHECK(!signed_type_mismatch.has_value());
+    if (const auto* error = signed_type_mismatch.error_if()) {
+        CHECK(error->code == CodecErrorCode::type_mismatch);
+        CHECK(error->detail == "expected std::int64_t ScalarValue");
+    }
+
+    const StructuredMessage wrong_unsigned_type{
+        .message_name = "measurement",
+        .fields = {{.name = "reading", .value = std::int64_t{1}}},
+    };
+    const auto unsigned_type_mismatch = codec.encode(uint16_definition, wrong_unsigned_type);
+    CHECK(!unsigned_type_mismatch.has_value());
+    if (const auto* error = unsigned_type_mismatch.error_if()) {
+        CHECK(error->code == CodecErrorCode::type_mismatch);
+        CHECK(error->detail == "expected std::uint64_t ScalarValue");
+    }
+
+    auto wrong_floating_type = floating_message;
+    wrong_floating_type.fields[0].value = std::uint64_t{1U};
+    const auto floating_type_mismatch = codec.encode(floating_definition, wrong_floating_type);
+    CHECK(!floating_type_mismatch.has_value());
+    if (const auto* error = floating_type_mismatch.error_if()) {
+        CHECK(error->code == CodecErrorCode::type_mismatch);
+        CHECK(error->path == "floating-values.ratio");
+        CHECK(error->detail == "expected double ScalarValue");
+    }
+
+    const StructuredMessage int16_overflow_message{
+        .message_name = "measurement",
+        .fields = {{.name = "temperature", .value = std::int64_t{32768}}},
+    };
+    const auto int16_overflow = codec.encode(little_signed_definition, int16_overflow_message);
+    CHECK(!int16_overflow.has_value());
+    if (const auto* error = int16_overflow.error_if()) {
+        CHECK(error->code == CodecErrorCode::value_out_of_range);
+        CHECK(error->path == "measurement.temperature");
+        CHECK(error->offset == 0);
+        CHECK(error->detail == "value is outside int16 range");
+    }
+
+    auto float32_overflow_message = floating_message;
+    float32_overflow_message.fields[0].value = std::numeric_limits<double>::max();
+    const auto float32_overflow = codec.encode(floating_definition, float32_overflow_message);
+    CHECK(!float32_overflow.has_value());
+    if (const auto* error = float32_overflow.error_if()) {
+        CHECK(error->code == CodecErrorCode::value_out_of_range);
+        CHECK(error->path == "floating-values.ratio");
+        CHECK(error->offset == 0);
+        CHECK(error->detail == "value is outside float32 range");
+    }
+
+    auto special_floating_message = floating_message;
+    special_floating_message.fields[0].value = std::numeric_limits<double>::quiet_NaN();
+    special_floating_message.fields[1].value = std::numeric_limits<double>::infinity();
+    const auto special_floating =
+        codec.encode(floating_definition, special_floating_message, ByteOrder::little_endian);
+    CHECK(special_floating.has_value());
+    if (const auto* bytes = special_floating.value_if()) {
+        const auto special_decoded =
+            codec.decode(floating_definition, *bytes, ByteOrder::little_endian);
+        CHECK(special_decoded.has_value());
+        if (const auto* output = special_decoded.value_if()) {
+            CHECK(std::isnan(std::get<double>(output->message.fields[0].value)));
+            CHECK(std::isinf(std::get<double>(output->message.fields[1].value)));
+        }
+    }
+
+    auto duplicate_field_message = message;
+    duplicate_field_message.fields.push_back({.name = "status", .value = std::uint64_t{1U}});
+    const auto duplicate_field = codec.encode(definition, duplicate_field_message);
+    CHECK(!duplicate_field.has_value());
+    if (const auto* error = duplicate_field.error_if()) {
+        CHECK(error->code == CodecErrorCode::duplicate_field);
+        CHECK(error->path == "response.status");
+        CHECK(error->offset == 1);
+        CHECK(error->detail == "field appears more than once");
+    }
+
+    auto unexpected_field_message = message;
+    unexpected_field_message.fields.push_back({.name = "debug", .value = std::uint64_t{1U}});
+    const auto unexpected_field = codec.encode(definition, unexpected_field_message);
+    CHECK(!unexpected_field.has_value());
+    if (const auto* error = unexpected_field.error_if()) {
+        CHECK(error->code == CodecErrorCode::unexpected_field);
+        CHECK(error->path == "response.debug");
+        CHECK(error->offset == 2);
+        CHECK(error->detail == "field is not defined by the message schema");
     }
 
     return failures == 0 ? 0 : 1;
