@@ -1,0 +1,21 @@
+schemaVersion: "0.1"
+protocol:
+  name: length-field
+  displayName: Length Field
+  version: "1.0"
+messages:
+  sample:
+    typeId: 3
+    fields:
+      - name: marker
+        type: uint8
+      - name: bodyLength
+        type: uint16
+        endian: little
+        lengthOf: body
+      - name: body
+        type: bytes
+        length: 4
+        offset: 4
+      - name: trailer
+        type: uint8

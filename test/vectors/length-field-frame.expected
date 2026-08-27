@@ -1,0 +1,4 @@
+marker=165 @0+1
+bodyLength=4 @1+2
+body=DE AD 00 FF @4+4
+trailer=90 @8+1

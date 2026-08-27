@@ -1,10 +1,10 @@
 # Primitive Encode
 
-> 状态：固定布局 Primitive、String、Bytes Encode 已实现  
+> 状态：固定布局 Primitive、String、Bytes 与最小 Length Field Encode 已实现
 > 更新日期：2026-08-27  
 > 适用入口：`iotps/core/codec/codec.hpp`
 
-相关文档：[Protocol Schema v0.1](<./Protocol Schema v0.1.md>) · [固定长度 String 与 Bytes](<./固定长度 String 与 Bytes.md>) · [Primitive Decode](<./Primitive Decode.md>) · [Core 模块架构](<./Core 模块架构.md>) · [功能清单与开发进度](<./IoT Protocol Studio 功能清单与开发进度.md>)
+相关文档：[Protocol Schema v0.1](<./Protocol Schema v0.1.md>) · [固定长度 String 与 Bytes](<./固定长度 String 与 Bytes.md>) · [Length Field](<./Length Field.md>) · [Primitive Decode](<./Primitive Decode.md>) · [Core 模块架构](<./Core 模块架构.md>) · [功能清单与开发进度](<./IoT Protocol Studio 功能清单与开发进度.md>)
 
 ## 1. 范围
 
@@ -20,7 +20,7 @@ Protocol 默认字节序
   → ByteBuffer
 ```
 
-当前编码固定宽度 Primitive 和显式 `length` 的固定 UTF-8 `string`/`bytes`，并支持固定 `offset`。动态 string/bytes、BCD、timestamp、Enum、BitField、Array、Struct、Condition、Length 自动计算和 Checksum 自动计算不在本阶段。
+当前编码固定宽度 Primitive、显式 `length` 的固定 UTF-8 `string`/`bytes` 和引用单个固定 Field 的 `lengthOf`，并支持固定 `offset`。动态 string/bytes、连续 Length Range、BCD、timestamp、Enum、BitField、Array、Struct、Condition 和 Checksum 自动计算不在本阶段。
 
 ## 2. 公共 API
 
@@ -47,10 +47,12 @@ const auto encoded = codec.encode(
 编码前执行以下约束：
 
 1. `StructuredMessage.message_name` 必须等于 `MessageDefinition.name`。
-2. Schema 中的每个字段都必须在 `StructuredMessage.fields` 中出现一次。
+2. Schema 中的每个普通字段都必须在 `StructuredMessage.fields` 中出现一次；`lengthOf` 派生字段可以省略。
 3. 同名字段出现多次时返回 `duplicate_field`，不采用第一个或最后一个值。
 4. Schema 未定义的额外字段返回 `unexpected_field`，不静默丢弃。
 5. 输入字段可以采用任意顺序，输出字节始终按照 Schema 字段顺序生成。
+
+如果输入包含一次 `lengthOf` 派生字段，Codec 会忽略该占位值并使用目标 Field 的 wire 长度覆盖；同名派生字段出现多次仍返回 `duplicate_field`。
 
 错误的 `offset` 表示字段规划后的 wire 起点；额外字段没有自己的 wire offset，因此使用合法固定帧结束位置。
 
@@ -103,6 +105,7 @@ Field endian
 | `type_mismatch` | ScalarValue variant 类型与 FieldType 不一致 | `<message>.<field>` | 规划后的字段起点 |
 | `value_out_of_range` | 数值超出表示范围、string 超长或 bytes 长度不匹配 | `<message>.<field>` | 规划后的字段起点 |
 | `invalid_string_encoding` | string 含 NUL 或不是有效 UTF-8 | `<message>.<field>` | 规划后的字段起点 |
+| `length_value_out_of_range` | 目标 wire 长度无法装入 Length Field 类型 | `<message>.<length-field>` | Length Field 起点 |
 | `invalid_layout` | 手工构造的 MessageDefinition 包含缺失/零长度、宽度不匹配、溢出或重叠 | `<message>.<field>` | 非法字段起点 |
 
 `detail` 使用稳定的非本地化技术文本说明缺失、重复、额外字段、期望的 ScalarValue 类型或目标数值范围。Web UI 仍应根据错误码和结构化字段生成中英文用户文案。
@@ -131,6 +134,8 @@ Schema YAML + golden HEX
 
 固定文本向量 `test/vectors/fixed-text-frame.*` 另外覆盖 UTF-8 中文、NUL padding、固定 bytes、显式 gap 和 Decode/Encode round-trip。
 
+Length Field 向量 `test/vectors/length-field-frame.*` 另外覆盖派生字段省略、Little Endian 自动回填、header/trailer/gap 排除规则和 Decode/Encode round-trip。
+
 `Encode(Decode(Bytes)) == Bytes` 只对使用零 padding 的规范帧成立。Decode 接受 gap 中的任意字节，但不会把 padding 保存到 `StructuredMessage`；再次 Encode 时这些字节会被规范化为 `0x00`。如果后续产品需要原始 padding 无损回放，应单独在 Decode 结果中保留未解析区间，而不是把 padding 伪装成业务 Field。
 
 ## 8. 后续阶段
@@ -146,4 +151,4 @@ Schema YAML
   → padding 与 FieldRange
 ```
 
-固定长度 `string`/`bytes` 已完成，具体规则见 [固定长度 String 与 Bytes](<./固定长度 String 与 Bytes.md>)。下一阶段先实现最小 Length Field，再进入 Struct、Array、Enum、BitField、Condition 和 Checksum Range。
+固定长度 `string`/`bytes` 与最小 Length Field 已完成，具体规则见 [固定长度 String 与 Bytes](<./固定长度 String 与 Bytes.md>) 和 [Length Field](<./Length Field.md>)。下一阶段先实现固定长度 Array，再进入 Count/Length 驱动数组、Struct、Enum、BitField、Condition 和 Checksum Range。

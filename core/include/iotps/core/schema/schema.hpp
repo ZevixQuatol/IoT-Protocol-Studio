@@ -56,6 +56,7 @@ struct FieldDefinition {
     std::optional<ByteOrder> byte_order;
     std::optional<std::size_t> length;
     std::optional<std::size_t> offset;
+    std::optional<std::string> length_of;
 };
 
 struct ChecksumDefinition {
@@ -103,6 +104,10 @@ enum class SchemaErrorCode {
     field_length_mismatch,
     field_offset_overflow,
     field_layout_overlap,
+    length_field_type_unsupported,
+    length_field_target_not_found,
+    length_field_self_reference,
+    length_field_dependency_cycle,
     checksum_field_not_found,
 };
 

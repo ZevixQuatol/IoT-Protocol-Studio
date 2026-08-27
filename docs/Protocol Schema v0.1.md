@@ -4,7 +4,7 @@
 > 更新日期：2026-08-27  
 > 适用入口：C++ Core、`iotps schema validate`
 
-相关文档：[Core 模块架构](<./Core 模块架构.md>) · [固定长度 String 与 Bytes](<./固定长度 String 与 Bytes.md>) · [功能清单与开发进度](<./IoT Protocol Studio 功能清单与开发进度.md>) · [SmartSensor 示例](./examples/SmartSensor.protocol.yaml)
+相关文档：[Core 模块架构](<./Core 模块架构.md>) · [固定长度 String 与 Bytes](<./固定长度 String 与 Bytes.md>) · [Length Field](<./Length Field.md>) · [功能清单与开发进度](<./IoT Protocol Studio 功能清单与开发进度.md>) · [SmartSensor 示例](./examples/SmartSensor.protocol.yaml)
 
 ## 1. 目标和边界
 
@@ -18,7 +18,7 @@ YAML 文件
   → 稳定错误码、字段路径和源码位置
 ```
 
-v0.1 当前覆盖 Protocol、Message、基础 Field、固定 `length`/`offset`、固定长度 `string`/`bytes` 和 Checksum 的最小模型。Length Field、Struct、Array、Enum、BitField、Condition、动态校验范围和 Schema 写回仍不在本阶段。
+v0.1 当前覆盖 Protocol、Message、基础 Field、固定 `length`/`offset`、固定长度 `string`/`bytes`、最小单字段 `lengthOf` 和 Checksum 的最小模型。连续 Length Range、动态目标、Struct、Array、Enum、BitField、Condition、动态校验范围和 Schema 写回仍不在本阶段。
 
 ## 2. YAML 依赖
 
@@ -63,6 +63,12 @@ messages:
         endian: little
         length: 2
         offset: 2
+      - name: payloadLength
+        type: uint8
+        lengthOf: payload
+      - name: payload
+        type: bytes
+        length: 4
       - name: checksum
         type: uint16
     checksum:
@@ -113,8 +119,11 @@ messages:
 | `endian` | scalar | 否 | 未设置时由 Codec 使用 Protocol 默认字节序 |
 | `length` | unsigned integer scalar | 条件必填 | 固定 Primitive 默认使用类型自然宽度；显式值必须匹配自然宽度；固定 `string`/`bytes` 必须显式提供大于 0 的字节长度 |
 | `offset` | unsigned integer scalar | 否 | 默认使用前一字段结束位置；显式值不得小于当前布局游标 |
+| `lengthOf` | scalar | 否 | 将当前 Field 定义为派生 Length Field；必须使用无符号整数并引用同一 Message 中的一个 Field |
 
-固定布局按 Field 定义顺序计算。省略 `offset` 时字段紧接当前游标；显式 `offset` 大于当前游标时形成 gap。Decode 跳过 gap，Encode 使用 `0x00` 填充，字段的 `FieldRange` 不包含 padding。`offset + length` 不得溢出，最后一个字段的结束位置就是固定帧长度，帧后仍有字节时 Codec 返回尾随数据错误。固定 `string` 的 `length` 是 UTF-8 wire 字节数，短值右侧使用 NUL padding；固定 `bytes` 的 Encode 输入必须与 `length` 精确相等。完整契约见 [固定长度 String 与 Bytes](<./固定长度 String 与 Bytes.md>)。
+固定布局按 Field 定义顺序计算。省略 `offset` 时字段紧接当前游标；显式 `offset` 大于当前游标时形成 gap。Decode 跳过 gap，Encode 使用 `0x00` 填充，字段的 `FieldRange` 不包含 padding。`offset + length` 不得溢出，最后一个字段的结束位置就是固定帧长度，帧后仍有字节时 Codec 返回尾随数据错误。固定 `string` 的 `length` 是 UTF-8 wire 字节数，短值右侧使用 NUL padding；固定 `bytes` 的 Encode 输入必须与 `length` 精确相等。完整文本契约见 [固定长度 String 与 Bytes](<./固定长度 String 与 Bytes.md>)。
+
+`lengthOf` 第一阶段只引用一个固定 wire Field，值等于目标 `FieldRange.length`，不包含 Length Field 自身、header、trailer、checksum 或字段间 gap。Length Field 可前置或后置，只能使用 `uint8`/`uint16`/`uint32`/`uint64`，不得引用自身或形成依赖循环。完整契约见 [Length Field](<./Length Field.md>)。
 
 ### 4.5 Checksum
 
@@ -185,7 +194,7 @@ SchemaLoadResult load_yaml_file(const std::filesystem::path& path);
 | 文件 I/O | `file_open_failed`、`file_read_failed` |
 | YAML 语法/形状 | `yaml_parse_error`、`yaml_required_node_missing`、`yaml_node_type_mismatch` |
 | YAML 标量映射 | `yaml_invalid_scalar`、`yaml_unknown_field_type`、`yaml_unknown_byte_order` |
-| 领域规则 | `unsupported_schema_version`、`duplicate_message_type_id`、`field_length_required`、`field_length_zero`、`field_length_mismatch`、`field_offset_overflow`、`field_layout_overlap`、`checksum_field_not_found` |
+| 领域规则 | `unsupported_schema_version`、`duplicate_message_type_id`、`field_length_required`、`field_length_zero`、`field_length_mismatch`、`field_offset_overflow`、`field_layout_overlap`、`length_field_target_not_found`、`length_field_dependency_cycle`、`checksum_field_not_found` |
 
 加载器只返回第一个阻止建立稳定领域模型的错误。后续 Protocol Designer 的 Problems 功能可以在模型建立成功后扩展为多诊断展示。
 
@@ -227,4 +236,5 @@ Messages: 1
 - 单元测试：合法映射、固定 `length`/`offset`、固定 string/bytes 必填长度、YAML 语法错误、节点形状、必填字段、非法标量、未知枚举、重复 Type ID、非法长度、布局重叠、溢出、文件加载和源码位置。
 - 固定布局向量：`test/vectors/primitive-frame.schema.yaml`，覆盖显式 gap、Protocol 默认字节序、Field 字节序覆盖和 Encode/Decode round-trip。
 - 固定文本向量：`test/vectors/fixed-text-frame.schema.yaml`，覆盖 UTF-8 string、NUL padding、固定 bytes、显式 gap 和 Encode/Decode round-trip。
+- Length Field 向量：`test/vectors/length-field-frame.schema.yaml`，覆盖单字段引用、自动回填、Decode 校验、Little Endian、显式 gap 和 Encode/Decode round-trip。
 - CLI 测试：合法向量成功、非法向量失败。

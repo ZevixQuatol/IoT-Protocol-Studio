@@ -18,7 +18,7 @@ Schema YAML + Field length / offset
   → FieldRange
 ```
 
-动态 Length Field、其他文本编码、可配置 terminator、可配置 padding、截断模式和未知字节保留不在本阶段。
+Length 驱动的动态 string/bytes、其他文本编码、可配置 terminator、可配置 padding、截断模式和未知字节保留不在本阶段。后续已完成的最小 `lengthOf` 可以引用这里定义的固定 string/bytes，并计算其完整 wire 长度，详见 [Length Field](<./Length Field.md>)。
 
 ## 2. Schema 契约
 

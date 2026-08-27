@@ -7,7 +7,7 @@
 > 当前目标平台：Windows x86_64  
 > 用途：项目唯一功能树、进度看板和下一步开发入口
 
-相关文档：[功能设计基线](<./IoT Protocol Studio 功能设计文档.md>) · [Protocol Schema v0.1](<./Protocol Schema v0.1.md>) · [固定 Field 布局](<./固定 Field 布局.md>) · [固定长度 String 与 Bytes](<./固定长度 String 与 Bytes.md>) · [Primitive Decode](<./Primitive Decode.md>) · [Primitive Encode](<./Primitive Encode.md>) · [Core 模块架构](<./Core 模块架构.md>) · [开发环境与构建](./开发环境与构建.md)
+相关文档：[功能设计基线](<./IoT Protocol Studio 功能设计文档.md>) · [Protocol Schema v0.1](<./Protocol Schema v0.1.md>) · [固定 Field 布局](<./固定 Field 布局.md>) · [固定长度 String 与 Bytes](<./固定长度 String 与 Bytes.md>) · [Length Field](<./Length Field.md>) · [Primitive Decode](<./Primitive Decode.md>) · [Primitive Encode](<./Primitive Encode.md>) · [Core 模块架构](<./Core 模块架构.md>) · [开发环境与构建](./开发环境与构建.md)
 
 ---
 
@@ -56,8 +56,8 @@ flowchart LR
     D --> E["✅ 固定长度 Primitive Encode"]
     E --> F["✅ Field length / offset"]
     F --> G["✅ 固定长度 string / bytes"]
-    G --> H["🚧 下一步：Length Field"]
-    H --> I["⬜ 其他动态结构"]
+    G --> H["✅ 最小 Length Field"]
+    H --> I["🚧 下一步：固定长度 Array"]
     I --> J["⬜ Workspace + Protocol Designer"]
     J --> K["⬜ Message Studio + 真实 Transport + Debugger"]
     K --> L["⬜ 完整 Simulator + Test Runner"]
@@ -95,6 +95,7 @@ Core 内部已经新增一条不依赖 GUI 的最小架构链路：
 ```text
 Schema 领域模型
   → 固定长度 Primitive / UTF-8 string / bytes Encode / Decode
+  → Length Field Decode 校验 / Encode 自动回填
   → Simulator
   → Transport API 测试边界
 ```
@@ -130,6 +131,9 @@ Schema 纵向链路也已经打通：YAML 文件可以映射为领域模型，�
 - [x] Decode/Encode 固定长度 UTF-8 `string`，短值右侧零填充，拒绝非法编码、内嵌 NUL、超长输入和非零终止后数据。
 - [x] Decode/Encode 固定长度 `bytes`，保留内部零字节并严格校验输入长度。
 - [x] 通过固定文本 golden vector 验证 YAML、UTF-8、bytes、gap、FieldRange 和双向 round-trip。
+- [x] 从 YAML 映射单字段 `lengthOf`，校验无符号类型、目标、自引用和依赖循环。
+- [x] Decode 校验 Length 声明值，Encode 按目标 wire 长度自动回填并支持前置/后置 Length Field。
+- [x] 通过 Length Field golden vector 验证 Little Endian、gap 排除、FieldRange 和双向 round-trip。
 
 ### 2.4 当前界面中尚未实现的占位功能
 
@@ -144,26 +148,28 @@ Schema 纵向链路也已经打通：YAML 文件可以映射为领域模型，�
 
 ## 3. 接下来应该做什么
 
-### 3.1 当前唯一首要任务：Length Field
+### 3.1 当前唯一首要任务：固定长度 Array
 
-固定 Primitive、固定 UTF-8 `string`/`bytes`、Field `length`/`offset`、padding 和非连续布局 round-trip 已完成。下一个工作包进入 **M02-F07 动态长度和条件字段**，只实现最小 Length Field：
+最小单字段 Length Field 已完成：`lengthOf` 引用同一 Message 的一个固定 wire Field，Decode 校验声明值，Encode 自动回填，前置/后置字段、Little Endian、gap 排除、容量溢出、截断和依赖诊断均有自动测试。连续范围和动态目标仍留在后续动态容器阶段。
 
-- 定义长度字段如何引用目标字段或连续范围。
-- 明确长度值是否包含 Length Field 自身、header、terminator 或 checksum。
-- Decode 时校验声明长度与实际可消费范围。
-- Encode 时从目标 wire range 自动计算并回填长度。
-- 明确 Length Field 必须位于目标数据前还是允许后置回填。
-- 建立缺失引用、循环依赖、数值溢出和帧截断诊断。
-- 建立 Length Field golden vector 和 Decode/Encode round-trip。
+下一个工作包进入 **M02-F08 Array / Struct**，只实现固定长度 Array：
 
-Length Field 第一阶段的完成标准：
+- 定义 Array Field 的元素类型和固定 `count` Schema 契约。
+- 第一阶段只允许固定宽度 Primitive 元素，不同时加入 Struct 元素或动态嵌套。
+- Decode 生成有序元素值，并返回数组整体及可用的元素字节范围。
+- Encode 严格校验元素数量、ScalarValue 类型和表示范围。
+- 复用 Protocol/Field 字节序和现有固定布局计划。
+- 建立 count 为零、长度溢出、输入截断、元素数量不一致和非法元素类型诊断。
+- 建立固定 Array golden vector 和 Decode/Encode round-trip。
+
+固定 Array 第一阶段的完成标准：
 
 ```text
-给定 Schema YAML + Length Field 引用
-  → Core 建立可求值的布局依赖
-  → Decode 校验声明长度
-  → Encode 自动计算并写回长度
-  → 范围、溢出、循环和截断错误可诊断
+给定 Schema YAML + 固定 count Array
+  → Core 建立固定数组布局
+  → Decode 产生稳定元素序列与范围
+  → Encode 严格校验并生成相同 golden HEX
+  → 数量、类型、溢出和截断错误可诊断
   → Decode/Encode golden vectors 稳定通过
 ```
 
@@ -173,8 +179,8 @@ Length Field 第一阶段的完成标准：
 2. **Primitive Encode**：结构化字段值重新编码为字节流，建立 Decode/Encode round-trip。✅
 3. **固定布局边界**：Field `length`/`offset`、重叠诊断和 padding。✅
 4. **固定字符串和 bytes**：编码、固定长度、填充、截断和 FieldRange。✅
-5. **Length Field**：引用范围、Decode 校验、Encode 自动计算和依赖诊断。
-6. **其他动态结构**：Struct、Array、Enum、BitField、Condition、Checksum Range。
+5. **Length Field**：单字段引用、Decode 校验、Encode 自动计算和依赖诊断。✅
+6. **其他动态结构**：先做固定 Array，再做 Count/Length 驱动 Array、Struct、Enum、BitField、Condition、Checksum Range。
 7. **Workspace**：创建、打开、保存普通目录项目，加载 `project.yaml` 和协议文件。
 8. **Protocol Designer**：Schema 源码与可视化字段编辑器双向同步。
 9. **Message Studio**：结构化表单组包、自动 Length/CRC 和报文模板。
@@ -191,8 +197,8 @@ Length Field 第一阶段的完成标准：
 |---|---|---|---|
 | M00 工程与平台基础 | 🟡 部分完成 | M0 | 模块分层、格式化、统一 Result/Error 和 Windows 基线可运行；静态分析、安装发布和其他平台未完成 |
 | M01 Workspace 工作空间 | ⬜ 待开始 | MVP | 只有静态 Explorer UI |
-| M02 Protocol Designer / Schema | 🚧 下一步 | MVP | Protocol Schema v0.1 YAML、固定 Primitive/string/bytes 和 Field `length`/`offset` 已完成；下一步 Length Field，可视化设计器与其他动态结构未实现 |
-| M03 Codec 编解码 | 🟡 部分完成 | MVP | 固定 Primitive/string/bytes Encode/Decode、非连续布局、padding、字节序和 round-trip 已完成；Length Field 和其他动态结构未实现 |
+| M02 Protocol Designer / Schema | 🚧 下一步 | MVP | Protocol Schema v0.1 YAML、固定 Primitive/string/bytes、Field `length`/`offset` 和最小 `lengthOf` 已完成；下一步固定 Array，可视化设计器与其他动态结构未实现 |
+| M03 Codec 编解码 | 🟡 部分完成 | MVP | 固定 Primitive/string/bytes、最小 Length Field、非连续布局、padding、字节序和 round-trip 已完成；Array/Struct/Condition 和 Checksum 尚未实现 |
 | M04 HEX Studio | 🟡 部分完成 | MVP | 已完成基础 HEX 检查和三种校验计算 |
 | M05 Transport 通信层 | 🟡 API 已建立 | MVP/P2 | 统一字节、生命周期、状态、事件和统计接口已建立；没有真实连接实现 |
 | M06 Debugger / Timeline | ⬜ 待开始 | MVP | 只有 Console/Timeline 静态布局 |
@@ -446,8 +452,8 @@ Length Field 第一阶段的完成标准：
 
 ### M02-F07 动态长度和条件字段
 
-- [ ] 🚧 `lengthOf` 自动计算：下一步先固化 Length Field 引用和范围契约。
-- [ ] Length 字段包含/排除范围规则。
+- [x] `lengthOf` 单字段引用、Decode 校验和 Encode 自动计算。
+- [x] Length 字段包含/排除规则：只计算目标 Field wire 长度，不包含 Length Field、header/trailer/checksum 或 gap。
 - [x] 固定长度验证：Primitive、string 和 bytes 已覆盖。
 - [ ] 动态 Body 长度。
 - [ ] 条件字段表达式。
@@ -456,7 +462,7 @@ Length Field 第一阶段的完成标准：
 
 ### M02-F08 Array / Struct
 
-- [ ] 固定长度数组。
+- [ ] 🚧 固定长度数组：下一步先支持固定宽度 Primitive 元素和固定 `count`。
 - [ ] Count 字段驱动数组。
 - [ ] Length 驱动数组。
 - [ ] 嵌套 Struct。
@@ -1492,13 +1498,22 @@ CI/CD
 - 固定 `bytes` 使用 `ByteBuffer`，Encode 必须精确匹配 Field length，不自动补零或截断；Decode 原样保留内部零字节。
 - 新增固定文本 golden vector，覆盖中文 UTF-8、padding、bytes、显式 gap、FieldRange 和双向 round-trip；下一步进入 Length Field。
 
+### 2026-08-27：最小 Length Field
+
+- 本地提交：见包含本记录的 `feat: support length fields` 提交。
+- `FieldDefinition` 和 Protocol Schema v0.1 YAML 已支持可选 `lengthOf`，第一阶段引用同一 Message 中一个固定 wire Field。
+- Length Field 只允许 `uint8`/`uint16`/`uint32`/`uint64`，Schema 诊断覆盖未知目标、自引用和循环依赖，并保留 YAML 源码位置。
+- Decode 校验声明值与目标 `FieldRange.length`；Encode 允许省略派生字段并自动回填，支持前置/后置 Length Field 和 Field/Protocol 字节序。
+- 长度只包含目标 Field，不包含 Length Field 自身、header、trailer、checksum 或 gap；固定 string 包含完整 NUL padding。
+- 新增独立 Length Field golden vector，覆盖 Little Endian、显式 gap、容量溢出、帧截断、FieldRange 和双向 round-trip；下一步进入固定长度 Array。
+
 ---
 
 ## 9. 下一次更新入口
 
 下次开始开发时，直接从以下功能点继续：
 
-> **M02-F07：定义并实现最小 Length Field，包括引用范围、Decode 校验、Encode 自动计算和依赖诊断**
+> **M02-F08：定义并实现固定长度 Array，包括固定宽度 Primitive 元素、固定 count、Decode/Encode 和边界诊断**
 
 完成一个功能点后：
 

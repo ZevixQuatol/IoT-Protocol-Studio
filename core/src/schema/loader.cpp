@@ -291,6 +291,15 @@ load_field(const ryml::ConstNodeRef node, const std::string_view yaml_path,
                               offset_node, parser);
         }
     }
+    if (node.has_child("lengthOf")) {
+        const auto length_of_node = node["lengthOf"];
+        const auto length_of_path = std::string{yaml_path} + ".lengthOf";
+        if (const auto error = require_scalar(length_of_node, length_of_path, parser)) {
+            return *error;
+        }
+        source_map.emplace(std::string{domain_path} + ".lengthOf", length_of_node.id());
+        field.length_of = scalar(length_of_node);
+    }
     return field;
 }
 

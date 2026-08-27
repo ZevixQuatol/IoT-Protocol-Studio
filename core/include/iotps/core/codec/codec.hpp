@@ -51,6 +51,8 @@ enum class CodecErrorCode {
     invalid_layout,
     invalid_string_encoding,
     invalid_string_padding,
+    length_value_mismatch,
+    length_value_out_of_range,
 };
 
 using CodecError = Error<CodecErrorCode>;

@@ -18,7 +18,7 @@ FieldDefinition[]
   → frame size
 ```
 
-当前支持自然宽度固定的 Primitive，以及显式声明 `length` 的固定 `string`/`bytes`。动态 Length Field、Array、Struct 和 Condition 尚未接入布局边界。
+本阶段支持自然宽度固定的 Primitive，以及显式声明 `length` 的固定 `string`/`bytes`。最小单字段 Length Field 已在后续阶段接入同一布局计划，详见 [Length Field](<./Length Field.md>)；动态目标、Array、Struct 和 Condition 尚未接入布局边界。
 
 ## 2. Schema 示例
 

@@ -417,6 +417,54 @@ messages:
               "required YAML scalar 'messages.telemetry.fields[0].type' is missing");
     }
 
+    constexpr std::string_view length_field_yaml = R"yaml(schemaVersion: "0.1"
+protocol:
+  name: length-frame
+  version: "1.0"
+messages:
+  data:
+    fields:
+      - name: bodyLength
+        type: uint16
+        lengthOf: body
+      - name: body
+        type: bytes
+        length: 4
+)yaml";
+    const auto loaded_length_field = load_yaml(length_field_yaml, "length-field.yaml");
+    CHECK(loaded_length_field.has_value());
+    if (const auto* schema = loaded_length_field.value_if()) {
+        CHECK(schema->messages[0].fields[0].length_of == "body");
+    }
+
+    constexpr std::string_view unknown_length_target = R"yaml(schemaVersion: "0.1"
+protocol:
+  name: length-frame
+  version: "1.0"
+messages:
+  data:
+    fields:
+      - name: bodyLength
+        type: uint16
+        lengthOf: missing
+      - name: body
+        type: bytes
+        length: 4
+)yaml";
+    const auto rejected_length_target =
+        load_yaml(unknown_length_target, "unknown-length-target.yaml");
+    CHECK(!rejected_length_target.has_value());
+    if (const auto* error = rejected_length_target.error_if()) {
+        CHECK(error->code == SchemaErrorCode::length_field_target_not_found);
+        CHECK(error->path == "messages[0].fields[0].lengthOf");
+        CHECK(error->source_location.has_value());
+        if (error->source_location.has_value()) {
+            CHECK(error->source_location->source == "unknown-length-target.yaml");
+            CHECK(error->source_location->line == 10);
+            CHECK(error->source_location->column == 9);
+        }
+    }
+
     const auto vector_directory = std::filesystem::path{IOTPS_TEST_VECTOR_DIR};
     const auto loaded_file = load_yaml_file(vector_directory / "smart-sensor.yaml");
     CHECK(loaded_file.has_value());

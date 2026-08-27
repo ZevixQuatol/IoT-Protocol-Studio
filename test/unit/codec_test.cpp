@@ -672,5 +672,145 @@ int main() {
     CHECK(to_string(CodecErrorCode::invalid_string_encoding) == "invalid_string_encoding");
     CHECK(to_string(CodecErrorCode::invalid_string_padding) == "invalid_string_padding");
 
+    const MessageDefinition length_field_definition{
+        .name = "length-frame",
+        .fields =
+            {
+                {.name = "header", .type = FieldType::uint8},
+                {.name = "bodyLength",
+                 .type = FieldType::uint16,
+                 .byte_order = ByteOrder::little_endian,
+                 .length_of = "body"},
+                {.name = "body", .type = FieldType::bytes, .length = 4, .offset = 4},
+                {.name = "trailer", .type = FieldType::uint8},
+            },
+    };
+    const StructuredMessage length_field_message{
+        .message_name = "length-frame",
+        .fields =
+            {
+                {.name = "header", .value = std::uint64_t{0xA5U}},
+                {.name = "body", .value = ByteBuffer{0xDEU, 0xADU, 0x00U, 0xFFU}},
+                {.name = "trailer", .value = std::uint64_t{0x5AU}},
+            },
+    };
+    const ByteBuffer length_frame_bytes{
+        0xA5U, 0x04U, 0x00U, 0x00U, 0xDEU, 0xADU, 0x00U, 0xFFU, 0x5AU,
+    };
+    const auto length_field_encoded = codec.encode(length_field_definition, length_field_message);
+    CHECK(length_field_encoded.has_value());
+    if (const auto* bytes = length_field_encoded.value_if()) {
+        CHECK(*bytes == length_frame_bytes);
+    }
+
+    auto placeholder_length_message = length_field_message;
+    placeholder_length_message.fields.push_back(
+        {.name = "bodyLength", .value = std::uint64_t{99U}});
+    const auto placeholder_length_encoded =
+        codec.encode(length_field_definition, placeholder_length_message);
+    CHECK(placeholder_length_encoded.has_value());
+    if (const auto* bytes = placeholder_length_encoded.value_if()) {
+        CHECK(*bytes == length_frame_bytes);
+    }
+
+    const auto length_field_decoded = codec.decode(length_field_definition, length_frame_bytes);
+    CHECK(length_field_decoded.has_value());
+    if (const auto* output = length_field_decoded.value_if()) {
+        CHECK(std::get<std::uint64_t>(output->message.fields[1].value) == 4U);
+        CHECK(output->field_ranges[1].offset == 1);
+        CHECK(output->field_ranges[1].length == 2);
+        CHECK(output->field_ranges[2].offset == 4);
+        CHECK(output->field_ranges[2].length == 4);
+    }
+
+    auto invalid_declared_length = length_frame_bytes;
+    invalid_declared_length[1] = 5U;
+    const auto mismatched_declared_length =
+        codec.decode(length_field_definition, invalid_declared_length);
+    CHECK(!mismatched_declared_length.has_value());
+    if (const auto* error = mismatched_declared_length.error_if()) {
+        CHECK(error->code == CodecErrorCode::length_value_mismatch);
+        CHECK(error->path == "length-frame.bodyLength");
+        CHECK(error->offset == 1);
+        CHECK(error->detail ==
+              "declared length 5 does not match target field 'body' wire length 4");
+    }
+
+    const auto truncated_length_target =
+        codec.decode(length_field_definition, ByteBuffer{0xA5U, 0x04U, 0x00U, 0x00U, 0xDEU, 0xADU});
+    CHECK(!truncated_length_target.has_value());
+    if (const auto* error = truncated_length_target.error_if()) {
+        CHECK(error->code == CodecErrorCode::insufficient_data);
+        CHECK(error->path == "length-frame.body");
+        CHECK(error->offset == 4);
+    }
+
+    const MessageDefinition trailing_length_definition{
+        .name = "trailing-length",
+        .fields =
+            {
+                {.name = "body", .type = FieldType::bytes, .length = 3},
+                {.name = "bodyLength", .type = FieldType::uint8, .length_of = "body"},
+            },
+    };
+    const StructuredMessage trailing_length_message{
+        .message_name = "trailing-length",
+        .fields = {{.name = "body", .value = ByteBuffer{0x10U, 0x20U, 0x30U}}},
+    };
+    const auto trailing_length_encoded =
+        codec.encode(trailing_length_definition, trailing_length_message);
+    CHECK(trailing_length_encoded.has_value());
+    if (const auto* bytes = trailing_length_encoded.value_if()) {
+        CHECK(*bytes == ByteBuffer({0x10U, 0x20U, 0x30U, 0x03U}));
+    }
+
+    const MessageDefinition overflowing_length_definition{
+        .name = "overflowing-length",
+        .fields =
+            {
+                {.name = "bodyLength", .type = FieldType::uint8, .length_of = "body"},
+                {.name = "body", .type = FieldType::bytes, .length = 256},
+            },
+    };
+    const StructuredMessage overflowing_length_message{
+        .message_name = "overflowing-length",
+        .fields = {},
+    };
+    const auto overflowing_length =
+        codec.encode(overflowing_length_definition, overflowing_length_message);
+    CHECK(!overflowing_length.has_value());
+    if (const auto* error = overflowing_length.error_if()) {
+        CHECK(error->code == CodecErrorCode::length_value_out_of_range);
+        CHECK(error->path == "overflowing-length.bodyLength");
+        CHECK(error->offset == 0);
+        CHECK(error->detail == "target field 'body' wire length 256 does not fit uint8");
+    }
+
+    auto unknown_length_target_definition = length_field_definition;
+    unknown_length_target_definition.fields[1].length_of = "missing";
+    const auto unknown_length_target_result =
+        codec.encode(unknown_length_target_definition, length_field_message);
+    CHECK(!unknown_length_target_result.has_value());
+    if (const auto* error = unknown_length_target_result.error_if()) {
+        CHECK(error->code == CodecErrorCode::invalid_layout);
+        CHECK(error->path == "length-frame.bodyLength");
+        CHECK(error->offset == 1);
+        CHECK(error->detail == "lengthOf references unknown field 'missing'");
+    }
+
+    auto cyclic_length_definition = trailing_length_definition;
+    cyclic_length_definition.fields[0] = {
+        .name = "firstLength", .type = FieldType::uint8, .length_of = "bodyLength"};
+    cyclic_length_definition.fields[1].length_of = "firstLength";
+    const StructuredMessage cyclic_length_message{.message_name = "trailing-length"};
+    const auto cyclic_length_result = codec.encode(cyclic_length_definition, cyclic_length_message);
+    CHECK(!cyclic_length_result.has_value());
+    if (const auto* error = cyclic_length_result.error_if()) {
+        CHECK(error->code == CodecErrorCode::invalid_layout);
+        CHECK(error->detail == "lengthOf dependency cycle");
+    }
+    CHECK(to_string(CodecErrorCode::length_value_mismatch) == "length_value_mismatch");
+    CHECK(to_string(CodecErrorCode::length_value_out_of_range) == "length_value_out_of_range");
+
     return failures == 0 ? 0 : 1;
 }

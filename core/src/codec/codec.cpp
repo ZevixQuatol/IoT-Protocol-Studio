@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <bit>
 #include <cmath>
+#include <functional>
 #include <iterator>
 #include <limits>
 #include <optional>
@@ -55,6 +56,26 @@ std::optional<std::size_t> primitive_width(const schema::FieldType type) {
         return std::nullopt;
     }
     return std::nullopt;
+}
+
+std::string_view field_type_name(const schema::FieldType type) {
+    switch (type) {
+    case schema::FieldType::uint8:
+        return "uint8";
+    case schema::FieldType::uint16:
+        return "uint16";
+    case schema::FieldType::uint32:
+        return "uint32";
+    case schema::FieldType::uint64:
+        return "uint64";
+    default:
+        return "unsupported";
+    }
+}
+
+bool is_unsigned_integer(const schema::FieldType type) {
+    return type == schema::FieldType::uint8 || type == schema::FieldType::uint16 ||
+           type == schema::FieldType::uint32 || type == schema::FieldType::uint64;
 }
 
 bool is_valid_utf8(const std::string_view value) {
@@ -333,6 +354,11 @@ struct LayoutPlan {
     std::size_t frame_size{0};
 };
 
+auto find_layout_field(const LayoutPlan& plan, const std::string_view name) {
+    return std::ranges::find_if(
+        plan.fields, [name](const LayoutField& field) { return field.definition->name == name; });
+}
+
 Result<LayoutPlan, CodecError> build_layout(const schema::MessageDefinition& definition) {
     LayoutPlan plan;
     plan.fields.reserve(definition.fields.size());
@@ -366,7 +392,89 @@ Result<LayoutPlan, CodecError> build_layout(const schema::MessageDefinition& def
         cursor = offset + length;
     }
     plan.frame_size = cursor;
+
+    std::vector<std::optional<std::size_t>> length_targets(plan.fields.size());
+    for (std::size_t field_index = 0; field_index < plan.fields.size(); ++field_index) {
+        const auto& layout_field = plan.fields[field_index];
+        const auto& field = *layout_field.definition;
+        if (!field.length_of.has_value()) {
+            continue;
+        }
+        const auto path = field_path(definition, field);
+        if (!is_unsigned_integer(field.type)) {
+            return make_error(CodecErrorCode::invalid_layout, path, layout_field.offset,
+                              "lengthOf field must use uint8, uint16, uint32, or uint64");
+        }
+        const auto target = find_layout_field(plan, *field.length_of);
+        if (target == plan.fields.end()) {
+            return make_error(CodecErrorCode::invalid_layout, path, layout_field.offset,
+                              "lengthOf references unknown field '" + *field.length_of + "'");
+        }
+        const auto target_index = static_cast<std::size_t>(target - plan.fields.begin());
+        if (target_index == field_index) {
+            return make_error(CodecErrorCode::invalid_layout, path, layout_field.offset,
+                              "lengthOf must not reference its own field");
+        }
+        length_targets[field_index] = target_index;
+    }
+
+    enum class VisitState { unvisited, visiting, visited };
+    std::vector states(plan.fields.size(), VisitState::unvisited);
+    std::function<std::optional<CodecError>(std::size_t)> visit =
+        [&](const std::size_t field_index) -> std::optional<CodecError> {
+        states[field_index] = VisitState::visiting;
+        if (const auto target = length_targets[field_index]; target.has_value()) {
+            if (states[*target] == VisitState::unvisited) {
+                if (auto error = visit(*target); error.has_value()) {
+                    return error;
+                }
+            } else if (states[*target] == VisitState::visiting) {
+                const auto& field = plan.fields[field_index];
+                return make_error(CodecErrorCode::invalid_layout,
+                                  field_path(definition, *field.definition), field.offset,
+                                  "lengthOf dependency cycle");
+            }
+        }
+        states[field_index] = VisitState::visited;
+        return std::nullopt;
+    };
+    for (std::size_t field_index = 0; field_index < plan.fields.size(); ++field_index) {
+        if (states[field_index] == VisitState::unvisited) {
+            if (auto error = visit(field_index); error.has_value()) {
+                return std::move(*error);
+            }
+        }
+    }
     return plan;
+}
+
+PrimitiveBitsResult encode_length_bits(const schema::FieldDefinition& field,
+                                       const LayoutField& target, const std::string& path,
+                                       const std::size_t offset) {
+    std::uint64_t maximum = std::numeric_limits<std::uint64_t>::max();
+    switch (field.type) {
+    case schema::FieldType::uint8:
+        maximum = std::numeric_limits<std::uint8_t>::max();
+        break;
+    case schema::FieldType::uint16:
+        maximum = std::numeric_limits<std::uint16_t>::max();
+        break;
+    case schema::FieldType::uint32:
+        maximum = std::numeric_limits<std::uint32_t>::max();
+        break;
+    case schema::FieldType::uint64:
+        break;
+    default:
+        return make_error(CodecErrorCode::invalid_layout, path, offset,
+                          "lengthOf field must use uint8, uint16, uint32, or uint64");
+    }
+    if (!std::in_range<std::uint64_t>(target.length) || target.length > maximum) {
+        return make_error(CodecErrorCode::length_value_out_of_range, path, offset,
+                          "target field '" + target.definition->name + "' wire length " +
+                              std::to_string(target.length) + " does not fit " +
+                              std::string{field_type_name(field.type)});
+    }
+    return static_cast<std::uint64_t>(target.length);
 }
 
 } // namespace
@@ -390,15 +498,30 @@ EncodeResult FixedLayoutCodec::encode(const schema::MessageDefinition& definitio
 
         const auto value = std::ranges::find_if(
             message.fields, [&field](const FieldValue& item) { return item.name == field.name; });
-        if (value == message.fields.end()) {
-            return make_error(CodecErrorCode::missing_field, path, layout_field.offset,
-                              "required field is missing");
-        }
         const auto occurrences = std::ranges::count_if(
             message.fields, [&field](const FieldValue& item) { return item.name == field.name; });
         if (occurrences > 1) {
             return make_error(CodecErrorCode::duplicate_field, path, layout_field.offset,
                               "field appears more than once");
+        }
+
+        if (field.length_of.has_value()) {
+            const auto target = find_layout_field(layout.value(), *field.length_of);
+            auto bits = encode_length_bits(field, *target, path, layout_field.offset);
+            if (!bits.has_value()) {
+                return std::move(bits).error();
+            }
+            ByteBuffer encoded_field;
+            encoded_field.reserve(layout_field.length);
+            append_unsigned(encoded_field, bits.value(), layout_field.length,
+                            field.byte_order.value_or(default_byte_order));
+            std::ranges::copy(encoded_field, bytes.begin() + layout_field.offset);
+            continue;
+        }
+
+        if (value == message.fields.end()) {
+            return make_error(CodecErrorCode::missing_field, path, layout_field.offset,
+                              "required field is missing");
         }
 
         if (field.type == schema::FieldType::string || field.type == schema::FieldType::bytes) {
@@ -492,6 +615,24 @@ DecodeResult FixedLayoutCodec::decode(const schema::MessageDefinition& definitio
                           std::to_string(trailing) + (trailing == 1 ? " trailing byte remains"
                                                                     : " trailing bytes remain"));
     }
+
+    for (const auto& layout_field : layout.value().fields) {
+        const auto& field = *layout_field.definition;
+        if (!field.length_of.has_value()) {
+            continue;
+        }
+        const auto target = find_layout_field(layout.value(), *field.length_of);
+        const auto declared = read_unsigned(bytes, layout_field.offset, layout_field.length,
+                                            field.byte_order.value_or(default_byte_order));
+        if (!std::in_range<std::uint64_t>(target->length) ||
+            declared != static_cast<std::uint64_t>(target->length)) {
+            return make_error(CodecErrorCode::length_value_mismatch, field_path(definition, field),
+                              layout_field.offset,
+                              "declared length " + std::to_string(declared) +
+                                  " does not match target field '" + target->definition->name +
+                                  "' wire length " + std::to_string(target->length));
+        }
+    }
     return decoded;
 }
 
@@ -521,6 +662,10 @@ std::string_view to_string(const CodecErrorCode code) noexcept {
         return "invalid_string_encoding";
     case CodecErrorCode::invalid_string_padding:
         return "invalid_string_padding";
+    case CodecErrorCode::length_value_mismatch:
+        return "length_value_mismatch";
+    case CodecErrorCode::length_value_out_of_range:
+        return "length_value_out_of_range";
     }
     return "unknown";
 }

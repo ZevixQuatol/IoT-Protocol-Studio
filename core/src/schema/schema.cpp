@@ -1,5 +1,6 @@
 #include "iotps/core/schema/schema.hpp"
 
+#include <functional>
 #include <limits>
 #include <string>
 #include <unordered_map>
@@ -50,6 +51,11 @@ std::optional<std::size_t> fixed_width(const FieldDefinition& field) {
         return field.length.value_or(*width);
     }
     return field.length;
+}
+
+bool is_unsigned_integer(const FieldType type) {
+    return type == FieldType::uint8 || type == FieldType::uint16 || type == FieldType::uint32 ||
+           type == FieldType::uint64;
 }
 
 } // namespace
@@ -120,6 +126,48 @@ SchemaValidation validate(const ProtocolSchema& schema) {
                 *field.offset > std::numeric_limits<std::size_t>::max() - *effective_length) {
                 add_diagnostic(validation, SchemaErrorCode::field_offset_overflow,
                                field_path(message_index, field_index, "offset"));
+            }
+        }
+
+        std::vector<std::optional<std::size_t>> length_targets(message.fields.size());
+        for (std::size_t field_index = 0; field_index < message.fields.size(); ++field_index) {
+            const auto& field = message.fields[field_index];
+            if (!field.length_of.has_value()) {
+                continue;
+            }
+            const auto path = field_path(message_index, field_index, "lengthOf");
+            if (!is_unsigned_integer(field.type)) {
+                add_diagnostic(validation, SchemaErrorCode::length_field_type_unsupported, path);
+            }
+            const auto target = field_names.find(*field.length_of);
+            if (target == field_names.end()) {
+                add_diagnostic(validation, SchemaErrorCode::length_field_target_not_found, path);
+                continue;
+            }
+            if (target->second == field_index) {
+                add_diagnostic(validation, SchemaErrorCode::length_field_self_reference, path);
+                continue;
+            }
+            length_targets[field_index] = target->second;
+        }
+
+        enum class VisitState { unvisited, visiting, visited };
+        std::vector states(message.fields.size(), VisitState::unvisited);
+        std::function<void(std::size_t)> visit = [&](const std::size_t field_index) {
+            states[field_index] = VisitState::visiting;
+            if (const auto target = length_targets[field_index]; target.has_value()) {
+                if (states[*target] == VisitState::unvisited) {
+                    visit(*target);
+                } else if (states[*target] == VisitState::visiting) {
+                    add_diagnostic(validation, SchemaErrorCode::length_field_dependency_cycle,
+                                   field_path(message_index, field_index, "lengthOf"));
+                }
+            }
+            states[field_index] = VisitState::visited;
+        };
+        for (std::size_t field_index = 0; field_index < message.fields.size(); ++field_index) {
+            if (states[field_index] == VisitState::unvisited) {
+                visit(field_index);
             }
         }
 
@@ -201,6 +249,14 @@ std::string_view to_string(const SchemaErrorCode code) noexcept {
         return "field_offset_overflow";
     case SchemaErrorCode::field_layout_overlap:
         return "field_layout_overlap";
+    case SchemaErrorCode::length_field_type_unsupported:
+        return "length_field_type_unsupported";
+    case SchemaErrorCode::length_field_target_not_found:
+        return "length_field_target_not_found";
+    case SchemaErrorCode::length_field_self_reference:
+        return "length_field_self_reference";
+    case SchemaErrorCode::length_field_dependency_cycle:
+        return "length_field_dependency_cycle";
     case SchemaErrorCode::checksum_field_not_found:
         return "checksum_field_not_found";
     }

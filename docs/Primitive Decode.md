@@ -1,10 +1,10 @@
 # Primitive Decode
 
-> 状态：固定布局 Primitive、String、Bytes Decode 已实现  
+> 状态：固定布局 Primitive、String、Bytes 与最小 Length Field Decode 已实现
 > 更新日期：2026-08-27  
 > 适用入口：`iotps/core/codec/codec.hpp`
 
-相关文档：[Protocol Schema v0.1](<./Protocol Schema v0.1.md>) · [固定长度 String 与 Bytes](<./固定长度 String 与 Bytes.md>) · [Core 模块架构](<./Core 模块架构.md>) · [功能清单与开发进度](<./IoT Protocol Studio 功能清单与开发进度.md>)
+相关文档：[Protocol Schema v0.1](<./Protocol Schema v0.1.md>) · [固定长度 String 与 Bytes](<./固定长度 String 与 Bytes.md>) · [Length Field](<./Length Field.md>) · [Core 模块架构](<./Core 模块架构.md>) · [功能清单与开发进度](<./IoT Protocol Studio 功能清单与开发进度.md>)
 
 ## 1. 范围
 
@@ -20,7 +20,7 @@ Protocol 默认字节序
   → FieldRange
 ```
 
-当前处理固定宽度 Primitive 和显式 `length` 的固定 UTF-8 `string`/`bytes`，并支持固定 `offset`。动态 string/bytes、BCD、timestamp、Enum、BitField、Array、Struct、Condition、Length Field 和 Checksum 不在本阶段。
+当前处理固定宽度 Primitive、显式 `length` 的固定 UTF-8 `string`/`bytes` 和引用单个固定 Field 的 `lengthOf`，并支持固定 `offset`。动态 string/bytes、连续 Length Range、BCD、timestamp、Enum、BitField、Array、Struct、Condition 和 Checksum 不在本阶段。
 
 ## 2. 公共 API
 
@@ -101,6 +101,7 @@ FieldRange
 | `value_out_of_range` | bool 字节不是 `0` 或 `1` | `<message>.<field>` | 字段起点 |
 | `invalid_string_encoding` | string 字段不是有效 UTF-8 | `<message>.<field>` | 字段起点 |
 | `invalid_string_padding` | 首个 NUL 后出现非零字节 | `<message>.<field>` | 首个违规字节 |
+| `length_value_mismatch` | Length 声明值不等于目标 Field 的 wire 长度 | `<message>.<length-field>` | Length Field 起点 |
 | `unexpected_data` | 所有字段完成后仍有未消费字节 | `<message>` | 首个剩余字节 |
 | `invalid_layout` | 手工构造的 MessageDefinition 包含缺失/零长度、宽度不匹配、溢出或重叠 | `<message>.<field>` | 非法字段起点 |
 
@@ -127,6 +128,8 @@ FieldRange
 
 固定文本集成向量 `test/vectors/fixed-text-frame.*` 另外覆盖 UTF-8 中文、NUL padding、内部零 bytes、显式 gap 和精确 FieldRange。
 
+Length Field 集成向量 `test/vectors/length-field-frame.*` 另外覆盖声明值校验、Little Endian、目标 Field wire 范围、显式 gap 和 Encode/Decode round-trip。
+
 ## 8. 后续阶段
 
 固定长度 Primitive Encode 已完成，具体契约见 [Primitive Encode](<./Primitive Encode.md>)：
@@ -140,4 +143,4 @@ StructuredMessage
   → Decode(Encode(Object)) == Object
 ```
 
-固定长度 `string`/`bytes` 契约已经完成，详见 [固定长度 String 与 Bytes](<./固定长度 String 与 Bytes.md>)。下一阶段进入最小 Length Field，再扩展其他动态结构。
+固定长度 `string`/`bytes` 与最小 Length Field 契约已经完成，详见 [固定长度 String 与 Bytes](<./固定长度 String 与 Bytes.md>) 和 [Length Field](<./Length Field.md>)。下一阶段进入固定长度 Array，再扩展其他动态结构。
