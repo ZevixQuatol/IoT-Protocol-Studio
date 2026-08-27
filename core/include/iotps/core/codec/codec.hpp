@@ -48,6 +48,7 @@ enum class CodecErrorCode {
     insufficient_data,
     unexpected_data,
     unsupported_field_type,
+    invalid_layout,
 };
 
 using CodecError = Error<CodecErrorCode>;

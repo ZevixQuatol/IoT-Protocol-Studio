@@ -1,7 +1,7 @@
 # Protocol Schema v0.1
 
 > 状态：已实现的基础格式  
-> 更新日期：2026-08-22  
+> 更新日期：2026-08-27  
 > 适用入口：C++ Core、`iotps schema validate`
 
 相关文档：[Core 模块架构](<./Core 模块架构.md>) · [功能清单与开发进度](<./IoT Protocol Studio 功能清单与开发进度.md>) · [SmartSensor 示例](./examples/SmartSensor.protocol.yaml)
@@ -18,7 +18,7 @@ YAML 文件
   → 稳定错误码、字段路径和源码位置
 ```
 
-v0.1 当前只覆盖 Protocol、Message、基础 Field 和 Checksum 的最小模型；Length、Offset、Struct、Array、Enum、BitField、Condition、动态校验范围和 Schema 写回不在本阶段。
+v0.1 当前覆盖 Protocol、Message、基础 Field、固定 `length`/`offset` 和 Checksum 的最小模型。固定布局目前只适用于固定宽度 Primitive；Length Field、Struct、Array、Enum、BitField、Condition、动态校验范围和 Schema 写回仍不在本阶段。
 
 ## 2. YAML 依赖
 
@@ -55,10 +55,14 @@ messages:
       - name: command
         displayName: Command
         type: uint8
+        length: 1
+        offset: 0
       - name: temperature
         displayName: Temperature
         type: int16
         endian: little
+        length: 2
+        offset: 2
       - name: checksum
         type: uint16
     checksum:
@@ -107,6 +111,10 @@ messages:
 | `displayName` | scalar | 否 | 空字符串 |
 | `type` | scalar | 是 | 可选值见下文 |
 | `endian` | scalar | 否 | 未设置时由 Codec 使用 Protocol 默认字节序 |
+| `length` | unsigned integer scalar | 否 | 固定 Primitive 默认使用类型自然宽度；显式值必须大于 0 且等于自然宽度 |
+| `offset` | unsigned integer scalar | 否 | 默认使用前一字段结束位置；显式值不得小于当前布局游标 |
+
+固定布局按 Field 定义顺序计算。省略 `offset` 时字段紧接当前游标；显式 `offset` 大于当前游标时形成 gap。Decode 跳过 gap，Encode 使用 `0x00` 填充，字段的 `FieldRange` 不包含 padding。`offset + length` 不得溢出，最后一个字段的结束位置就是固定帧长度，帧后仍有字节时 Codec 返回尾随数据错误。
 
 ### 4.5 Checksum
 
@@ -177,7 +185,7 @@ SchemaLoadResult load_yaml_file(const std::filesystem::path& path);
 | 文件 I/O | `file_open_failed`、`file_read_failed` |
 | YAML 语法/形状 | `yaml_parse_error`、`yaml_required_node_missing`、`yaml_node_type_mismatch` |
 | YAML 标量映射 | `yaml_invalid_scalar`、`yaml_unknown_field_type`、`yaml_unknown_byte_order` |
-| 领域规则 | `unsupported_schema_version`、`duplicate_message_type_id`、`checksum_field_not_found` |
+| 领域规则 | `unsupported_schema_version`、`duplicate_message_type_id`、`field_length_zero`、`field_length_mismatch`、`field_offset_overflow`、`field_layout_overlap`、`checksum_field_not_found` |
 
 加载器只返回第一个阻止建立稳定领域模型的错误。后续 Protocol Designer 的 Problems 功能可以在模型建立成功后扩展为多诊断展示。
 
@@ -216,5 +224,6 @@ Messages: 1
 - 用户示例：`docs/examples/SmartSensor.protocol.yaml`。
 - 合法向量：`test/vectors/smart-sensor.yaml`。
 - 非法向量：`test/vectors/invalid-schema.yaml`。
-- 单元测试：合法映射、YAML 语法错误、节点形状、必填字段、非法标量、未知枚举、重复 Type ID、文件加载和源码位置。
+- 单元测试：合法映射、固定 `length`/`offset`、YAML 语法错误、节点形状、必填字段、非法标量、未知枚举、重复 Type ID、非法长度、布局重叠、溢出、文件加载和源码位置。
+- 固定布局向量：`test/vectors/primitive-frame.schema.yaml`，覆盖显式 gap、Protocol 默认字节序、Field 字节序覆盖和 Encode/Decode round-trip。
 - CLI 测试：合法向量成功、非法向量失败。

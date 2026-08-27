@@ -5,8 +5,10 @@
 #include <cmath>
 #include <limits>
 #include <optional>
+#include <string>
 #include <type_traits>
 #include <utility>
+#include <vector>
 
 namespace iotps::core::codec {
 namespace {
@@ -207,6 +209,53 @@ ScalarValue decode_primitive(const schema::FieldType type, const std::uint64_t b
     return std::uint64_t{0};
 }
 
+struct LayoutField {
+    const schema::FieldDefinition* definition;
+    std::size_t offset;
+    std::size_t length;
+};
+
+struct LayoutPlan {
+    std::vector<LayoutField> fields;
+    std::size_t frame_size{0};
+};
+
+Result<LayoutPlan, CodecError> build_layout(const schema::MessageDefinition& definition) {
+    LayoutPlan plan;
+    plan.fields.reserve(definition.fields.size());
+    std::size_t cursor = 0;
+    for (const auto& field : definition.fields) {
+        const auto path = field_path(definition, field);
+        const auto width = primitive_width(field.type);
+        if (!width.has_value()) {
+            return make_error(CodecErrorCode::unsupported_field_type, path, cursor,
+                              "field type is not a fixed-width primitive");
+        }
+        if (field.length.has_value() && *field.length == 0) {
+            return make_error(CodecErrorCode::invalid_layout, path, field.offset.value_or(cursor),
+                              "field length must be greater than zero");
+        }
+        const auto length = field.length.value_or(*width);
+        if (length != *width) {
+            return make_error(CodecErrorCode::invalid_layout, path, field.offset.value_or(cursor),
+                              "field length must match fixed-width primitive size");
+        }
+        const auto offset = field.offset.value_or(cursor);
+        if (offset > std::numeric_limits<std::size_t>::max() - length) {
+            return make_error(CodecErrorCode::invalid_layout, path, offset,
+                              "field offset and length overflow");
+        }
+        if (offset < cursor) {
+            return make_error(CodecErrorCode::invalid_layout, path, offset,
+                              "field layout overlaps the previous field");
+        }
+        plan.fields.push_back({.definition = &field, .offset = offset, .length = length});
+        cursor = offset + length;
+    }
+    plan.frame_size = cursor;
+    return plan;
+}
+
 } // namespace
 
 EncodeResult FixedLayoutCodec::encode(const schema::MessageDefinition& definition,
@@ -216,34 +265,38 @@ EncodeResult FixedLayoutCodec::encode(const schema::MessageDefinition& definitio
         return make_error(CodecErrorCode::message_name_mismatch, "messageName", 0);
     }
 
-    ByteBuffer bytes;
-    bytes.reserve(definition.fields.size());
-    for (const auto& field : definition.fields) {
+    auto layout = build_layout(definition);
+    if (!layout.has_value()) {
+        return std::move(layout).error();
+    }
+
+    ByteBuffer bytes(layout.value().frame_size, 0U);
+    for (const auto& layout_field : layout.value().fields) {
+        const auto& field = *layout_field.definition;
         const auto path = field_path(definition, field);
-        const auto width = primitive_width(field.type);
-        if (!width.has_value()) {
-            return make_error(CodecErrorCode::unsupported_field_type, path, bytes.size(),
-                              "field type is not a fixed-width primitive");
-        }
 
         const auto value = std::ranges::find_if(
             message.fields, [&field](const FieldValue& item) { return item.name == field.name; });
         if (value == message.fields.end()) {
-            return make_error(CodecErrorCode::missing_field, path, bytes.size(),
+            return make_error(CodecErrorCode::missing_field, path, layout_field.offset,
                               "required field is missing");
         }
         const auto occurrences = std::ranges::count_if(
             message.fields, [&field](const FieldValue& item) { return item.name == field.name; });
         if (occurrences > 1) {
-            return make_error(CodecErrorCode::duplicate_field, path, bytes.size(),
+            return make_error(CodecErrorCode::duplicate_field, path, layout_field.offset,
                               "field appears more than once");
         }
 
-        auto bits = encode_primitive_bits(field.type, value->value, path, bytes.size());
+        auto bits = encode_primitive_bits(field.type, value->value, path, layout_field.offset);
         if (!bits.has_value()) {
             return std::move(bits).error();
         }
-        append_unsigned(bytes, bits.value(), *width, field.byte_order.value_or(default_byte_order));
+        ByteBuffer encoded_field;
+        encoded_field.reserve(layout_field.length);
+        append_unsigned(encoded_field, bits.value(), layout_field.length,
+                        field.byte_order.value_or(default_byte_order));
+        std::ranges::copy(encoded_field, bytes.begin() + layout_field.offset);
     }
 
     for (const auto& value : message.fields) {
@@ -253,7 +306,8 @@ EncodeResult FixedLayoutCodec::encode(const schema::MessageDefinition& definitio
             });
         if (definition_field == definition.fields.end()) {
             return make_error(CodecErrorCode::unexpected_field, definition.name + "." + value.name,
-                              bytes.size(), "field is not defined by the message schema");
+                              layout.value().frame_size,
+                              "field is not defined by the message schema");
         }
     }
 
@@ -267,36 +321,40 @@ DecodeResult FixedLayoutCodec::decode(const schema::MessageDefinition& definitio
     decoded.message.fields.reserve(definition.fields.size());
     decoded.field_ranges.reserve(definition.fields.size());
 
-    std::size_t offset = 0;
-    for (const auto& field : definition.fields) {
+    auto layout = build_layout(definition);
+    if (!layout.has_value()) {
+        return std::move(layout).error();
+    }
+
+    for (const auto& layout_field : layout.value().fields) {
+        const auto& field = *layout_field.definition;
         const auto path = field_path(definition, field);
-        const auto width = primitive_width(field.type);
-        if (!width.has_value()) {
-            return make_error(CodecErrorCode::unsupported_field_type, path, offset,
-                              "field type is not a fixed-width primitive");
-        }
-        if (offset > bytes.size() || bytes.size() - offset < *width) {
-            const auto remaining = offset <= bytes.size() ? bytes.size() - offset : 0;
-            return make_error(CodecErrorCode::insufficient_data, path, offset,
-                              "field requires " + std::to_string(*width) + " bytes but only " +
-                                  std::to_string(remaining) + " remain");
+        if (layout_field.offset > bytes.size() ||
+            bytes.size() - layout_field.offset < layout_field.length) {
+            const auto remaining =
+                layout_field.offset <= bytes.size() ? bytes.size() - layout_field.offset : 0;
+            return make_error(CodecErrorCode::insufficient_data, path, layout_field.offset,
+                              "field requires " + std::to_string(layout_field.length) +
+                                  " bytes but only " + std::to_string(remaining) + " remain");
         }
 
         const auto byte_order = field.byte_order.value_or(default_byte_order);
-        const auto bits = read_unsigned(bytes, offset, *width, byte_order);
+        const auto bits =
+            read_unsigned(bytes, layout_field.offset, layout_field.length, byte_order);
         if (field.type == schema::FieldType::boolean && bits > 1U) {
-            return make_error(CodecErrorCode::value_out_of_range, path, offset,
+            return make_error(CodecErrorCode::value_out_of_range, path, layout_field.offset,
                               "boolean byte must be 0 or 1");
         }
         auto decoded_value = decode_primitive(field.type, bits);
         decoded.message.fields.push_back({.name = field.name, .value = std::move(decoded_value)});
-        decoded.field_ranges.push_back({.path = path, .offset = offset, .length = *width});
-        offset += *width;
+        decoded.field_ranges.push_back(
+            {.path = path, .offset = layout_field.offset, .length = layout_field.length});
     }
 
-    if (offset != bytes.size()) {
-        const auto trailing = bytes.size() - offset;
-        return make_error(CodecErrorCode::unexpected_data, definition.name, offset,
+    if (layout.value().frame_size != bytes.size()) {
+        const auto trailing = bytes.size() - layout.value().frame_size;
+        return make_error(CodecErrorCode::unexpected_data, definition.name,
+                          layout.value().frame_size,
                           std::to_string(trailing) + (trailing == 1 ? " trailing byte remains"
                                                                     : " trailing bytes remain"));
     }
@@ -323,6 +381,8 @@ std::string_view to_string(const CodecErrorCode code) noexcept {
         return "unexpected_data";
     case CodecErrorCode::unsupported_field_type:
         return "unsupported_field_type";
+    case CodecErrorCode::invalid_layout:
+        return "invalid_layout";
     }
     return "unknown";
 }

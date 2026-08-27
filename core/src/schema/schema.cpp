@@ -1,5 +1,6 @@
 #include "iotps/core/schema/schema.hpp"
 
+#include <limits>
 #include <string>
 #include <unordered_map>
 
@@ -18,6 +19,30 @@ std::string field_path(const std::size_t message_index, const std::size_t field_
                        const std::string_view suffix) {
     return "messages[" + std::to_string(message_index) + "].fields[" + std::to_string(field_index) +
            "]." + std::string{suffix};
+}
+
+std::optional<std::size_t> primitive_width(const FieldType type) {
+    switch (type) {
+    case FieldType::boolean:
+    case FieldType::int8:
+    case FieldType::uint8:
+        return 1;
+    case FieldType::int16:
+    case FieldType::uint16:
+        return 2;
+    case FieldType::int32:
+    case FieldType::uint32:
+    case FieldType::float32:
+        return 4;
+    case FieldType::int64:
+    case FieldType::uint64:
+    case FieldType::float64:
+        return 8;
+    case FieldType::bytes:
+    case FieldType::string:
+        return std::nullopt;
+    }
+    return std::nullopt;
 }
 
 } // namespace
@@ -67,6 +92,43 @@ SchemaValidation validate(const ProtocolSchema& schema) {
                 add_diagnostic(validation, SchemaErrorCode::duplicate_field_name,
                                field_path(message_index, field_index, "name"));
             }
+
+            if (field.length.has_value() && *field.length == 0) {
+                add_diagnostic(validation, SchemaErrorCode::field_length_zero,
+                               field_path(message_index, field_index, "length"));
+            }
+
+            const auto width = primitive_width(field.type);
+            if (field.length.has_value() && width.has_value() && *field.length != *width) {
+                add_diagnostic(validation, SchemaErrorCode::field_length_mismatch,
+                               field_path(message_index, field_index, "length"));
+            }
+
+            const auto effective_length = field.length.has_value() ? field.length : width;
+            if (field.offset.has_value() && effective_length.has_value() &&
+                *field.offset > std::numeric_limits<std::size_t>::max() - *effective_length) {
+                add_diagnostic(validation, SchemaErrorCode::field_offset_overflow,
+                               field_path(message_index, field_index, "offset"));
+            }
+        }
+
+        std::size_t cursor = 0;
+        for (std::size_t field_index = 0; field_index < message.fields.size(); ++field_index) {
+            const auto& field = message.fields[field_index];
+            const auto width = primitive_width(field.type);
+            if (!width.has_value()) {
+                continue;
+            }
+            const auto length = field.length.value_or(*width);
+            const auto offset = field.offset.value_or(cursor);
+            if (offset > std::numeric_limits<std::size_t>::max() - length) {
+                continue;
+            }
+            if (offset < cursor) {
+                add_diagnostic(validation, SchemaErrorCode::field_layout_overlap,
+                               field_path(message_index, field_index, "offset"));
+            }
+            cursor = offset + length;
         }
 
         if (message.checksum.has_value() && !field_names.contains(message.checksum->target_field)) {
@@ -118,6 +180,14 @@ std::string_view to_string(const SchemaErrorCode code) noexcept {
         return "empty_field_name";
     case SchemaErrorCode::duplicate_field_name:
         return "duplicate_field_name";
+    case SchemaErrorCode::field_length_zero:
+        return "field_length_zero";
+    case SchemaErrorCode::field_length_mismatch:
+        return "field_length_mismatch";
+    case SchemaErrorCode::field_offset_overflow:
+        return "field_offset_overflow";
+    case SchemaErrorCode::field_layout_overlap:
+        return "field_layout_overlap";
     case SchemaErrorCode::checksum_field_not_found:
         return "checksum_field_not_found";
     }

@@ -2,6 +2,7 @@
 
 #include "iotps/core/result.hpp"
 
+#include <cstddef>
 #include <cstdint>
 #include <optional>
 #include <string>
@@ -53,6 +54,8 @@ struct FieldDefinition {
     std::string display_name;
     FieldType type{FieldType::uint8};
     std::optional<ByteOrder> byte_order;
+    std::optional<std::size_t> length;
+    std::optional<std::size_t> offset;
 };
 
 struct ChecksumDefinition {
@@ -95,6 +98,10 @@ enum class SchemaErrorCode {
     duplicate_message_type_id,
     empty_field_name,
     duplicate_field_name,
+    field_length_zero,
+    field_length_mismatch,
+    field_offset_overflow,
+    field_layout_overlap,
     checksum_field_not_found,
 };
 

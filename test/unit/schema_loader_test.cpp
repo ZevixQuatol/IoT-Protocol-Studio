@@ -32,10 +32,14 @@ messages:
       - name: command
         displayName: Command
         type: uint8
+        length: 1
+        offset: 0
       - name: temperature
         displayName: Temperature
         type: int16
         endian: little
+        length: 2
+        offset: 2
       - name: checksum
         type: uint16
     checksum:
@@ -67,8 +71,14 @@ int main() {
             CHECK(message.type_id == 1);
             CHECK(message.fields.size() == 3);
             CHECK(message.fields[0].type == FieldType::uint8);
+            CHECK(message.fields[0].length == 1);
+            CHECK(message.fields[0].offset == 0);
             CHECK(message.fields[1].type == FieldType::int16);
             CHECK(message.fields[1].byte_order == ByteOrder::little_endian);
+            CHECK(message.fields[1].length == 2);
+            CHECK(message.fields[1].offset == 2);
+            CHECK(!message.fields[2].length.has_value());
+            CHECK(!message.fields[2].offset.has_value());
             CHECK(message.checksum.has_value());
             if (message.checksum.has_value()) {
                 CHECK(message.checksum->algorithm == ChecksumAlgorithm::crc16_modbus);
@@ -220,6 +230,54 @@ messages:
         CHECK(error->path == "messages.telemetry.typeId");
         CHECK(error->detail ==
               "YAML scalar 'messages.telemetry.typeId' must be an unsigned integer");
+    }
+
+    constexpr std::string_view invalid_field_length = R"yaml(schemaVersion: "0.1"
+protocol:
+  name: smart-sensor
+  version: "1.0"
+messages:
+  telemetry:
+    fields:
+      - name: command
+        type: uint8
+        length: -1
+)yaml";
+    const auto invalid_length = load_yaml(invalid_field_length, "invalid-field-length.yaml");
+    CHECK(!invalid_length.has_value());
+    if (const auto* error = invalid_length.error_if()) {
+        CHECK(error->code == SchemaErrorCode::yaml_invalid_scalar);
+        CHECK(error->path == "messages.telemetry.fields[0].length");
+        CHECK(error->detail ==
+              "YAML scalar 'messages.telemetry.fields[0].length' must be an unsigned integer");
+    }
+
+    constexpr std::string_view overlapping_field_layout = R"yaml(schemaVersion: "0.1"
+protocol:
+  name: smart-sensor
+  version: "1.0"
+messages:
+  telemetry:
+    fields:
+      - name: header
+        type: uint8
+      - name: value
+        type: uint16
+        length: 2
+        offset: 0
+)yaml";
+    const auto overlapping_layout =
+        load_yaml(overlapping_field_layout, "overlapping-field-layout.yaml");
+    CHECK(!overlapping_layout.has_value());
+    if (const auto* error = overlapping_layout.error_if()) {
+        CHECK(error->code == SchemaErrorCode::field_layout_overlap);
+        CHECK(error->path == "messages[0].fields[1].offset");
+        CHECK(error->source_location.has_value());
+        if (error->source_location.has_value()) {
+            CHECK(error->source_location->source == "overlapping-field-layout.yaml");
+            CHECK(error->source_location->line == 13);
+            CHECK(error->source_location->column == 9);
+        }
     }
 
     constexpr std::string_view duplicate_type_id = R"yaml(schemaVersion: "0.1"

@@ -251,6 +251,42 @@ load_field(const ryml::ConstNodeRef node, const std::string_view yaml_path,
         }
         field.byte_order = order.value();
     }
+    if (node.has_child("length")) {
+        const auto length_node = node["length"];
+        const auto length_path = std::string{yaml_path} + ".length";
+        if (const auto error = require_scalar(length_node, length_path, parser)) {
+            return *error;
+        }
+        source_map.emplace(std::string{domain_path} + ".length", length_node.id());
+        auto length = unsigned_integer(length_node, length_path, parser);
+        if (const auto* error = length.error_if()) {
+            return *error;
+        }
+        field.length = static_cast<std::size_t>(length.value());
+        if (length.value() != field.length.value()) {
+            return make_error(SchemaErrorCode::yaml_invalid_scalar, length_path,
+                              "YAML scalar '" + length_path + "' is outside size_t range",
+                              length_node, parser);
+        }
+    }
+    if (node.has_child("offset")) {
+        const auto offset_node = node["offset"];
+        const auto offset_path = std::string{yaml_path} + ".offset";
+        if (const auto error = require_scalar(offset_node, offset_path, parser)) {
+            return *error;
+        }
+        source_map.emplace(std::string{domain_path} + ".offset", offset_node.id());
+        auto offset = unsigned_integer(offset_node, offset_path, parser);
+        if (const auto* error = offset.error_if()) {
+            return *error;
+        }
+        field.offset = static_cast<std::size_t>(offset.value());
+        if (offset.value() != field.offset.value()) {
+            return make_error(SchemaErrorCode::yaml_invalid_scalar, offset_path,
+                              "YAML scalar '" + offset_path + "' is outside size_t range",
+                              offset_node, parser);
+        }
+    }
     return field;
 }
 

@@ -1,7 +1,7 @@
 # Primitive Decode
 
-> 状态：固定布局基础类型 Decode 已实现
-> 更新日期：2026-08-22
+> 状态：固定布局基础类型 Decode 与显式 Field 布局已实现  
+> 更新日期：2026-08-27  
 > 适用入口：`iotps/core/codec/codec.hpp`
 
 相关文档：[Protocol Schema v0.1](<./Protocol Schema v0.1.md>) · [Core 模块架构](<./Core 模块架构.md>) · [功能清单与开发进度](<./IoT Protocol Studio 功能清单与开发进度.md>)
@@ -14,13 +14,13 @@
 Protocol 默认字节序
   + MessageDefinition
   + ByteBuffer
-  → 按字段顺序读取
+  → 计算共享固定布局并按位置读取
   → Field endian 覆盖
   → ScalarValue
   → FieldRange
 ```
 
-当前只处理固定宽度基础类型。显式 offset、字符串、动态 bytes、BCD、timestamp、Enum、BitField、Array、Struct、Condition、Length 和 Checksum 不在本阶段。
+当前只处理固定宽度基础类型，并支持固定 `length`/`offset`。字符串、动态 bytes、BCD、timestamp、Enum、BitField、Array、Struct、Condition、Length Field 和 Checksum 不在本阶段。
 
 ## 2. 公共 API
 
@@ -89,7 +89,7 @@ FieldRange
 └── length     字段实际消费的字节数
 ```
 
-字段按 Schema 中的定义顺序读取，`FieldValue` 与 `FieldRange` 使用相同索引一一对应。当前不跳过 padding，也不支持显式 offset。
+字段按 Schema 中的定义顺序读取，`FieldValue` 与 `FieldRange` 使用相同索引一一对应。省略 `offset` 时字段从当前游标开始；显式 `offset` 大于游标时，Decode 跳过中间的 padding。`FieldRange` 只覆盖字段自身，不覆盖 gap。固定 Primitive 的显式 `length` 必须等于类型自然宽度。
 
 ## 6. 错误契约
 
@@ -99,6 +99,7 @@ FieldRange
 | `insufficient_data` | 剩余字节不足以读取完整字段 | `<message>.<field>` | 字段起点 |
 | `value_out_of_range` | bool 字节不是 `0` 或 `1` | `<message>.<field>` | 字段起点 |
 | `unexpected_data` | 所有字段完成后仍有未消费字节 | `<message>` | 首个剩余字节 |
+| `invalid_layout` | 手工构造的 MessageDefinition 包含零长度、宽度不匹配、溢出或重叠 | `<message>.<field>` | 非法字段起点 |
 
 错误 `detail` 会说明期望宽度、剩余宽度、非法布尔值规则或尾随字节数量。Decode 返回第一个阻止稳定解析的错误。
 
@@ -114,6 +115,7 @@ FieldRange
 
 - Protocol 默认 Little Endian。
 - Field 覆盖 Big Endian。
+- 显式 `offset` 形成的非连续布局和 padding。
 - bool、int8、uint16、int16、uint32、float32 和 float64。
 - 正负数、跨字节值和字段范围。
 - `Schema YAML → HEX → Decode → expected` 完整公共链路。
@@ -133,4 +135,4 @@ StructuredMessage
   → Decode(Encode(Object)) == Object
 ```
 
-下一阶段先扩展固定布局 Field `length`/`offset`、重叠诊断和 padding，再实现字符串/bytes 的长度规则与动态结构，避免在缺少明确边界语义时猜测数据范围。
+下一阶段实现固定长度 `string`/`bytes` 的 Decode/Encode 契约，包括编码、填充和截断规则；之后再进入 Length Field 与动态结构。

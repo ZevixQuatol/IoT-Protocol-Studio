@@ -9,10 +9,14 @@ messages:
     fields:
       - name: enabled
         type: bool
+        length: 1
+        offset: 0
       - name: status
         type: int8
       - name: sequence
         type: uint16
+        length: 2
+        offset: 3
       - name: temperature
         type: int16
         endian: big

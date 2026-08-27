@@ -1,7 +1,7 @@
 # Primitive Encode
 
-> 状态：固定布局基础类型 Encode 已实现
-> 更新日期：2026-08-22
+> 状态：固定布局基础类型 Encode 与显式 Field 布局已实现  
+> 更新日期：2026-08-27  
 > 适用入口：`iotps/core/codec/codec.hpp`
 
 相关文档：[Protocol Schema v0.1](<./Protocol Schema v0.1.md>) · [Primitive Decode](<./Primitive Decode.md>) · [Core 模块架构](<./Core 模块架构.md>) · [功能清单与开发进度](<./IoT Protocol Studio 功能清单与开发进度.md>)
@@ -16,11 +16,11 @@ Protocol 默认字节序
   + StructuredMessage
   → 校验 Message 和字段集合
   → 校验 ScalarValue 类型与表示范围
-  → Field endian 覆盖
+  → 共享固定布局 + Field endian 覆盖
   → ByteBuffer
 ```
 
-当前只编码固定宽度基础类型。显式 `length`/`offset`、字符串、动态 bytes、BCD、timestamp、Enum、BitField、Array、Struct、Condition、Length 自动计算和 Checksum 自动计算不在本阶段。
+当前只编码固定宽度基础类型，并支持固定 `length`/`offset`。字符串、动态 bytes、BCD、timestamp、Enum、BitField、Array、Struct、Condition、Length 自动计算和 Checksum 自动计算不在本阶段。
 
 ## 2. 公共 API
 
@@ -52,7 +52,9 @@ const auto encoded = codec.encode(
 4. Schema 未定义的额外字段返回 `unexpected_field`，不静默丢弃。
 5. 输入字段可以采用任意顺序，输出字节始终按照 Schema 字段顺序生成。
 
-错误的 `offset` 表示发生错误前已经成功生成的字节数；额外字段没有自己的 wire offset，因此使用合法固定帧结束位置。
+错误的 `offset` 表示字段规划后的 wire 起点；额外字段没有自己的 wire offset，因此使用合法固定帧结束位置。
+
+固定布局在写入字段前统一计算。省略 Field `offset` 时使用当前游标；显式 `offset` 大于当前游标时产生 gap，并用 `0x00` 填充。固定 Primitive 的 `length` 省略时使用类型自然宽度，显式值必须与自然宽度一致。Encode 与 Decode 共用同一套布局计划，因此帧长度、字段位置和 padding 规则不会分叉。
 
 ## 4. 类型映射和范围
 
@@ -93,12 +95,13 @@ Field endian
 | 错误码 | 触发条件 | path | offset |
 |---|---|---|---:|
 | `message_name_mismatch` | StructuredMessage 与 MessageDefinition 名称不同 | `messageName` | 0 |
-| `missing_field` | Schema 必填字段不存在 | `<message>.<field>` | 当前输出长度 |
-| `duplicate_field` | Schema 字段在输入对象中出现多次 | `<message>.<field>` | 当前输出长度 |
+| `missing_field` | Schema 必填字段不存在 | `<message>.<field>` | 规划后的字段起点 |
+| `duplicate_field` | Schema 字段在输入对象中出现多次 | `<message>.<field>` | 规划后的字段起点 |
 | `unexpected_field` | 输入对象包含 Schema 未定义字段 | `<message>.<field>` | 固定帧结束位置 |
-| `type_mismatch` | ScalarValue variant 类型与 FieldType 不一致 | `<message>.<field>` | 当前输出长度 |
-| `value_out_of_range` | 整数或有限 float32 超出目标表示范围 | `<message>.<field>` | 当前输出长度 |
-| `unsupported_field_type` | Field 不是已支持的固定宽度 Primitive | `<message>.<field>` | 当前输出长度 |
+| `type_mismatch` | ScalarValue variant 类型与 FieldType 不一致 | `<message>.<field>` | 规划后的字段起点 |
+| `value_out_of_range` | 整数或有限 float32 超出目标表示范围 | `<message>.<field>` | 规划后的字段起点 |
+| `unsupported_field_type` | Field 不是已支持的固定宽度 Primitive | `<message>.<field>` | 规划时的当前游标 |
+| `invalid_layout` | 手工构造的 MessageDefinition 包含零长度、宽度不匹配、溢出或重叠 | `<message>.<field>` | 非法字段起点 |
 
 `detail` 使用稳定的非本地化技术文本说明缺失、重复、额外字段、期望的 ScalarValue 类型或目标数值范围。Web UI 仍应根据错误码和结构化字段生成中英文用户文案。
 
@@ -122,19 +125,21 @@ Schema YAML + golden HEX
   → 字段名称、ScalarValue 与原对象相等
 ```
 
-这条链路同时覆盖 Protocol 默认 Little Endian、Field Big Endian 覆盖、bool、整数、浮点、正负数和跨字节值。单元测试另外覆盖类型错误、缺失/重复/额外字段、整数越界、float32 溢出和不支持类型。
+这条链路同时覆盖 Protocol 默认 Little Endian、Field Big Endian 覆盖、显式 gap、零 padding、bool、整数、浮点、正负数和跨字节值。单元测试另外覆盖类型错误、缺失/重复/额外字段、整数越界、float32 溢出和不支持类型。
+
+`Encode(Decode(Bytes)) == Bytes` 只对使用零 padding 的规范帧成立。Decode 接受 gap 中的任意字节，但不会把 padding 保存到 `StructuredMessage`；再次 Encode 时这些字节会被规范化为 `0x00`。如果后续产品需要原始 padding 无损回放，应单独在 Decode 结果中保留未解析区间，而不是把 padding 伪装成业务 Field。
 
 ## 8. 后续阶段
 
-下一阶段先补齐固定布局的 Field `length` 和 `offset`：
+固定布局的 Field `length` 和 `offset` 已完成：
 
 ```text
 Schema YAML
   → Field length / offset
-  → 重叠和越界诊断
+  → 重叠和溢出诊断
   → Decode 按固定位置读取
   → Encode 按固定位置写入
   → padding 与 FieldRange
 ```
 
-固定布局边界稳定后，再扩展固定字符串/bytes、Length Field、Struct、Array、Enum、BitField、Condition 和 Checksum Range，避免动态结构建立在隐式顺序布局上。
+下一阶段扩展固定长度 `string`/`bytes`，明确编码、填充和截断规则；随后再实现 Length Field、Struct、Array、Enum、BitField、Condition 和 Checksum Range。

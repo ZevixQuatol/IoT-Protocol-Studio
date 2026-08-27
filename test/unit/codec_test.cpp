@@ -417,5 +417,106 @@ int main() {
         CHECK(error->detail == "field is not defined by the message schema");
     }
 
+    const MessageDefinition padded_definition{
+        .name = "padded",
+        .fields =
+            {
+                {.name = "header", .type = FieldType::uint8, .length = 1, .offset = 0},
+                {.name = "value",
+                 .type = FieldType::uint16,
+                 .byte_order = ByteOrder::little_endian,
+                 .length = 2,
+                 .offset = 2},
+            },
+    };
+    const StructuredMessage padded_message{
+        .message_name = "padded",
+        .fields =
+            {
+                {.name = "header", .value = std::uint64_t{0xA5U}},
+                {.name = "value", .value = std::uint64_t{0x1234U}},
+            },
+    };
+    const auto padded_encoded = codec.encode(padded_definition, padded_message);
+    CHECK(padded_encoded.has_value());
+    if (const auto* padded_bytes = padded_encoded.value_if()) {
+        CHECK(*padded_bytes == ByteBuffer({0xA5U, 0x00U, 0x34U, 0x12U}));
+
+        const auto padded_decoded = codec.decode(padded_definition, *padded_bytes);
+        CHECK(padded_decoded.has_value());
+        if (const auto* output = padded_decoded.value_if()) {
+            CHECK(output->message.fields.size() == 2);
+            CHECK(std::get<std::uint64_t>(output->message.fields[0].value) == 0xA5U);
+            CHECK(std::get<std::uint64_t>(output->message.fields[1].value) == 0x1234U);
+            CHECK(output->field_ranges[0].offset == 0);
+            CHECK(output->field_ranges[0].length == 1);
+            CHECK(output->field_ranges[1].offset == 2);
+            CHECK(output->field_ranges[1].length == 2);
+        }
+    }
+    const auto padded_trailing =
+        codec.decode(padded_definition, ByteBuffer{0xA5U, 0x00U, 0x34U, 0x12U, 0xFFU});
+    CHECK(!padded_trailing.has_value());
+    if (const auto* error = padded_trailing.error_if()) {
+        CHECK(error->code == CodecErrorCode::unexpected_data);
+        CHECK(error->path == "padded");
+        CHECK(error->offset == 4);
+        CHECK(error->detail == "1 trailing byte remains");
+    }
+    const auto non_zero_padding =
+        codec.decode(padded_definition, ByteBuffer{0xA5U, 0xFFU, 0x34U, 0x12U});
+    CHECK(non_zero_padding.has_value());
+    if (const auto* output = non_zero_padding.value_if()) {
+        CHECK(std::get<std::uint64_t>(output->message.fields[0].value) == 0xA5U);
+        CHECK(std::get<std::uint64_t>(output->message.fields[1].value) == 0x1234U);
+    }
+
+    auto overlapping_definition = padded_definition;
+    overlapping_definition.fields[1].offset = 0;
+    const auto overlapping_decode = codec.decode(overlapping_definition, ByteBuffer{0x00U, 0x00U});
+    CHECK(!overlapping_decode.has_value());
+    if (const auto* error = overlapping_decode.error_if()) {
+        CHECK(error->code == CodecErrorCode::invalid_layout);
+        CHECK(error->path == "padded.value");
+        CHECK(error->offset == 0);
+        CHECK(error->detail == "field layout overlaps the previous field");
+    }
+
+    auto zero_length_definition = padded_definition;
+    zero_length_definition.fields[0].length = 0;
+    const auto zero_length_decode = codec.decode(zero_length_definition, ByteBuffer{});
+    CHECK(!zero_length_decode.has_value());
+    if (const auto* error = zero_length_decode.error_if()) {
+        CHECK(error->code == CodecErrorCode::invalid_layout);
+        CHECK(error->path == "padded.header");
+        CHECK(error->offset == 0);
+        CHECK(error->detail == "field length must be greater than zero");
+    }
+
+    auto mismatched_length_definition = padded_definition;
+    mismatched_length_definition.fields[1].length = 1;
+    const auto mismatched_length_encode =
+        codec.encode(mismatched_length_definition, padded_message);
+    CHECK(!mismatched_length_encode.has_value());
+    if (const auto* error = mismatched_length_encode.error_if()) {
+        CHECK(error->code == CodecErrorCode::invalid_layout);
+        CHECK(error->path == "padded.value");
+        CHECK(error->offset == 2);
+        CHECK(error->detail == "field length must match fixed-width primitive size");
+    }
+
+    auto overflowing_layout_definition = padded_definition;
+    overflowing_layout_definition.fields[0].offset = std::numeric_limits<std::size_t>::max();
+    const auto overflowing_layout_encode =
+        codec.encode(overflowing_layout_definition, padded_message);
+    CHECK(!overflowing_layout_encode.has_value());
+    if (const auto* error = overflowing_layout_encode.error_if()) {
+        CHECK(error->code == CodecErrorCode::invalid_layout);
+        CHECK(error->path == "padded.header");
+        CHECK(error->offset == std::numeric_limits<std::size_t>::max());
+        CHECK(error->detail == "field offset and length overflow");
+    }
+    CHECK(to_string(CodecErrorCode::invalid_layout) == "invalid_layout");
+
     return failures == 0 ? 0 : 1;
 }
