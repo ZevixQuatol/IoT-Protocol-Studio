@@ -1,0 +1,3 @@
+marker=165 @0+1
+label=温度 @1+8
+payload=DE AD 00 FF @10+4

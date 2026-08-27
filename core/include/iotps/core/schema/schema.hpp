@@ -98,6 +98,7 @@ enum class SchemaErrorCode {
     duplicate_message_type_id,
     empty_field_name,
     duplicate_field_name,
+    field_length_required,
     field_length_zero,
     field_length_mismatch,
     field_offset_overflow,

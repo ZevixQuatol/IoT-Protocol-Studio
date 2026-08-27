@@ -252,6 +252,31 @@ messages:
               "YAML scalar 'messages.telemetry.fields[0].length' must be an unsigned integer");
     }
 
+    constexpr std::string_view missing_fixed_string_length = R"yaml(schemaVersion: "0.1"
+protocol:
+  name: smart-sensor
+  version: "1.0"
+messages:
+  telemetry:
+    fields:
+      - name: label
+        type: string
+)yaml";
+    const auto missing_length =
+        load_yaml(missing_fixed_string_length, "missing-fixed-string-length.yaml");
+    CHECK(!missing_length.has_value());
+    if (const auto* error = missing_length.error_if()) {
+        CHECK(error->code == SchemaErrorCode::field_length_required);
+        CHECK(error->path == "messages[0].fields[0].length");
+        CHECK(error->detail == "field_length_required");
+        CHECK(error->source_location.has_value());
+        if (error->source_location.has_value()) {
+            CHECK(error->source_location->source == "missing-fixed-string-length.yaml");
+            CHECK(error->source_location->line == 9);
+            CHECK(error->source_location->column == 9);
+        }
+    }
+
     constexpr std::string_view overlapping_field_layout = R"yaml(schemaVersion: "0.1"
 protocol:
   name: smart-sensor

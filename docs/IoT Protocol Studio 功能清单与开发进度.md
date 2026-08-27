@@ -7,7 +7,7 @@
 > 当前目标平台：Windows x86_64  
 > 用途：项目唯一功能树、进度看板和下一步开发入口
 
-相关文档：[功能设计基线](<./IoT Protocol Studio 功能设计文档.md>) · [Protocol Schema v0.1](<./Protocol Schema v0.1.md>) · [固定 Field 布局](<./固定 Field 布局.md>) · [Primitive Decode](<./Primitive Decode.md>) · [Primitive Encode](<./Primitive Encode.md>) · [Core 模块架构](<./Core 模块架构.md>) · [开发环境与构建](./开发环境与构建.md)
+相关文档：[功能设计基线](<./IoT Protocol Studio 功能设计文档.md>) · [Protocol Schema v0.1](<./Protocol Schema v0.1.md>) · [固定 Field 布局](<./固定 Field 布局.md>) · [固定长度 String 与 Bytes](<./固定长度 String 与 Bytes.md>) · [Primitive Decode](<./Primitive Decode.md>) · [Primitive Encode](<./Primitive Encode.md>) · [Core 模块架构](<./Core 模块架构.md>) · [开发环境与构建](./开发环境与构建.md)
 
 ---
 
@@ -55,12 +55,13 @@ flowchart LR
     C --> D["✅ 固定长度 Primitive Decode"]
     D --> E["✅ 固定长度 Primitive Encode"]
     E --> F["✅ Field length / offset"]
-    F --> G["🚧 下一步：固定长度 string / bytes"]
-    G --> H["⬜ 动态结构"]
-    H --> I["⬜ Workspace + Protocol Designer"]
-    I --> J["⬜ Message Studio + 真实 Transport + Debugger"]
-    J --> K["⬜ 完整 Simulator + Test Runner"]
-    K --> L["⬜ MVP 验收"]
+    F --> G["✅ 固定长度 string / bytes"]
+    G --> H["🚧 下一步：Length Field"]
+    H --> I["⬜ 其他动态结构"]
+    I --> J["⬜ Workspace + Protocol Designer"]
+    J --> K["⬜ Message Studio + 真实 Transport + Debugger"]
+    K --> L["⬜ 完整 Simulator + Test Runner"]
+    L --> M["⬜ MVP 验收"]
 ```
 
 ### 2.2 当前结论
@@ -93,7 +94,7 @@ Core 内部已经新增一条不依赖 GUI 的最小架构链路：
 
 ```text
 Schema 领域模型
-  → 固定长度 Primitive Encode / Decode
+  → 固定长度 Primitive / UTF-8 string / bytes Encode / Decode
   → Simulator
   → Transport API 测试边界
 ```
@@ -126,6 +127,9 @@ Schema 纵向链路也已经打通：YAML 文件可以映射为领域模型，�
 - [x] 从 YAML 映射 Field `length`/`offset`，并校验零长度、宽度冲突、重叠和溢出。
 - [x] Decode/Encode 共用固定布局计划；Decode 跳过 gap，Encode 使用 `0x00` padding。
 - [x] 通过含非连续字段的 golden vector 验证 FieldRange、字节序和双向 round-trip。
+- [x] Decode/Encode 固定长度 UTF-8 `string`，短值右侧零填充，拒绝非法编码、内嵌 NUL、超长输入和非零终止后数据。
+- [x] Decode/Encode 固定长度 `bytes`，保留内部零字节并严格校验输入长度。
+- [x] 通过固定文本 golden vector 验证 YAML、UTF-8、bytes、gap、FieldRange 和双向 round-trip。
 
 ### 2.4 当前界面中尚未实现的占位功能
 
@@ -140,26 +144,27 @@ Schema 纵向链路也已经打通：YAML 文件可以映射为领域模型，�
 
 ## 3. 接下来应该做什么
 
-### 3.1 当前唯一首要任务：固定长度 string / bytes
+### 3.1 当前唯一首要任务：Length Field
 
-固定长度 Primitive、Field `length`/`offset`、padding 和非连续布局 round-trip 已完成。下一个工作包进入 **M02-F03 基础数据类型**，将固定长度 `string`/`bytes` 接入现有布局计划：
+固定 Primitive、固定 UTF-8 `string`/`bytes`、Field `length`/`offset`、padding 和非连续布局 round-trip 已完成。下一个工作包进入 **M02-F07 动态长度和条件字段**，只实现最小 Length Field：
 
-- 明确 `string` 的首个编码范围，建议先支持 UTF-8 固定字节长度。
-- 明确短字符串的 padding、NUL 终止符和 Decode 去填充规则。
-- 明确超长字符串是拒绝还是显式截断，默认应拒绝静默截断。
-- 支持固定长度 `bytes` 的精确长度校验。
-- 复用 Field `length`/`offset`、gap 和 `FieldRange`。
-- 建立包含固定字符串、bytes、字节序 Primitive 和 gap 的 golden vector。
+- 定义长度字段如何引用目标字段或连续范围。
+- 明确长度值是否包含 Length Field 自身、header、terminator 或 checksum。
+- Decode 时校验声明长度与实际可消费范围。
+- Encode 时从目标 wire range 自动计算并回填长度。
+- 明确 Length Field 必须位于目标数据前还是允许后置回填。
+- 建立缺失引用、循环依赖、数值溢出和帧截断诊断。
+- 建立 Length Field golden vector 和 Decode/Encode round-trip。
 
-固定长度 `string`/`bytes` 第一阶段的完成标准：
+Length Field 第一阶段的完成标准：
 
 ```text
-给定 Schema YAML + string/bytes Field length
-  → Core 建立确定的固定布局
-  → Decode 得到 string / ByteBuffer
-  → Encode 严格校验编码后的字节长度
-  → padding、截断和非法编码规则可诊断
-  → Encode/Decode golden vectors 稳定通过
+给定 Schema YAML + Length Field 引用
+  → Core 建立可求值的布局依赖
+  → Decode 校验声明长度
+  → Encode 自动计算并写回长度
+  → 范围、溢出、循环和截断错误可诊断
+  → Decode/Encode golden vectors 稳定通过
 ```
 
 ### 3.2 Schema 之后的执行顺序
@@ -167,15 +172,16 @@ Schema 纵向链路也已经打通：YAML 文件可以映射为领域模型，�
 1. **Primitive Decode**：固定长度基础类型和字节序，返回字段值与字节范围。✅
 2. **Primitive Encode**：结构化字段值重新编码为字节流，建立 Decode/Encode round-trip。✅
 3. **固定布局边界**：Field `length`/`offset`、重叠诊断和 padding。✅
-4. **固定字符串和 bytes**：编码、固定长度、填充、截断和 FieldRange。
-5. **动态结构**：Length Field、Struct、Array、Enum、BitField、Condition、Checksum Range。
-6. **Workspace**：创建、打开、保存普通目录项目，加载 `project.yaml` 和协议文件。
-7. **Protocol Designer**：Schema 源码与可视化字段编辑器双向同步。
-8. **Message Studio**：结构化表单组包、自动 Length/CRC 和报文模板。
-9. **Transport 抽象 + TCP Client**：建立第一条真实收发链路。
-10. **Debugger + Timeline**：统一展示 TX/RX、Raw HEX 和解析字段。
-11. **Serial / TCP Server / UDP**：补齐 MVP Transport。
-12. **Basic Simulator + Basic Test Case**：完成无设备开发和自动验证。
+4. **固定字符串和 bytes**：编码、固定长度、填充、截断和 FieldRange。✅
+5. **Length Field**：引用范围、Decode 校验、Encode 自动计算和依赖诊断。
+6. **其他动态结构**：Struct、Array、Enum、BitField、Condition、Checksum Range。
+7. **Workspace**：创建、打开、保存普通目录项目，加载 `project.yaml` 和协议文件。
+8. **Protocol Designer**：Schema 源码与可视化字段编辑器双向同步。
+9. **Message Studio**：结构化表单组包、自动 Length/CRC 和报文模板。
+10. **Transport 抽象 + TCP Client**：建立第一条真实收发链路。
+11. **Debugger + Timeline**：统一展示 TX/RX、Raw HEX 和解析字段。
+12. **Serial / TCP Server / UDP**：补齐 MVP Transport。
+13. **Basic Simulator + Basic Test Case**：完成无设备开发和自动验证。
 
 ---
 
@@ -185,8 +191,8 @@ Schema 纵向链路也已经打通：YAML 文件可以映射为领域模型，�
 |---|---|---|---|
 | M00 工程与平台基础 | 🟡 部分完成 | M0 | 模块分层、格式化、统一 Result/Error 和 Windows 基线可运行；静态分析、安装发布和其他平台未完成 |
 | M01 Workspace 工作空间 | ⬜ 待开始 | MVP | 只有静态 Explorer UI |
-| M02 Protocol Designer / Schema | 🚧 下一步 | MVP | Protocol Schema v0.1 YAML、固定 Primitive 和 Field `length`/`offset` 已完成；下一步固定 `string`/`bytes`，可视化设计器与动态结构未实现 |
-| M03 Codec 编解码 | 🟡 部分完成 | MVP | 固定长度 Primitive Encode/Decode、非连续布局、padding、字节序和 round-trip 已完成；字符串/bytes 和动态结构未实现 |
+| M02 Protocol Designer / Schema | 🚧 下一步 | MVP | Protocol Schema v0.1 YAML、固定 Primitive/string/bytes 和 Field `length`/`offset` 已完成；下一步 Length Field，可视化设计器与其他动态结构未实现 |
+| M03 Codec 编解码 | 🟡 部分完成 | MVP | 固定 Primitive/string/bytes Encode/Decode、非连续布局、padding、字节序和 round-trip 已完成；Length Field 和其他动态结构未实现 |
 | M04 HEX Studio | 🟡 部分完成 | MVP | 已完成基础 HEX 检查和三种校验计算 |
 | M05 Transport 通信层 | 🟡 API 已建立 | MVP/P2 | 统一字节、生命周期、状态、事件和统计接口已建立；没有真实连接实现 |
 | M06 Debugger / Timeline | ⬜ 待开始 | MVP | 只有 Console/Timeline 静态布局 |
@@ -394,7 +400,9 @@ Schema 纵向链路也已经打通：YAML 文件可以映射为领域模型，�
 - [x] `int32` / `uint32`。
 - [x] `int64` / `uint64`。
 - [x] `float32` / `float64`。
-- [ ] 🚧 `char` / `string` / `bytes`：下一步先实现固定长度 `string`/`bytes`。
+- [ ] `char`。
+- [x] 固定长度 UTF-8 `string`。
+- [x] 固定长度 `bytes`。
 - [ ] `BCD`。
 - [ ] `timestamp`。
 - [ ] `enum`。
@@ -438,9 +446,9 @@ Schema 纵向链路也已经打通：YAML 文件可以映射为领域模型，�
 
 ### M02-F07 动态长度和条件字段
 
-- [ ] `lengthOf` 自动计算。
+- [ ] 🚧 `lengthOf` 自动计算：下一步先固化 Length Field 引用和范围契约。
 - [ ] Length 字段包含/排除范围规则。
-- [ ] 固定长度验证。
+- [x] 固定长度验证：Primitive、string 和 bytes 已覆盖。
 - [ ] 动态 Body 长度。
 - [ ] 条件字段表达式。
 - [ ] 条件字段 Decode 跳过和 Encode 选择。
@@ -537,7 +545,8 @@ Schema 纵向链路也已经打通：YAML 文件可以映射为领域模型，�
 - [ ] 按 Message Schema 选择报文类型。
 - [x] 按字段顺序和固定 `offset` 读取字节，并跳过 gap。
 - [x] Decode bool、8/16/32/64 位有符号和无符号整数、float32/float64。
-- [ ] Decode 字符串、bytes、BCD、timestamp。
+- [x] Decode 固定长度 UTF-8 字符串和 bytes。
+- [ ] Decode BCD、timestamp。
 - [x] 应用 Protocol 默认与 Field 覆盖的 Big/Little Endian。
 - [ ] 应用 scale 和 offsetValue。
 - [ ] Decode Enum 和 BitField。
@@ -554,6 +563,7 @@ Schema 纵向链路也已经打通：YAML 文件可以映射为领域模型，�
 - [ ] 🟡 校验 required、type、min/max：已校验缺失、重复、额外字段、ScalarValue 类型和 Primitive 表示范围；Schema `min`/`max` 尚未建模。
 - [ ] 反向应用 scale 和 offsetValue。
 - [x] Encode bool、8/16/32/64 位有符号和无符号整数、float32/float64，并应用 Protocol 默认与 Field 覆盖字节序。
+- [x] Encode 固定长度 UTF-8 string 和 bytes，并校验编码、padding 与精确长度。
 - [x] 按固定 `offset` 写入字段，并以 `0x00` 填充 gap。
 - [ ] Encode Enum 和 BitField。
 - [ ] Encode Struct 和 Array。
@@ -571,6 +581,7 @@ Schema 纵向链路也已经打通：YAML 文件可以映射为领域模型，�
 - [ ] 🟡 边界值测试：覆盖 bool、负数、截断、尾随数据、整数越界和 float32 溢出；完整类型最小/最大矩阵待补齐。
 - [x] Primitive Decode/Encode 不同字节序测试。
 - [x] 非连续固定布局和 padding round-trip 测试。
+- [x] 固定 UTF-8 string/bytes golden vector 和 round-trip 测试。
 - [ ] 动态结构组合测试。
 - [ ] 协议版本兼容测试。
 
@@ -975,7 +986,7 @@ Schema 纵向链路也已经打通：YAML 文件可以映射为领域模型，�
 - [x] WebView UI 烟雾测试。
 - [x] 可选 Fuzz 入口。
 - [x] Schema 领域模型和基础校验单元测试。
-- [x] 固定长度 Primitive Encode/Decode、大小端、数值范围和错误诊断单元测试。
+- [x] 固定长度 Primitive/string/bytes Encode/Decode、大小端、数值/长度范围和错误诊断单元测试。
 - [x] Schema YAML → HEX → Primitive Decode → expected golden vector 集成测试。
 - [x] Schema YAML → Decode → Primitive Encode → golden HEX → Decode round-trip 集成测试。
 - [x] Simulator → Codec → Transport 集成测试。
@@ -1473,13 +1484,21 @@ CI/CD
 - Encode/Decode 共用内部布局计划；直接构造非法 `MessageDefinition` 时返回 `invalid_layout`，避免绕过 Schema 校验。
 - Primitive golden vector 已加入非连续字段，并继续覆盖 Protocol/Field 字节序和双向 round-trip；下一步进入固定长度 `string`/`bytes`。
 
+### 2026-08-27：固定长度 String / Bytes
+
+- 本地提交：见包含本记录的 `feat: support fixed strings and bytes` 提交。
+- 固定 `string`/`bytes` 必须显式声明非零 `length`，并复用 Field `offset`、gap、重叠和溢出规则。
+- `string` 第一阶段固定为 UTF-8；短值右侧以 `0x00` 填充，Decode 去除 NUL padding，超长、内嵌 NUL、非法 UTF-8 和非零终止后数据均返回稳定诊断。
+- 固定 `bytes` 使用 `ByteBuffer`，Encode 必须精确匹配 Field length，不自动补零或截断；Decode 原样保留内部零字节。
+- 新增固定文本 golden vector，覆盖中文 UTF-8、padding、bytes、显式 gap、FieldRange 和双向 round-trip；下一步进入 Length Field。
+
 ---
 
 ## 9. 下一次更新入口
 
 下次开始开发时，直接从以下功能点继续：
 
-> **M02-F03：让固定长度 string/bytes 复用 Field length/offset 布局，并明确编码、padding 和超长输入规则**
+> **M02-F07：定义并实现最小 Length Field，包括引用范围、Decode 校验、Encode 自动计算和依赖诊断**
 
 完成一个功能点后：
 

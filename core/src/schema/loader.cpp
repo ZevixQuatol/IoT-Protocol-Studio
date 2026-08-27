@@ -230,6 +230,10 @@ load_field(const ryml::ConstNodeRef node, const std::string_view yaml_path,
         .name = scalar(name_node),
         .type = type.value(),
     };
+    if ((field.type == FieldType::string || field.type == FieldType::bytes) &&
+        !node.has_child("length")) {
+        source_map.emplace(std::string{domain_path} + ".length", type_node.id());
+    }
     if (node.has_child("displayName")) {
         const auto display_name_node = node["displayName"];
         const auto display_name_path = std::string{yaml_path} + ".displayName";

@@ -63,6 +63,29 @@ int main() {
     CHECK(contains_diagnostic(mismatched_length_validation, SchemaErrorCode::field_length_mismatch,
                               "messages[0].fields[0].length"));
 
+    auto missing_string_length = valid;
+    missing_string_length.messages[0].fields[0].type = FieldType::string;
+    const auto missing_string_length_validation = validate(missing_string_length);
+    CHECK(contains_diagnostic(missing_string_length_validation,
+                              SchemaErrorCode::field_length_required,
+                              "messages[0].fields[0].length"));
+
+    auto missing_bytes_length = valid;
+    missing_bytes_length.messages[0].fields[0].type = FieldType::bytes;
+    const auto missing_bytes_length_validation = validate(missing_bytes_length);
+    CHECK(contains_diagnostic(missing_bytes_length_validation,
+                              SchemaErrorCode::field_length_required,
+                              "messages[0].fields[0].length"));
+
+    auto fixed_text_layout = valid;
+    fixed_text_layout.messages[0].fields = {
+        {.name = "label", .type = FieldType::string, .length = 4},
+        {.name = "payload", .type = FieldType::bytes, .length = 2, .offset = 3},
+    };
+    const auto fixed_text_layout_validation = validate(fixed_text_layout);
+    CHECK(contains_diagnostic(fixed_text_layout_validation, SchemaErrorCode::field_layout_overlap,
+                              "messages[0].fields[1].offset"));
+
     auto overlapping_layout = valid;
     overlapping_layout.messages[0].fields.push_back(
         {.name = "status", .type = FieldType::uint8, .offset = 0});
@@ -76,6 +99,7 @@ int main() {
     const auto overflowing_layout_validation = validate(overflowing_layout);
     CHECK(contains_diagnostic(overflowing_layout_validation, SchemaErrorCode::field_offset_overflow,
                               "messages[0].fields[0].offset"));
+    CHECK(to_string(SchemaErrorCode::field_length_required) == "field_length_required");
 
     return failures == 0 ? 0 : 1;
 }

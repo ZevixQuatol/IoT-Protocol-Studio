@@ -1,10 +1,10 @@
 # Primitive Decode
 
-> 状态：固定布局基础类型 Decode 与显式 Field 布局已实现  
+> 状态：固定布局 Primitive、String、Bytes Decode 已实现  
 > 更新日期：2026-08-27  
 > 适用入口：`iotps/core/codec/codec.hpp`
 
-相关文档：[Protocol Schema v0.1](<./Protocol Schema v0.1.md>) · [Core 模块架构](<./Core 模块架构.md>) · [功能清单与开发进度](<./IoT Protocol Studio 功能清单与开发进度.md>)
+相关文档：[Protocol Schema v0.1](<./Protocol Schema v0.1.md>) · [固定长度 String 与 Bytes](<./固定长度 String 与 Bytes.md>) · [Core 模块架构](<./Core 模块架构.md>) · [功能清单与开发进度](<./IoT Protocol Studio 功能清单与开发进度.md>)
 
 ## 1. 范围
 
@@ -20,7 +20,7 @@ Protocol 默认字节序
   → FieldRange
 ```
 
-当前只处理固定宽度基础类型，并支持固定 `length`/`offset`。字符串、动态 bytes、BCD、timestamp、Enum、BitField、Array、Struct、Condition、Length Field 和 Checksum 不在本阶段。
+当前处理固定宽度 Primitive 和显式 `length` 的固定 UTF-8 `string`/`bytes`，并支持固定 `offset`。动态 string/bytes、BCD、timestamp、Enum、BitField、Array、Struct、Condition、Length Field 和 Checksum 不在本阶段。
 
 ## 2. 公共 API
 
@@ -57,6 +57,8 @@ const auto decoded = codec.decode(
 | `uint64` | 8 | `std::uint64_t` | 保留完整 64 位模式 |
 | `float32` | 4 | `double` | IEEE-754 binary32 转换为 double |
 | `float64` | 8 | `double` | IEEE-754 binary64 |
+| `string` | 显式 `length` | `std::string` | 首个 NUL 前的有效 UTF-8；其后只能是零 padding |
+| `bytes` | 显式 `length` | `ByteBuffer` | 原样保留全部字节，包括 `0x00` |
 
 有符号整数通过相同宽度的无符号位模式进行 `std::bit_cast`，避免依赖实现定义的越界整数转换。构建时静态要求平台的 `float`/`double` 分别为 4/8 字节且符合 IEC 559。
 
@@ -89,17 +91,18 @@ FieldRange
 └── length     字段实际消费的字节数
 ```
 
-字段按 Schema 中的定义顺序读取，`FieldValue` 与 `FieldRange` 使用相同索引一一对应。省略 `offset` 时字段从当前游标开始；显式 `offset` 大于游标时，Decode 跳过中间的 padding。`FieldRange` 只覆盖字段自身，不覆盖 gap。固定 Primitive 的显式 `length` 必须等于类型自然宽度。
+字段按 Schema 中的定义顺序读取，`FieldValue` 与 `FieldRange` 使用相同索引一一对应。省略 `offset` 时字段从当前游标开始；显式 `offset` 大于游标时，Decode 跳过中间的 padding。`FieldRange` 只覆盖字段自身，不覆盖 gap。固定 Primitive 的显式 `length` 必须等于类型自然宽度；固定 `string`/`bytes` 必须显式提供长度。
 
 ## 6. 错误契约
 
 | 错误码 | 触发条件 | path | offset |
 |---|---|---|---:|
-| `unsupported_field_type` | Field 不是已支持的固定宽度 Primitive | `<message>.<field>` | 字段起点 |
 | `insufficient_data` | 剩余字节不足以读取完整字段 | `<message>.<field>` | 字段起点 |
 | `value_out_of_range` | bool 字节不是 `0` 或 `1` | `<message>.<field>` | 字段起点 |
+| `invalid_string_encoding` | string 字段不是有效 UTF-8 | `<message>.<field>` | 字段起点 |
+| `invalid_string_padding` | 首个 NUL 后出现非零字节 | `<message>.<field>` | 首个违规字节 |
 | `unexpected_data` | 所有字段完成后仍有未消费字节 | `<message>` | 首个剩余字节 |
-| `invalid_layout` | 手工构造的 MessageDefinition 包含零长度、宽度不匹配、溢出或重叠 | `<message>.<field>` | 非法字段起点 |
+| `invalid_layout` | 手工构造的 MessageDefinition 包含缺失/零长度、宽度不匹配、溢出或重叠 | `<message>.<field>` | 非法字段起点 |
 
 错误 `detail` 会说明期望宽度、剩余宽度、非法布尔值规则或尾随字节数量。Decode 返回第一个阻止稳定解析的错误。
 
@@ -120,7 +123,9 @@ FieldRange
 - 正负数、跨字节值和字段范围。
 - `Schema YAML → HEX → Decode → expected` 完整公共链路。
 
-单元测试另外覆盖所有 8/16/32/64 位整数、Big/Little Endian、非法 bool、输入截断、不支持类型和尾随数据。
+单元测试另外覆盖所有 8/16/32/64 位整数、Big/Little Endian、非法 bool、输入截断和尾随数据。
+
+固定文本集成向量 `test/vectors/fixed-text-frame.*` 另外覆盖 UTF-8 中文、NUL padding、内部零 bytes、显式 gap 和精确 FieldRange。
 
 ## 8. 后续阶段
 
@@ -135,4 +140,4 @@ StructuredMessage
   → Decode(Encode(Object)) == Object
 ```
 
-下一阶段实现固定长度 `string`/`bytes` 的 Decode/Encode 契约，包括编码、填充和截断规则；之后再进入 Length Field 与动态结构。
+固定长度 `string`/`bytes` 契约已经完成，详见 [固定长度 String 与 Bytes](<./固定长度 String 与 Bytes.md>)。下一阶段进入最小 Length Field，再扩展其他动态结构。

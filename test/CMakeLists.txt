@@ -20,6 +20,10 @@ iotps_add_test(
   iotps_primitive_encode_integration_test
   integration/primitive_encode_test.cpp
   iotps::codec)
+iotps_add_test(
+  iotps_fixed_text_integration_test
+  integration/fixed_text_test.cpp
+  iotps::codec)
 iotps_add_test(iotps_testing_unit_test unit/testing_test.cpp iotps::testing)
 iotps_add_test(
   iotps_simulator_integration_test
@@ -38,6 +42,9 @@ target_compile_definitions(
   PRIVATE IOTPS_TEST_VECTOR_DIR="${CMAKE_CURRENT_SOURCE_DIR}/vectors")
 target_compile_definitions(
   iotps_primitive_encode_integration_test
+  PRIVATE IOTPS_TEST_VECTOR_DIR="${CMAKE_CURRENT_SOURCE_DIR}/vectors")
+target_compile_definitions(
+  iotps_fixed_text_integration_test
   PRIVATE IOTPS_TEST_VECTOR_DIR="${CMAKE_CURRENT_SOURCE_DIR}/vectors")
 
 if(IOTPS_BUILD_FUZZ)

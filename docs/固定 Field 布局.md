@@ -4,7 +4,7 @@
 > 更新日期：2026-08-27  
 > 适用范围：Protocol Schema v0.1、`FixedLayoutCodec`
 
-相关文档：[Protocol Schema v0.1](<./Protocol Schema v0.1.md>) · [Primitive Decode](<./Primitive Decode.md>) · [Primitive Encode](<./Primitive Encode.md>) · [功能清单与开发进度](<./IoT Protocol Studio 功能清单与开发进度.md>)
+相关文档：[Protocol Schema v0.1](<./Protocol Schema v0.1.md>) · [固定长度 String 与 Bytes](<./固定长度 String 与 Bytes.md>) · [Primitive Decode](<./Primitive Decode.md>) · [Primitive Encode](<./Primitive Encode.md>) · [功能清单与开发进度](<./IoT Protocol Studio 功能清单与开发进度.md>)
 
 ## 1. 目标
 
@@ -18,7 +18,7 @@ FieldDefinition[]
   → frame size
 ```
 
-当前只支持自然宽度固定的 Primitive：bool、8/16/32/64 位整数、float32 和 float64。`string`、`bytes` 和动态结构将在后续阶段接入同一布局边界。
+当前支持自然宽度固定的 Primitive，以及显式声明 `length` 的固定 `string`/`bytes`。动态 Length Field、Array、Struct 和 Condition 尚未接入布局边界。
 
 ## 2. Schema 示例
 
@@ -49,13 +49,14 @@ frame size 4
 
 1. `length` 省略时，固定 Primitive 使用类型自然宽度。
 2. 显式 `length` 必须大于 0，并且必须等于 Primitive 自然宽度。
-3. `offset` 省略时，字段起点等于当前 `cursor`。
-4. 显式 `offset == cursor` 表示连续布局。
-5. 显式 `offset > cursor` 表示字段前存在 gap。
-6. 显式 `offset < cursor` 返回字段布局重叠诊断。
-7. `offset + length` 不得发生 `std::size_t` 算术溢出。
-8. 每个字段完成后，`cursor = offset + length`。
-9. 所有字段完成后的 `cursor` 是固定帧长度。
+3. 固定 `string`/`bytes` 没有自然宽度，必须显式声明大于 0 的 `length`。
+4. `offset` 省略时，字段起点等于当前 `cursor`。
+5. 显式 `offset == cursor` 表示连续布局。
+6. 显式 `offset > cursor` 表示字段前存在 gap。
+7. 显式 `offset < cursor` 返回字段布局重叠诊断。
+8. `offset + length` 不得发生 `std::size_t` 算术溢出。
+9. 每个字段完成后，`cursor = offset + length`。
+10. 所有字段完成后的 `cursor` 是固定帧长度。
 
 该规则不允许通过调整 `length` 改变整数或浮点类型的 wire 宽度。可变宽度和 Length Field 属于后续动态布局能力。
 
@@ -83,6 +84,7 @@ YAML loader 建立领域模型后由 Schema validator 返回：
 
 | SchemaErrorCode | 条件 |
 |---|---|
+| `field_length_required` | 固定 `string`/`bytes` 未声明 `length` |
 | `field_length_zero` | 显式 `length == 0` |
 | `field_length_mismatch` | 固定 Primitive 的 `length` 不等于自然宽度 |
 | `field_offset_overflow` | `offset + length` 溢出 |
@@ -96,7 +98,8 @@ YAML loader 建立领域模型后由 Schema validator 返回：
 - `test/unit/schema_loader_test.cpp`：YAML 映射、非法无符号整数和重叠源码位置。
 - `test/unit/codec_test.cpp`：显式 gap、补零、FieldRange、尾随数据和手工非法布局。
 - `test/vectors/primitive-frame.*`：Protocol Little Endian、Field Big Endian、显式 gap 和 Decode/Encode round-trip。
+- `test/vectors/fixed-text-frame.*`：固定 UTF-8 string、固定 bytes、显式 gap 和 Decode/Encode round-trip。
 
 ## 8. 后续边界
 
-下一阶段将固定长度 `string`/`bytes` 接入布局计划，并单独明确文本编码、填充、终止符和超长输入策略。在这些规则稳定后，再实现 Length Field、Array、Struct 和 Condition 等动态布局。
+固定长度 `string`/`bytes` 已接入布局计划，具体文本编码、填充、终止符和长度契约见 [固定长度 String 与 Bytes](<./固定长度 String 与 Bytes.md>)。下一阶段先实现最小 Length Field，再进入 Array、Struct 和 Condition 等动态布局。

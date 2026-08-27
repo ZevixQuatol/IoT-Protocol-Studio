@@ -45,6 +45,13 @@ std::optional<std::size_t> primitive_width(const FieldType type) {
     return std::nullopt;
 }
 
+std::optional<std::size_t> fixed_width(const FieldDefinition& field) {
+    if (const auto width = primitive_width(field.type); width.has_value()) {
+        return field.length.value_or(*width);
+    }
+    return field.length;
+}
+
 } // namespace
 
 SchemaValidation validate(const ProtocolSchema& schema) {
@@ -99,12 +106,16 @@ SchemaValidation validate(const ProtocolSchema& schema) {
             }
 
             const auto width = primitive_width(field.type);
+            if (!width.has_value() && !field.length.has_value()) {
+                add_diagnostic(validation, SchemaErrorCode::field_length_required,
+                               field_path(message_index, field_index, "length"));
+            }
             if (field.length.has_value() && width.has_value() && *field.length != *width) {
                 add_diagnostic(validation, SchemaErrorCode::field_length_mismatch,
                                field_path(message_index, field_index, "length"));
             }
 
-            const auto effective_length = field.length.has_value() ? field.length : width;
+            const auto effective_length = fixed_width(field);
             if (field.offset.has_value() && effective_length.has_value() &&
                 *field.offset > std::numeric_limits<std::size_t>::max() - *effective_length) {
                 add_diagnostic(validation, SchemaErrorCode::field_offset_overflow,
@@ -115,11 +126,11 @@ SchemaValidation validate(const ProtocolSchema& schema) {
         std::size_t cursor = 0;
         for (std::size_t field_index = 0; field_index < message.fields.size(); ++field_index) {
             const auto& field = message.fields[field_index];
-            const auto width = primitive_width(field.type);
+            const auto width = fixed_width(field);
             if (!width.has_value()) {
                 continue;
             }
-            const auto length = field.length.value_or(*width);
+            const auto length = *width;
             const auto offset = field.offset.value_or(cursor);
             if (offset > std::numeric_limits<std::size_t>::max() - length) {
                 continue;
@@ -180,6 +191,8 @@ std::string_view to_string(const SchemaErrorCode code) noexcept {
         return "empty_field_name";
     case SchemaErrorCode::duplicate_field_name:
         return "duplicate_field_name";
+    case SchemaErrorCode::field_length_required:
+        return "field_length_required";
     case SchemaErrorCode::field_length_zero:
         return "field_length_zero";
     case SchemaErrorCode::field_length_mismatch:

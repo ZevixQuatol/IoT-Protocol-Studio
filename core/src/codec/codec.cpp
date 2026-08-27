@@ -3,9 +3,11 @@
 #include <algorithm>
 #include <bit>
 #include <cmath>
+#include <iterator>
 #include <limits>
 #include <optional>
 #include <string>
+#include <string_view>
 #include <type_traits>
 #include <utility>
 #include <vector>
@@ -53,6 +55,46 @@ std::optional<std::size_t> primitive_width(const schema::FieldType type) {
         return std::nullopt;
     }
     return std::nullopt;
+}
+
+bool is_valid_utf8(const std::string_view value) {
+    const auto continuation = [&value](const std::size_t index, const unsigned char minimum = 0x80U,
+                                       const unsigned char maximum = 0xBFU) {
+        if (index >= value.size()) {
+            return false;
+        }
+        const auto byte = static_cast<unsigned char>(value[index]);
+        return byte >= minimum && byte <= maximum;
+    };
+
+    for (std::size_t index = 0; index < value.size();) {
+        const auto byte = static_cast<unsigned char>(value[index]);
+        if (byte <= 0x7FU) {
+            ++index;
+        } else if (byte >= 0xC2U && byte <= 0xDFU && continuation(index + 1U)) {
+            index += 2U;
+        } else if (byte == 0xE0U && continuation(index + 1U, 0xA0U) && continuation(index + 2U)) {
+            index += 3U;
+        } else if (((byte >= 0xE1U && byte <= 0xECU) || (byte >= 0xEEU && byte <= 0xEFU)) &&
+                   continuation(index + 1U) && continuation(index + 2U)) {
+            index += 3U;
+        } else if (byte == 0xEDU && continuation(index + 1U, 0x80U, 0x9FU) &&
+                   continuation(index + 2U)) {
+            index += 3U;
+        } else if (byte == 0xF0U && continuation(index + 1U, 0x90U) && continuation(index + 2U) &&
+                   continuation(index + 3U)) {
+            index += 4U;
+        } else if (byte >= 0xF1U && byte <= 0xF3U && continuation(index + 1U) &&
+                   continuation(index + 2U) && continuation(index + 3U)) {
+            index += 4U;
+        } else if (byte == 0xF4U && continuation(index + 1U, 0x80U, 0x8FU) &&
+                   continuation(index + 2U) && continuation(index + 3U)) {
+            index += 4U;
+        } else {
+            return false;
+        }
+    }
+    return true;
 }
 
 std::uint64_t read_unsigned(const std::span<const std::uint8_t> bytes, const std::size_t offset,
@@ -175,6 +217,77 @@ PrimitiveBitsResult encode_primitive_bits(const schema::FieldType type, const Sc
     return make_error(CodecErrorCode::unsupported_field_type, path, offset);
 }
 
+EncodeResult encode_fixed_text_or_bytes(const schema::FieldType type, const ScalarValue& value,
+                                        const std::size_t length, const std::string& path,
+                                        const std::size_t offset) {
+    if (type == schema::FieldType::string) {
+        const auto* text = std::get_if<std::string>(&value);
+        if (text == nullptr) {
+            return make_error(CodecErrorCode::type_mismatch, path, offset,
+                              "expected std::string ScalarValue");
+        }
+        if (text->find('\0') != std::string::npos) {
+            return make_error(CodecErrorCode::invalid_string_encoding, path, offset,
+                              "UTF-8 string must not contain NUL");
+        }
+        if (!is_valid_utf8(*text)) {
+            return make_error(CodecErrorCode::invalid_string_encoding, path, offset,
+                              "string is not valid UTF-8");
+        }
+        if (text->size() > length) {
+            return make_error(CodecErrorCode::value_out_of_range, path, offset,
+                              "UTF-8 string requires " + std::to_string(text->size()) +
+                                  " bytes but field length is " + std::to_string(length));
+        }
+        ByteBuffer output(length, 0U);
+        std::ranges::transform(*text, output.begin(),
+                               [](const char byte) { return static_cast<std::uint8_t>(byte); });
+        return output;
+    }
+
+    const auto* raw_bytes = std::get_if<ByteBuffer>(&value);
+    if (raw_bytes == nullptr) {
+        return make_error(CodecErrorCode::type_mismatch, path, offset,
+                          "expected ByteBuffer ScalarValue");
+    }
+    if (raw_bytes->size() != length) {
+        return make_error(CodecErrorCode::value_out_of_range, path, offset,
+                          "bytes value has length " + std::to_string(raw_bytes->size()) +
+                              " but field length is " + std::to_string(length));
+    }
+    return *raw_bytes;
+}
+
+Result<ScalarValue, CodecError>
+decode_fixed_text_or_bytes(const schema::FieldType type, const std::span<const std::uint8_t> bytes,
+                           const std::string& path, const std::size_t offset) {
+    if (type == schema::FieldType::bytes) {
+        return ScalarValue{ByteBuffer{bytes.begin(), bytes.end()}};
+    }
+
+    const auto terminator = std::ranges::find(bytes, 0U);
+    const auto text_length = static_cast<std::size_t>(terminator - bytes.begin());
+    if (terminator != bytes.end()) {
+        const auto non_zero = std::ranges::find_if(
+            terminator + 1, bytes.end(), [](const std::uint8_t byte) { return byte != 0; });
+        if (non_zero != bytes.end()) {
+            return make_error(CodecErrorCode::invalid_string_padding, path,
+                              offset + static_cast<std::size_t>(non_zero - bytes.begin()),
+                              "non-zero byte follows string NUL terminator");
+        }
+    }
+
+    std::string text;
+    text.reserve(text_length);
+    std::ranges::transform(bytes.first(text_length), std::back_inserter(text),
+                           [](const std::uint8_t byte) { return static_cast<char>(byte); });
+    if (!is_valid_utf8(text)) {
+        return make_error(CodecErrorCode::invalid_string_encoding, path, offset,
+                          "string bytes are not valid UTF-8");
+    }
+    return ScalarValue{std::move(text)};
+}
+
 ScalarValue decode_primitive(const schema::FieldType type, const std::uint64_t bits) {
     switch (type) {
     case schema::FieldType::boolean:
@@ -227,16 +340,16 @@ Result<LayoutPlan, CodecError> build_layout(const schema::MessageDefinition& def
     for (const auto& field : definition.fields) {
         const auto path = field_path(definition, field);
         const auto width = primitive_width(field.type);
-        if (!width.has_value()) {
-            return make_error(CodecErrorCode::unsupported_field_type, path, cursor,
-                              "field type is not a fixed-width primitive");
+        if (!width.has_value() && !field.length.has_value()) {
+            return make_error(CodecErrorCode::invalid_layout, path, field.offset.value_or(cursor),
+                              "fixed string and bytes fields require length");
         }
         if (field.length.has_value() && *field.length == 0) {
             return make_error(CodecErrorCode::invalid_layout, path, field.offset.value_or(cursor),
                               "field length must be greater than zero");
         }
-        const auto length = field.length.value_or(*width);
-        if (length != *width) {
+        const auto length = field.length.value_or(width.value_or(0));
+        if (width.has_value() && length != *width) {
             return make_error(CodecErrorCode::invalid_layout, path, field.offset.value_or(cursor),
                               "field length must match fixed-width primitive size");
         }
@@ -286,6 +399,16 @@ EncodeResult FixedLayoutCodec::encode(const schema::MessageDefinition& definitio
         if (occurrences > 1) {
             return make_error(CodecErrorCode::duplicate_field, path, layout_field.offset,
                               "field appears more than once");
+        }
+
+        if (field.type == schema::FieldType::string || field.type == schema::FieldType::bytes) {
+            auto encoded = encode_fixed_text_or_bytes(field.type, value->value, layout_field.length,
+                                                      path, layout_field.offset);
+            if (!encoded.has_value()) {
+                return std::move(encoded).error();
+            }
+            std::ranges::copy(encoded.value(), bytes.begin() + layout_field.offset);
+            continue;
         }
 
         auto bits = encode_primitive_bits(field.type, value->value, path, layout_field.offset);
@@ -338,14 +461,25 @@ DecodeResult FixedLayoutCodec::decode(const schema::MessageDefinition& definitio
                                   " bytes but only " + std::to_string(remaining) + " remain");
         }
 
-        const auto byte_order = field.byte_order.value_or(default_byte_order);
-        const auto bits =
-            read_unsigned(bytes, layout_field.offset, layout_field.length, byte_order);
-        if (field.type == schema::FieldType::boolean && bits > 1U) {
-            return make_error(CodecErrorCode::value_out_of_range, path, layout_field.offset,
-                              "boolean byte must be 0 or 1");
+        ScalarValue decoded_value;
+        if (field.type == schema::FieldType::string || field.type == schema::FieldType::bytes) {
+            auto value = decode_fixed_text_or_bytes(
+                field.type, bytes.subspan(layout_field.offset, layout_field.length), path,
+                layout_field.offset);
+            if (!value.has_value()) {
+                return std::move(value).error();
+            }
+            decoded_value = std::move(value).value();
+        } else {
+            const auto byte_order = field.byte_order.value_or(default_byte_order);
+            const auto bits =
+                read_unsigned(bytes, layout_field.offset, layout_field.length, byte_order);
+            if (field.type == schema::FieldType::boolean && bits > 1U) {
+                return make_error(CodecErrorCode::value_out_of_range, path, layout_field.offset,
+                                  "boolean byte must be 0 or 1");
+            }
+            decoded_value = decode_primitive(field.type, bits);
         }
-        auto decoded_value = decode_primitive(field.type, bits);
         decoded.message.fields.push_back({.name = field.name, .value = std::move(decoded_value)});
         decoded.field_ranges.push_back(
             {.path = path, .offset = layout_field.offset, .length = layout_field.length});
@@ -383,6 +517,10 @@ std::string_view to_string(const CodecErrorCode code) noexcept {
         return "unsupported_field_type";
     case CodecErrorCode::invalid_layout:
         return "invalid_layout";
+    case CodecErrorCode::invalid_string_encoding:
+        return "invalid_string_encoding";
+    case CodecErrorCode::invalid_string_padding:
+        return "invalid_string_padding";
     }
     return "unknown";
 }

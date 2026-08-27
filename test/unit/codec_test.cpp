@@ -4,7 +4,9 @@
 #include <cstdint>
 #include <iostream>
 #include <limits>
+#include <string>
 #include <variant>
+#include <vector>
 
 namespace {
 
@@ -256,25 +258,25 @@ int main() {
         .name = "text-message",
         .fields = {{.name = "payload", .type = FieldType::string}},
     };
-    const auto unsupported = codec.decode(string_definition, ByteBuffer{});
-    CHECK(!unsupported.has_value());
-    if (const auto* error = unsupported.error_if()) {
-        CHECK(error->code == CodecErrorCode::unsupported_field_type);
+    const auto missing_string_length_decode = codec.decode(string_definition, ByteBuffer{});
+    CHECK(!missing_string_length_decode.has_value());
+    if (const auto* error = missing_string_length_decode.error_if()) {
+        CHECK(error->code == CodecErrorCode::invalid_layout);
         CHECK(error->path == "text-message.payload");
         CHECK(error->offset == 0);
-        CHECK(error->detail == "field type is not a fixed-width primitive");
+        CHECK(error->detail == "fixed string and bytes fields require length");
     }
     const StructuredMessage string_message{
         .message_name = "text-message",
         .fields = {{.name = "payload", .value = std::string{"hello"}}},
     };
-    const auto unsupported_encode = codec.encode(string_definition, string_message);
-    CHECK(!unsupported_encode.has_value());
-    if (const auto* error = unsupported_encode.error_if()) {
-        CHECK(error->code == CodecErrorCode::unsupported_field_type);
+    const auto missing_string_length_encode = codec.encode(string_definition, string_message);
+    CHECK(!missing_string_length_encode.has_value());
+    if (const auto* error = missing_string_length_encode.error_if()) {
+        CHECK(error->code == CodecErrorCode::invalid_layout);
         CHECK(error->path == "text-message.payload");
         CHECK(error->offset == 0);
-        CHECK(error->detail == "field type is not a fixed-width primitive");
+        CHECK(error->detail == "fixed string and bytes fields require length");
     }
 
     const auto trailing = codec.decode(boolean_definition, ByteBuffer{0x01U, 0x00U});
@@ -517,6 +519,158 @@ int main() {
         CHECK(error->detail == "field offset and length overflow");
     }
     CHECK(to_string(CodecErrorCode::invalid_layout) == "invalid_layout");
+
+    const MessageDefinition fixed_text_definition{
+        .name = "fixed-text",
+        .fields =
+            {
+                {.name = "label", .type = FieldType::string, .length = 6, .offset = 0},
+                {.name = "payload", .type = FieldType::bytes, .length = 3, .offset = 7},
+            },
+    };
+    const StructuredMessage fixed_text_message{
+        .message_name = "fixed-text",
+        .fields =
+            {
+                {.name = "label", .value = std::string{"OK"}},
+                {.name = "payload", .value = ByteBuffer{0x10U, 0x00U, 0xFFU}},
+            },
+    };
+    const auto fixed_text_encoded = codec.encode(fixed_text_definition, fixed_text_message);
+    CHECK(fixed_text_encoded.has_value());
+    if (const auto* bytes = fixed_text_encoded.value_if()) {
+        CHECK(*bytes ==
+              ByteBuffer({0x4FU, 0x4BU, 0x00U, 0x00U, 0x00U, 0x00U, 0x00U, 0x10U, 0x00U, 0xFFU}));
+        const auto fixed_text_decoded = codec.decode(fixed_text_definition, *bytes);
+        CHECK(fixed_text_decoded.has_value());
+        if (const auto* output = fixed_text_decoded.value_if()) {
+            CHECK(std::get<std::string>(output->message.fields[0].value) == "OK");
+            CHECK(std::get<ByteBuffer>(output->message.fields[1].value) ==
+                  ByteBuffer({0x10U, 0x00U, 0xFFU}));
+            CHECK(output->field_ranges[0].offset == 0);
+            CHECK(output->field_ranges[0].length == 6);
+            CHECK(output->field_ranges[1].offset == 7);
+            CHECK(output->field_ranges[1].length == 3);
+        }
+    }
+
+    auto missing_fixed_length = fixed_text_definition;
+    missing_fixed_length.fields[0].length.reset();
+    const auto missing_fixed_length_result = codec.decode(missing_fixed_length, ByteBuffer{});
+    CHECK(!missing_fixed_length_result.has_value());
+    if (const auto* error = missing_fixed_length_result.error_if()) {
+        CHECK(error->code == CodecErrorCode::invalid_layout);
+        CHECK(error->path == "fixed-text.label");
+        CHECK(error->offset == 0);
+        CHECK(error->detail == "fixed string and bytes fields require length");
+    }
+
+    auto oversized_string = fixed_text_message;
+    oversized_string.fields[0].value = std::string{"toolong"};
+    const auto oversized_string_result = codec.encode(fixed_text_definition, oversized_string);
+    CHECK(!oversized_string_result.has_value());
+    if (const auto* error = oversized_string_result.error_if()) {
+        CHECK(error->code == CodecErrorCode::value_out_of_range);
+        CHECK(error->path == "fixed-text.label");
+        CHECK(error->offset == 0);
+        CHECK(error->detail == "UTF-8 string requires 7 bytes but field length is 6");
+    }
+
+    auto embedded_nul_string = fixed_text_message;
+    embedded_nul_string.fields[0].value = std::string{"A\0B", 3};
+    const auto embedded_nul_result = codec.encode(fixed_text_definition, embedded_nul_string);
+    CHECK(!embedded_nul_result.has_value());
+    if (const auto* error = embedded_nul_result.error_if()) {
+        CHECK(error->code == CodecErrorCode::invalid_string_encoding);
+        CHECK(error->detail == "UTF-8 string must not contain NUL");
+    }
+
+    auto invalid_utf8_string = fixed_text_message;
+    invalid_utf8_string.fields[0].value = std::string{"\xC3\x28", 2};
+    const auto invalid_utf8_encode = codec.encode(fixed_text_definition, invalid_utf8_string);
+    CHECK(!invalid_utf8_encode.has_value());
+    if (const auto* error = invalid_utf8_encode.error_if()) {
+        CHECK(error->code == CodecErrorCode::invalid_string_encoding);
+        CHECK(error->detail == "string is not valid UTF-8");
+    }
+
+    for (const auto& invalid_text :
+         std::vector<std::string>{std::string{"\xC0\xAF", 2}, std::string{"\xED\xA0\x80", 3},
+                                  std::string{"\xF4\x90\x80\x80", 4}}) {
+        auto invalid_unicode = fixed_text_message;
+        invalid_unicode.fields[0].value = invalid_text;
+        const auto invalid_unicode_result = codec.encode(fixed_text_definition, invalid_unicode);
+        CHECK(!invalid_unicode_result.has_value());
+        if (const auto* error = invalid_unicode_result.error_if()) {
+            CHECK(error->code == CodecErrorCode::invalid_string_encoding);
+        }
+    }
+
+    auto four_byte_utf8 = fixed_text_message;
+    four_byte_utf8.fields[0].value = std::string{"\xF0\x9F\x8C\xA1", 4};
+    const auto four_byte_utf8_encoded = codec.encode(fixed_text_definition, four_byte_utf8);
+    CHECK(four_byte_utf8_encoded.has_value());
+    if (const auto* bytes = four_byte_utf8_encoded.value_if()) {
+        const auto four_byte_utf8_decoded = codec.decode(fixed_text_definition, *bytes);
+        CHECK(four_byte_utf8_decoded.has_value());
+        if (const auto* output = four_byte_utf8_decoded.value_if()) {
+            CHECK(std::get<std::string>(output->message.fields[0].value) ==
+                  std::get<std::string>(four_byte_utf8.fields[0].value));
+        }
+    }
+
+    auto wrong_string_type = fixed_text_message;
+    wrong_string_type.fields[0].value = ByteBuffer(6, 0U);
+    const auto wrong_string_type_result = codec.encode(fixed_text_definition, wrong_string_type);
+    CHECK(!wrong_string_type_result.has_value());
+    if (const auto* error = wrong_string_type_result.error_if()) {
+        CHECK(error->code == CodecErrorCode::type_mismatch);
+        CHECK(error->detail == "expected std::string ScalarValue");
+    }
+
+    auto wrong_bytes_type = fixed_text_message;
+    wrong_bytes_type.fields[1].value = std::string{"raw"};
+    const auto wrong_bytes_type_result = codec.encode(fixed_text_definition, wrong_bytes_type);
+    CHECK(!wrong_bytes_type_result.has_value());
+    if (const auto* error = wrong_bytes_type_result.error_if()) {
+        CHECK(error->code == CodecErrorCode::type_mismatch);
+        CHECK(error->detail == "expected ByteBuffer ScalarValue");
+    }
+
+    auto wrong_bytes_length = fixed_text_message;
+    wrong_bytes_length.fields[1].value = ByteBuffer{0x10U, 0x20U};
+    const auto wrong_bytes_length_result = codec.encode(fixed_text_definition, wrong_bytes_length);
+    CHECK(!wrong_bytes_length_result.has_value());
+    if (const auto* error = wrong_bytes_length_result.error_if()) {
+        CHECK(error->code == CodecErrorCode::value_out_of_range);
+        CHECK(error->path == "fixed-text.payload");
+        CHECK(error->offset == 7);
+        CHECK(error->detail == "bytes value has length 2 but field length is 3");
+    }
+
+    const auto invalid_utf8_decode =
+        codec.decode(fixed_text_definition, ByteBuffer{0xC3U, 0x28U, 0x00U, 0x00U, 0x00U, 0x00U,
+                                                       0x00U, 0x10U, 0x00U, 0xFFU});
+    CHECK(!invalid_utf8_decode.has_value());
+    if (const auto* error = invalid_utf8_decode.error_if()) {
+        CHECK(error->code == CodecErrorCode::invalid_string_encoding);
+        CHECK(error->path == "fixed-text.label");
+        CHECK(error->offset == 0);
+        CHECK(error->detail == "string bytes are not valid UTF-8");
+    }
+
+    const auto non_zero_string_padding =
+        codec.decode(fixed_text_definition, ByteBuffer{0x4FU, 0x4BU, 0x00U, 0x41U, 0x00U, 0x00U,
+                                                       0x00U, 0x10U, 0x00U, 0xFFU});
+    CHECK(!non_zero_string_padding.has_value());
+    if (const auto* error = non_zero_string_padding.error_if()) {
+        CHECK(error->code == CodecErrorCode::invalid_string_padding);
+        CHECK(error->path == "fixed-text.label");
+        CHECK(error->offset == 3);
+        CHECK(error->detail == "non-zero byte follows string NUL terminator");
+    }
+    CHECK(to_string(CodecErrorCode::invalid_string_encoding) == "invalid_string_encoding");
+    CHECK(to_string(CodecErrorCode::invalid_string_padding) == "invalid_string_padding");
 
     return failures == 0 ? 0 : 1;
 }

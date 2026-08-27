@@ -5,7 +5,7 @@
 > 适用范围：Portable C++ Core  
 > 状态：模块边界和最小公共 API 已建立，完整 MVP 能力仍在开发中
 
-相关文档：[功能清单与开发进度](<./IoT Protocol Studio 功能清单与开发进度.md>) · [开发环境与构建](./开发环境与构建.md)
+相关文档：[功能清单与开发进度](<./IoT Protocol Studio 功能清单与开发进度.md>) · [固定长度 String 与 Bytes](<./固定长度 String 与 Bytes.md>) · [开发环境与构建](./开发环境与构建.md)
 
 ## 1. 目标
 
@@ -125,7 +125,7 @@ core/
 
 公共模型包括 `ScalarValue`、`StructuredMessage`、`DecodedMessage`、字段字节范围和稳定错误码。`MessageCodec` 是可替换编解码接口。
 
-`FixedLayoutCodec` 已对固定长度 Primitive 提供对称 Encode/Decode：
+`FixedLayoutCodec` 已对固定长度 Primitive、UTF-8 string 和 bytes 提供对称 Encode/Decode：
 
 ```text
 MessageDefinition + StructuredMessage / ByteBuffer
@@ -134,12 +134,13 @@ MessageDefinition + StructuredMessage / ByteBuffer
   → 按固定位置 Encode / Decode，gap 编码为 0x00
   → Field endian 覆盖
   → bool / 8-64 位整数 / float32 / float64
+  → UTF-8 string / ByteBuffer
   → ByteBuffer / StructuredMessage + FieldRange
 ```
 
-Encode 对名称不匹配、缺失/重复/额外字段、ScalarValue 类型不匹配、数值越界、不支持类型和非法布局返回稳定路径、偏移和原因；Decode 对非法 bool、输入不足、不支持类型、非法布局和尾随数据提供同类诊断。详细契约见 [Primitive Encode](<./Primitive Encode.md>)、[Primitive Decode](<./Primitive Decode.md>) 和 [固定 Field 布局](<./固定 Field 布局.md>)。
+Encode 对名称不匹配、缺失/重复/额外字段、ScalarValue 类型不匹配、数值或长度越界、非法 UTF-8 和非法布局返回稳定路径、偏移和原因；Decode 对非法 bool、输入不足、非法 UTF-8/NUL padding、非法布局和尾随数据提供同类诊断。详细契约见 [Primitive Encode](<./Primitive Encode.md>)、[Primitive Decode](<./Primitive Decode.md>)、[固定 Field 布局](<./固定 Field 布局.md>) 和 [固定长度 String 与 Bytes](<./固定长度 String 与 Bytes.md>)。
 
-尚未实现的部分包括：字符串/动态 bytes、BCD、timestamp、Enum、BitField、数组、结构体、Length Field 和 Checksum。
+尚未实现的部分包括：动态长度 string/bytes、BCD、timestamp、Enum、BitField、数组、结构体、Length Field 和 Checksum。
 
 ### 5.3 Transport API
 
@@ -226,9 +227,10 @@ simulator::SimulatorErrorCode
 | `iotps_result_unit_test` | Common | 成功值、错误值、指针访问和 `Status` |
 | `iotps_schema_unit_test` | Schema | 合法 Schema、重复名称、字段路径和错误码 |
 | `iotps_schema_loader_unit_test` | Schema | YAML/文件加载、节点类型、枚举、领域校验和源码位置 |
-| `iotps_codec_unit_test` | Codec | 全部固定宽度 Primitive Encode/Decode、字节序、固定布局、padding、范围和错误诊断 |
+| `iotps_codec_unit_test` | Codec | 固定 Primitive/string/bytes Encode/Decode、字节序、布局、padding、范围和错误诊断 |
 | `iotps_primitive_decode_integration_test` | Codec、Schema | Schema YAML → 非连续 HEX → 多类型 Decode → expected golden vector |
 | `iotps_primitive_encode_integration_test` | Codec、Schema | Schema YAML → Decode → 固定布局 Encode → golden HEX → Decode round-trip |
+| `iotps_fixed_text_integration_test` | Codec、Schema | Schema YAML → UTF-8 string/bytes Decode → expected → Encode round-trip |
 | `iotps_simulator_integration_test` | Simulator | Codec → Simulator → Transport 发送链路和生命周期 |
 | `iotps_testing_unit_test` | Testing | 断言求值和测试报告汇总 |
 
@@ -236,14 +238,14 @@ Simulator 集成测试只替换 Transport，因为 Transport 是操作系统和�
 
 ## 8. 下一步
 
-固定长度 Primitive Encode/Decode、Field `length`/`offset` 和非连续布局 round-trip 已完成。当前产品主线进入固定长度 `string`/`bytes`：
+固定长度 Primitive、UTF-8 string、bytes、Field `length`/`offset` 和非连续布局 round-trip 已完成。当前产品主线进入最小 Length Field：
 
 ```text
-Schema YAML + Field length
-  → string/bytes 固定长度边界
-  → 明确编码、填充和截断规则
-  → Decode/Encode + FieldRange
-  → 建立 string/bytes golden vector
+Length Field Schema 契约
+  → 引用目标和包含/排除范围
+  → Decode 校验声明长度
+  → Encode 自动计算长度
+  → 依赖顺序和错误诊断
 ```
 
-固定长度 `string`/`bytes` 完成前，不扩展动态 Length/Array/Struct、真实 TCP/Serial、Simulator 行为 DSL 或完整 Test Runner。
+Length Field 契约完成前，不同时扩展 Array/Struct/Condition、真实 TCP/Serial、Simulator 行为 DSL 或完整 Test Runner。

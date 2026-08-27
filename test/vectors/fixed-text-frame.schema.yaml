@@ -1,0 +1,20 @@
+schemaVersion: "0.1"
+protocol:
+  name: fixed-text
+  displayName: Fixed Text
+  version: "1.0"
+messages:
+  sample:
+    typeId: 2
+    fields:
+      - name: marker
+        type: uint8
+        length: 1
+        offset: 0
+      - name: label
+        type: string
+        length: 8
+      - name: payload
+        type: bytes
+        length: 4
+        offset: 10
