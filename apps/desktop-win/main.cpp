@@ -3,6 +3,7 @@
 #include "webview/webview.h"
 
 #include <atomic>
+#include <dwmapi.h>
 #include <filesystem>
 #include <optional>
 #include <sstream>
@@ -245,6 +246,33 @@ window.addEventListener("DOMContentLoaded", () => {
 constexpr auto packaged_ui_url = "https://iotps.local/index.html";
 constexpr auto packaged_ui_host = L"iotps.local";
 
+void apply_native_titlebar_theme(webview::webview& window) {
+    auto window_result = window.window();
+    window_result.ensure_ok();
+    auto* native_window = static_cast<HWND>(window_result.value());
+
+    constexpr DWORD immersive_dark_mode = 20;
+    constexpr DWORD immersive_dark_mode_legacy = 19;
+    constexpr DWORD border_color_attribute = 34;
+    constexpr DWORD caption_color_attribute = 35;
+    constexpr DWORD text_color_attribute = 36;
+    constexpr BOOL dark_mode = TRUE;
+    constexpr COLORREF border_color = RGB(0x28, 0x31, 0x3D);
+    constexpr COLORREF caption_color = RGB(0x11, 0x18, 0x20);
+    constexpr COLORREF text_color = RGB(0xE6, 0xED, 0xF3);
+
+    if (FAILED(DwmSetWindowAttribute(native_window, immersive_dark_mode, &dark_mode,
+                                     sizeof(dark_mode)))) {
+        DwmSetWindowAttribute(native_window, immersive_dark_mode_legacy, &dark_mode,
+                              sizeof(dark_mode));
+    }
+    DwmSetWindowAttribute(native_window, border_color_attribute, &border_color,
+                          sizeof(border_color));
+    DwmSetWindowAttribute(native_window, caption_color_attribute, &caption_color,
+                          sizeof(caption_color));
+    DwmSetWindowAttribute(native_window, text_color_attribute, &text_color, sizeof(text_color));
+}
+
 void throw_if_failed(const HRESULT result, const std::string_view operation) {
     if (SUCCEEDED(result)) {
         return;
@@ -293,6 +321,7 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR command_line, int) {
         const iotps::core::Engine engine;
         webview::webview window(enable_devtools, nullptr);
         window.set_title("IoT Protocol Studio");
+        apply_native_titlebar_theme(window);
         window.set_size(1280, 800, WEBVIEW_HINT_NONE);
         window.set_size(960, 640, WEBVIEW_HINT_MIN);
 

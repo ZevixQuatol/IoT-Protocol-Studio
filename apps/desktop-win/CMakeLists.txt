@@ -24,6 +24,7 @@ set_target_properties(iotps_desktop PROPERTIES OUTPUT_NAME "IoT Protocol Studio"
 target_link_libraries(
   iotps_desktop
   PRIVATE
+    dwmapi
     iotps::core
     webview::core)
 
