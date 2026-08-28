@@ -1,5 +1,6 @@
 import {
   Activity,
+  ArrowLeft,
   Braces,
   CheckCircle2,
   ChevronDown,
@@ -10,12 +11,28 @@ import {
   FolderOpen,
   Hexagon,
   Languages,
+  Minus,
   Play,
   RotateCcw,
+  Settings,
+  Square,
   TerminalSquare,
+  X,
 } from "lucide-react";
-import { useCallback, useEffect, useMemo, useState } from "react";
-import { getCoreInfo, inspectHex, type CoreInfo, type InspectionResult } from "./bridge";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useState,
+  type PointerEvent as ReactPointerEvent,
+} from "react";
+import {
+  getCoreInfo,
+  inspectHex,
+  performWindowAction,
+  type CoreInfo,
+  type InspectionResult,
+} from "./bridge";
 import {
   detectInitialLocale,
   messages,
@@ -26,6 +43,7 @@ import {
 } from "./i18n";
 
 const sampleHex = "AA 55 01 0A 78 56 34 12 03 02 01 A8 C3";
+let nextLogId = 2;
 
 type LogEntryData = {
   level: "info" | "success" | "error";
@@ -91,6 +109,7 @@ function logMessage(translation: TranslationMessages, entry: LogEntry): string {
 }
 
 export default function App() {
+  const [page, setPage] = useState<"workbench" | "settings">("workbench");
   const [locale, setLocale] = useState<Locale>(detectInitialLocale);
   const [input, setInput] = useState(sampleHex);
   const [result, setResult] = useState<InspectionResult | null>(null);
@@ -101,7 +120,8 @@ export default function App() {
   const translation = messages[locale];
 
   const appendLog = useCallback((entry: LogEntryData) => {
-    setLogs((current) => [...current.slice(-49), { ...entry, id: Date.now() }]);
+    const id = nextLogId++;
+    setLogs((current) => [...current.slice(-49), { ...entry, id }]);
   }, []);
 
   useEffect(() => {
@@ -173,14 +193,89 @@ export default function App() {
     }));
   }, [result]);
 
+  const startWindowDrag = (event: ReactPointerEvent<HTMLElement>) => {
+    if (event.button === 0 && event.target instanceof Element && !event.target.closest("button")) {
+      void performWindowAction("drag");
+    }
+  };
+
   return (
     <div className="app-shell">
-      <header className="titlebar">
+      <header className="titlebar" onPointerDown={startWindowDrag}>
         <div className="brand">
           <Hexagon size={18} strokeWidth={2.2} />
           <strong>IoT Protocol Studio</strong>
-          <span className="version">v{coreInfo?.version ?? "..."}</span>
         </div>
+        <div className="titlebar-actions">
+          <button
+            aria-current={page === "settings" ? "page" : undefined}
+            aria-label={translation.window.settings}
+            className={`settings-button ${page === "settings" ? "active" : ""}`}
+            onClick={() => setPage("settings")}
+            title={translation.window.settings}
+            type="button"
+          >
+            <Settings size={15} />
+          </button>
+          <div className="window-controls">
+            <button
+              aria-label={translation.window.minimize}
+              className="window-control"
+              onClick={() => void performWindowAction("minimize")}
+              title={translation.window.minimize}
+              type="button"
+            >
+              <Minus size={16} />
+            </button>
+            <button
+              aria-label={translation.window.maximize}
+              className="window-control"
+              onClick={() => void performWindowAction("maximize")}
+              title={translation.window.maximize}
+              type="button"
+            >
+              <Square size={12} />
+            </button>
+            <button
+              aria-label={translation.window.close}
+              className="window-control close"
+              onClick={() => void performWindowAction("close")}
+              title={translation.window.close}
+              type="button"
+            >
+              <X size={16} />
+            </button>
+          </div>
+        </div>
+      </header>
+
+      {page === "settings" && (
+        <main className="settings-page">
+          <button className="settings-back" onClick={() => setPage("workbench")} type="button">
+            <ArrowLeft size={16} />
+            {translation.settings.back}
+          </button>
+          <div className="settings-heading">
+            <Settings size={22} />
+            <div>
+              <h1>{translation.settings.title}</h1>
+              <p>{translation.settings.empty}</p>
+            </div>
+          </div>
+        </main>
+      )}
+
+      <div className="toolbar" hidden={page === "settings"}>
+        <button className="project-button" type="button">
+          <FolderOpen size={16} />
+          {translation.explorer.project}
+          <ChevronDown size={14} />
+        </button>
+        <div className="toolbar-divider" />
+        <span className="connection-label">{translation.status.coreSession}</span>
+        <span className="connection-state">{translation.status.ready}</span>
+        <span className="version">v{coreInfo?.version ?? "..."}</span>
+        <div className="toolbar-spacer" />
         <div className="runtime-status">
           <div className="language-switch" aria-label={translation.language.selector} role="group">
             <Languages aria-hidden="true" size={14} />
@@ -210,18 +305,6 @@ export default function App() {
           <span className="separator">/</span>
           <span>{architectureLabel(translation, coreInfo?.architecture)}</span>
         </div>
-      </header>
-
-      <div className="toolbar">
-        <button className="project-button" type="button">
-          <FolderOpen size={16} />
-          {translation.explorer.project}
-          <ChevronDown size={14} />
-        </button>
-        <div className="toolbar-divider" />
-        <span className="connection-label">{translation.status.coreSession}</span>
-        <span className="connection-state">{translation.status.ready}</span>
-        <div className="toolbar-spacer" />
         <button className="secondary-action" type="button" onClick={() => setInput(sampleHex)}>
           <RotateCcw size={15} />
           {translation.actions.reset}
@@ -232,7 +315,7 @@ export default function App() {
         </button>
       </div>
 
-      <main className="workbench">
+      <main className="workbench" hidden={page === "settings"}>
         <aside className="explorer panel">
           <div className="panel-title">{translation.explorer.title}</div>
           <div className="tree-row tree-root">

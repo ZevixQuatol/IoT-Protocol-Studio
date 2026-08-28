@@ -3,7 +3,6 @@
 #include "webview/webview.h"
 
 #include <atomic>
-#include <dwmapi.h>
 #include <filesystem>
 #include <optional>
 #include <sstream>
@@ -226,10 +225,32 @@ window.addEventListener("DOMContentLoaded", () => {
   let attemptsRemaining = 50;
   const report = (result) => window.iotpsSmokeResult(result);
   const verify = () => {
-    if (document.querySelector(".app-shell")) {
-      Promise.resolve(window.iotpsCoreInfo())
-        .then((info) => report(info?.source === "native-core" ? "pass" : "core-bridge-failed"))
-        .catch(() => report("core-bridge-failed"));
+    const shell = document.querySelector(".app-shell");
+    const titlebar = document.querySelector(".titlebar");
+    const settings = document.querySelector(".settings-button");
+    const windowControls = document.querySelectorAll(".window-control");
+    if (shell && titlebar && settings && windowControls.length === 3) {
+      Promise.resolve(window.iotpsWindowAction("maximize"))
+        .then((result) => result?.ok && window.iotpsWindowAction("maximize"))
+        .then((result) => {
+          if (!result?.ok) {
+            report("window-controls-failed");
+            return;
+          }
+          settings.click();
+          window.setTimeout(() => {
+            if (!document.querySelector(".settings-page")) {
+              report("settings-navigation-failed");
+              return;
+            }
+            Promise.resolve(window.iotpsCoreInfo())
+              .then((info) =>
+                report(info?.source === "native-core" ? "pass" : "core-bridge-failed"),
+              )
+              .catch(() => report("core-bridge-failed"));
+          }, 0);
+        })
+        .catch(() => report("window-controls-failed"));
       return;
     }
     attemptsRemaining -= 1;
@@ -246,31 +267,42 @@ window.addEventListener("DOMContentLoaded", () => {
 constexpr auto packaged_ui_url = "https://iotps.local/index.html";
 constexpr auto packaged_ui_host = L"iotps.local";
 
-void apply_native_titlebar_theme(webview::webview& window) {
+[[nodiscard]] HWND native_window(webview::webview& window) {
     auto window_result = window.window();
     window_result.ensure_ok();
-    auto* native_window = static_cast<HWND>(window_result.value());
+    return static_cast<HWND>(window_result.value());
+}
 
-    constexpr DWORD immersive_dark_mode = 20;
-    constexpr DWORD immersive_dark_mode_legacy = 19;
-    constexpr DWORD border_color_attribute = 34;
-    constexpr DWORD caption_color_attribute = 35;
-    constexpr DWORD text_color_attribute = 36;
-    constexpr BOOL dark_mode = TRUE;
-    constexpr COLORREF border_color = RGB(0x28, 0x31, 0x3D);
-    constexpr COLORREF caption_color = RGB(0x11, 0x18, 0x20);
-    constexpr COLORREF text_color = RGB(0xE6, 0xED, 0xF3);
-
-    if (FAILED(DwmSetWindowAttribute(native_window, immersive_dark_mode, &dark_mode,
-                                     sizeof(dark_mode)))) {
-        DwmSetWindowAttribute(native_window, immersive_dark_mode_legacy, &dark_mode,
-                              sizeof(dark_mode));
+void enable_custom_titlebar(const HWND window) {
+    const auto style = GetWindowLongPtrW(window, GWL_STYLE);
+    if (SetWindowLongPtrW(window, GWL_STYLE, style & ~static_cast<LONG_PTR>(WS_CAPTION)) == 0) {
+        throw std::runtime_error("Removing the native title bar failed");
     }
-    DwmSetWindowAttribute(native_window, border_color_attribute, &border_color,
-                          sizeof(border_color));
-    DwmSetWindowAttribute(native_window, caption_color_attribute, &caption_color,
-                          sizeof(caption_color));
-    DwmSetWindowAttribute(native_window, text_color_attribute, &text_color, sizeof(text_color));
+    if (!SetWindowPos(window, nullptr, 0, 0, 0, 0,
+                      SWP_FRAMECHANGED | SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE)) {
+        throw std::runtime_error("Refreshing the custom title bar frame failed");
+    }
+}
+
+[[nodiscard]] std::string handle_window_action(const HWND window, const std::string& request) {
+    const auto action = first_string_argument(request);
+    if (!action.has_value()) {
+        return R"({"ok":false})";
+    }
+
+    if (*action == "drag") {
+        ReleaseCapture();
+        SendMessageW(window, WM_NCLBUTTONDOWN, HTCAPTION, 0);
+    } else if (*action == "minimize") {
+        ShowWindow(window, SW_MINIMIZE);
+    } else if (*action == "maximize") {
+        ShowWindow(window, IsZoomed(window) ? SW_RESTORE : SW_MAXIMIZE);
+    } else if (*action == "close") {
+        PostMessageW(window, WM_CLOSE, 0, 0);
+    } else {
+        return R"({"ok":false})";
+    }
+    return R"({"ok":true})";
 }
 
 void throw_if_failed(const HRESULT result, const std::string_view operation) {
@@ -321,13 +353,17 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR command_line, int) {
         const iotps::core::Engine engine;
         webview::webview window(enable_devtools, nullptr);
         window.set_title("IoT Protocol Studio");
-        apply_native_titlebar_theme(window);
+        const auto window_handle = native_window(window);
+        enable_custom_titlebar(window_handle);
         window.set_size(1280, 800, WEBVIEW_HINT_NONE);
         window.set_size(960, 640, WEBVIEW_HINT_MIN);
 
         window.bind("iotpsCoreInfo", [](const std::string&) { return core_info(); });
         window.bind("iotpsInspectHex",
                     [&engine](const std::string& request) { return inspect_hex(request, engine); });
+        window.bind("iotpsWindowAction", [window_handle](const std::string& request) {
+            return handle_window_action(window_handle, request);
+        });
 
         std::atomic_bool smoke_test_passed = false;
         if (smoke_test) {

@@ -22,6 +22,17 @@ export type TranslationMessages = {
     reset: string;
     inspect: string;
   };
+  window: {
+    settings: string;
+    minimize: string;
+    maximize: string;
+    close: string;
+  };
+  settings: {
+    title: string;
+    empty: string;
+    back: string;
+  };
   explorer: {
     title: string;
     project: string;
@@ -98,6 +109,17 @@ export const messages: Record<Locale, TranslationMessages> = {
       reset: "重置",
       inspect: "解析",
     },
+    window: {
+      settings: "设置",
+      minimize: "最小化",
+      maximize: "最大化或还原",
+      close: "关闭",
+    },
+    settings: {
+      title: "设置",
+      empty: "设置内容将在后续补充。",
+      back: "返回工作台",
+    },
     explorer: {
       title: "资源管理器",
       project: "智能传感器",
@@ -173,6 +195,17 @@ export const messages: Record<Locale, TranslationMessages> = {
     actions: {
       reset: "Reset",
       inspect: "Inspect",
+    },
+    window: {
+      settings: "Settings",
+      minimize: "Minimize",
+      maximize: "Maximize or restore",
+      close: "Close",
+    },
+    settings: {
+      title: "Settings",
+      empty: "Settings will be added in a future update.",
+      back: "Back to workbench",
     },
     explorer: {
       title: "EXPLORER",

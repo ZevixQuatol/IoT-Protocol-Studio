@@ -30,10 +30,13 @@ export type InspectionFailure = {
 
 export type InspectionResult = InspectionSuccess | InspectionFailure;
 
+export type WindowAction = "drag" | "minimize" | "maximize" | "close";
+
 declare global {
   interface Window {
     iotpsCoreInfo?: () => Promise<CoreInfo>;
     iotpsInspectHex?: (input: string) => Promise<InspectionResult>;
+    iotpsWindowAction?: (action: WindowAction) => Promise<{ ok: boolean }>;
   }
 }
 
@@ -121,4 +124,8 @@ export async function inspectHex(input: string): Promise<InspectionResult> {
     return window.iotpsInspectHex(input);
   }
   return inspectInBrowser(input);
+}
+
+export async function performWindowAction(action: WindowAction): Promise<void> {
+  await window.iotpsWindowAction?.(action);
 }

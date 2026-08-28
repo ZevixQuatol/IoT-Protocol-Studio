@@ -18,6 +18,10 @@
   box-sizing: border-box;
 }
 
+[hidden] {
+  display: none !important;
+}
+
 html,
 body,
 #root {
@@ -37,8 +41,8 @@ button {
 }
 
 .app-shell {
-  display: grid;
-  grid-template-rows: 38px 44px minmax(0, 1fr);
+  display: flex;
+  flex-direction: column;
   width: 100%;
   height: 100%;
   min-width: 880px;
@@ -54,7 +58,10 @@ button {
 }
 
 .titlebar {
+  flex: 0 0 40px;
+  padding: 0 0 0 14px;
   background: #111820;
+  user-select: none;
 }
 
 .brand,
@@ -71,7 +78,9 @@ button {
 }
 
 .brand {
+  flex: 1;
   gap: 8px;
+  height: 100%;
   min-width: 0;
 }
 
@@ -84,6 +93,53 @@ button {
   font-weight: 650;
 }
 
+.titlebar-actions,
+.window-controls {
+  display: flex;
+  align-items: center;
+  height: 100%;
+}
+
+.settings-button,
+.window-control {
+  display: grid;
+  width: 44px;
+  height: 100%;
+  padding: 0;
+  place-items: center;
+  border: 0;
+  background: transparent;
+  color: #9ba8b7;
+  cursor: default;
+}
+
+.settings-button {
+  border-left: 1px solid #28313d;
+}
+
+.settings-button:hover,
+.settings-button.active,
+.window-control:hover {
+  background: #202b37;
+  color: #e6edf3;
+}
+
+.settings-button.active {
+  color: #72d3ad;
+}
+
+.window-control.close:hover {
+  background: #c42b3b;
+  color: #ffffff;
+}
+
+.settings-button:focus-visible,
+.window-control:focus-visible,
+.settings-back:focus-visible {
+  outline: 2px solid #58c199;
+  outline-offset: -2px;
+}
+
 .version {
   color: #8290a0;
   font-family: "Cascadia Code", Consolas, monospace;
@@ -92,7 +148,6 @@ button {
 
 .runtime-status {
   gap: 7px;
-  margin-left: auto;
   color: #98a6b7;
   font-size: 11px;
 }
@@ -153,6 +208,7 @@ button {
 }
 
 .toolbar {
+  flex: 0 0 44px;
   gap: 9px;
   background: #161d26;
 }
@@ -218,9 +274,58 @@ button {
 
 .workbench {
   display: grid;
+  flex: 1;
   grid-template-columns: 220px minmax(420px, 1fr) 276px;
   grid-template-rows: minmax(0, 1fr) 150px;
   min-height: 0;
+}
+
+.settings-page {
+  flex: 1;
+  min-height: 0;
+  padding: 24px;
+  background: #0f151c;
+}
+
+.settings-back {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  height: 32px;
+  padding: 0 10px;
+  border: 1px solid #344050;
+  border-radius: 5px;
+  background: #18212b;
+  color: #aeb9c6;
+  cursor: pointer;
+  font-size: 12px;
+}
+
+.settings-back:hover {
+  border-color: #4a596b;
+  background: #202b37;
+  color: #e6edf3;
+}
+
+.settings-heading {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  margin-top: 28px;
+  color: #5bd4a6;
+}
+
+.settings-heading h1 {
+  margin: 0;
+  color: #e6edf3;
+  font-size: 22px;
+  font-weight: 620;
+}
+
+.settings-heading p {
+  margin: 7px 0 0;
+  color: #8290a0;
+  font-size: 12px;
 }
 
 .panel {
