@@ -1,0 +1,5 @@
+marker=165 @0+1
+samplesLength=6 @1+1
+samples=[4660,258,65535] @2+6
+ratios=[1.5,-2.25] @8+8
+trailer=90 @16+1

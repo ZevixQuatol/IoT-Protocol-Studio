@@ -53,6 +53,7 @@ std::optional<std::size_t> primitive_width(const schema::FieldType type) {
         return 8;
     case schema::FieldType::bytes:
     case schema::FieldType::string:
+    case schema::FieldType::array:
         return std::nullopt;
     }
     return std::nullopt;
@@ -149,8 +150,8 @@ void append_unsigned(ByteBuffer& bytes, const std::uint64_t value, const std::si
 
 using PrimitiveBitsResult = Result<std::uint64_t, CodecError>;
 
-template <typename Target>
-PrimitiveBitsResult encode_signed_integer(const ScalarValue& value, const std::string& path,
+template <typename Target, typename Value>
+PrimitiveBitsResult encode_signed_integer(const Value& value, const std::string& path,
                                           const std::size_t offset) {
     const auto* signed_value = std::get_if<std::int64_t>(&value);
     if (signed_value == nullptr) {
@@ -167,8 +168,8 @@ PrimitiveBitsResult encode_signed_integer(const ScalarValue& value, const std::s
         std::bit_cast<UnsignedTarget>(static_cast<Target>(*signed_value)));
 }
 
-template <typename Target>
-PrimitiveBitsResult encode_unsigned_integer(const ScalarValue& value, const std::string& path,
+template <typename Target, typename Value>
+PrimitiveBitsResult encode_unsigned_integer(const Value& value, const std::string& path,
                                             const std::size_t offset) {
     const auto* unsigned_value = std::get_if<std::uint64_t>(&value);
     if (unsigned_value == nullptr) {
@@ -182,7 +183,8 @@ PrimitiveBitsResult encode_unsigned_integer(const ScalarValue& value, const std:
     return *unsigned_value;
 }
 
-PrimitiveBitsResult encode_primitive_bits(const schema::FieldType type, const ScalarValue& value,
+template <typename Value>
+PrimitiveBitsResult encode_primitive_bits(const schema::FieldType type, const Value& value,
                                           const std::string& path, const std::size_t offset) {
     switch (type) {
     case schema::FieldType::boolean: {
@@ -233,6 +235,7 @@ PrimitiveBitsResult encode_primitive_bits(const schema::FieldType type, const Sc
     }
     case schema::FieldType::bytes:
     case schema::FieldType::string:
+    case schema::FieldType::array:
         return make_error(CodecErrorCode::unsupported_field_type, path, offset);
     }
     return make_error(CodecErrorCode::unsupported_field_type, path, offset);
@@ -309,7 +312,7 @@ decode_fixed_text_or_bytes(const schema::FieldType type, const std::span<const s
     return ScalarValue{std::move(text)};
 }
 
-ScalarValue decode_primitive(const schema::FieldType type, const std::uint64_t bits) {
+PrimitiveValue decode_primitive(const schema::FieldType type, const std::uint64_t bits) {
     switch (type) {
     case schema::FieldType::boolean:
         return bits != 0;
@@ -338,6 +341,7 @@ ScalarValue decode_primitive(const schema::FieldType type, const std::uint64_t b
         return std::bit_cast<double>(bits);
     case schema::FieldType::bytes:
     case schema::FieldType::string:
+    case schema::FieldType::array:
         return std::uint64_t{0};
     }
     return std::uint64_t{0};
@@ -366,18 +370,60 @@ Result<LayoutPlan, CodecError> build_layout(const schema::MessageDefinition& def
     for (const auto& field : definition.fields) {
         const auto path = field_path(definition, field);
         const auto width = primitive_width(field.type);
-        if (!width.has_value() && !field.length.has_value()) {
-            return make_error(CodecErrorCode::invalid_layout, path, field.offset.value_or(cursor),
-                              "fixed string and bytes fields require length");
-        }
-        if (field.length.has_value() && *field.length == 0) {
-            return make_error(CodecErrorCode::invalid_layout, path, field.offset.value_or(cursor),
-                              "field length must be greater than zero");
-        }
-        const auto length = field.length.value_or(width.value_or(0));
-        if (width.has_value() && length != *width) {
-            return make_error(CodecErrorCode::invalid_layout, path, field.offset.value_or(cursor),
-                              "field length must match fixed-width primitive size");
+        std::size_t length = 0;
+        if (field.type == schema::FieldType::array) {
+            if (!field.element_type.has_value()) {
+                return make_error(CodecErrorCode::invalid_layout, path,
+                                  field.offset.value_or(cursor),
+                                  "array field requires elementType");
+            }
+            const auto element_width = primitive_width(*field.element_type);
+            if (!element_width.has_value()) {
+                return make_error(CodecErrorCode::invalid_layout, path,
+                                  field.offset.value_or(cursor),
+                                  "array elementType must be a fixed-width primitive");
+            }
+            if (!field.count.has_value()) {
+                return make_error(CodecErrorCode::invalid_layout, path,
+                                  field.offset.value_or(cursor), "array field requires count");
+            }
+            if (*field.count == 0) {
+                return make_error(CodecErrorCode::invalid_layout, path,
+                                  field.offset.value_or(cursor),
+                                  "array count must be greater than zero");
+            }
+            if (field.length.has_value()) {
+                return make_error(CodecErrorCode::invalid_layout, path,
+                                  field.offset.value_or(cursor),
+                                  "array field must not declare length");
+            }
+            if (*field.count > std::numeric_limits<std::size_t>::max() / *element_width) {
+                return make_error(CodecErrorCode::invalid_layout, path,
+                                  field.offset.value_or(cursor), "array wire length overflows");
+            }
+            length = *field.count * *element_width;
+        } else {
+            if (field.element_type.has_value() || field.count.has_value()) {
+                return make_error(CodecErrorCode::invalid_layout, path,
+                                  field.offset.value_or(cursor),
+                                  "elementType and count require type array");
+            }
+            if (!width.has_value() && !field.length.has_value()) {
+                return make_error(CodecErrorCode::invalid_layout, path,
+                                  field.offset.value_or(cursor),
+                                  "fixed string and bytes fields require length");
+            }
+            if (field.length.has_value() && *field.length == 0) {
+                return make_error(CodecErrorCode::invalid_layout, path,
+                                  field.offset.value_or(cursor),
+                                  "field length must be greater than zero");
+            }
+            length = field.length.value_or(width.value_or(0));
+            if (width.has_value() && length != *width) {
+                return make_error(CodecErrorCode::invalid_layout, path,
+                                  field.offset.value_or(cursor),
+                                  "field length must match fixed-width primitive size");
+            }
         }
         const auto offset = field.offset.value_or(cursor);
         if (offset > std::numeric_limits<std::size_t>::max() - length) {
@@ -534,6 +580,36 @@ EncodeResult FixedLayoutCodec::encode(const schema::MessageDefinition& definitio
             continue;
         }
 
+        if (field.type == schema::FieldType::array) {
+            const auto* values = std::get_if<ArrayValue>(&value->value);
+            if (values == nullptr) {
+                return make_error(CodecErrorCode::type_mismatch, path, layout_field.offset,
+                                  "expected ArrayValue ScalarValue");
+            }
+            if (values->size() != *field.count) {
+                return make_error(CodecErrorCode::array_count_mismatch, path, layout_field.offset,
+                                  "array has " + std::to_string(values->size()) +
+                                      " elements but schema count is " +
+                                      std::to_string(*field.count));
+            }
+            const auto element_width = *primitive_width(*field.element_type);
+            ByteBuffer encoded_field;
+            encoded_field.reserve(layout_field.length);
+            for (std::size_t index = 0; index < values->size(); ++index) {
+                const auto element_offset = layout_field.offset + index * element_width;
+                auto bits =
+                    encode_primitive_bits(*field.element_type, (*values)[index],
+                                          path + "[" + std::to_string(index) + "]", element_offset);
+                if (!bits.has_value()) {
+                    return std::move(bits).error();
+                }
+                append_unsigned(encoded_field, bits.value(), element_width,
+                                field.byte_order.value_or(default_byte_order));
+            }
+            std::ranges::copy(encoded_field, bytes.begin() + layout_field.offset);
+            continue;
+        }
+
         auto bits = encode_primitive_bits(field.type, value->value, path, layout_field.offset);
         if (!bits.has_value()) {
             return std::move(bits).error();
@@ -593,6 +669,24 @@ DecodeResult FixedLayoutCodec::decode(const schema::MessageDefinition& definitio
                 return std::move(value).error();
             }
             decoded_value = std::move(value).value();
+        } else if (field.type == schema::FieldType::array) {
+            const auto element_width = *primitive_width(*field.element_type);
+            const auto byte_order = field.byte_order.value_or(default_byte_order);
+            ArrayValue values;
+            values.reserve(*field.count);
+            for (std::size_t index = 0; index < *field.count; ++index) {
+                const auto element_offset = layout_field.offset + index * element_width;
+                const auto element_path = path + "[" + std::to_string(index) + "]";
+                const auto bits = read_unsigned(bytes, element_offset, element_width, byte_order);
+                if (*field.element_type == schema::FieldType::boolean && bits > 1U) {
+                    return make_error(CodecErrorCode::value_out_of_range, element_path,
+                                      element_offset, "boolean byte must be 0 or 1");
+                }
+                values.push_back(decode_primitive(*field.element_type, bits));
+                decoded.element_ranges.push_back(
+                    {.path = element_path, .offset = element_offset, .length = element_width});
+            }
+            decoded_value = std::move(values);
         } else {
             const auto byte_order = field.byte_order.value_or(default_byte_order);
             const auto bits =
@@ -601,7 +695,8 @@ DecodeResult FixedLayoutCodec::decode(const schema::MessageDefinition& definitio
                 return make_error(CodecErrorCode::value_out_of_range, path, layout_field.offset,
                                   "boolean byte must be 0 or 1");
             }
-            decoded_value = decode_primitive(field.type, bits);
+            decoded_value = std::visit([](const auto& value) -> ScalarValue { return value; },
+                                       decode_primitive(field.type, bits));
         }
         decoded.message.fields.push_back({.name = field.name, .value = std::move(decoded_value)});
         decoded.field_ranges.push_back(
@@ -666,6 +761,8 @@ std::string_view to_string(const CodecErrorCode code) noexcept {
         return "length_value_mismatch";
     case CodecErrorCode::length_value_out_of_range:
         return "length_value_out_of_range";
+    case CodecErrorCode::array_count_mismatch:
+        return "array_count_mismatch";
     }
     return "unknown";
 }

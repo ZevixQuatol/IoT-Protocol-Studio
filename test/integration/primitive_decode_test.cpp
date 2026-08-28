@@ -45,8 +45,10 @@ std::string scalar_text(const iotps::core::codec::ScalarValue& value) {
                 return output.str();
             } else if constexpr (std::is_same_v<Value, std::string>) {
                 return item;
-            } else {
+            } else if constexpr (std::is_same_v<Value, iotps::core::ByteBuffer>) {
                 return iotps::core::format_hex(item);
+            } else {
+                return "array";
             }
         },
         value);

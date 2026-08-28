@@ -1,0 +1,25 @@
+schemaVersion: "0.1"
+protocol:
+  name: fixed-array-frame
+  version: "1.0"
+  defaultByteOrder: little
+messages:
+  sample:
+    fields:
+      - name: marker
+        type: uint8
+      - name: samplesLength
+        type: uint8
+        lengthOf: samples
+      - name: samples
+        type: array
+        elementType: uint16
+        count: 3
+        offset: 2
+      - name: ratios
+        type: array
+        elementType: float32
+        count: 2
+        endian: big
+      - name: trailer
+        type: uint8

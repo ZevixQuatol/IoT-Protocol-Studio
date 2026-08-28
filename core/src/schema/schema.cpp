@@ -41,12 +41,24 @@ std::optional<std::size_t> primitive_width(const FieldType type) {
         return 8;
     case FieldType::bytes:
     case FieldType::string:
+    case FieldType::array:
         return std::nullopt;
     }
     return std::nullopt;
 }
 
 std::optional<std::size_t> fixed_width(const FieldDefinition& field) {
+    if (field.type == FieldType::array) {
+        if (!field.element_type.has_value() || !field.count.has_value()) {
+            return std::nullopt;
+        }
+        const auto element_width = primitive_width(*field.element_type);
+        if (!element_width.has_value() || *field.count == 0 ||
+            *field.count > std::numeric_limits<std::size_t>::max() / *element_width) {
+            return std::nullopt;
+        }
+        return *element_width * *field.count;
+    }
     if (const auto width = primitive_width(field.type); width.has_value()) {
         return field.length.value_or(*width);
     }
@@ -106,19 +118,55 @@ SchemaValidation validate(const ProtocolSchema& schema) {
                                field_path(message_index, field_index, "name"));
             }
 
-            if (field.length.has_value() && *field.length == 0) {
-                add_diagnostic(validation, SchemaErrorCode::field_length_zero,
-                               field_path(message_index, field_index, "length"));
-            }
+            if (field.type == FieldType::array) {
+                if (!field.element_type.has_value()) {
+                    add_diagnostic(validation, SchemaErrorCode::array_element_type_required,
+                                   field_path(message_index, field_index, "elementType"));
+                } else if (!primitive_width(*field.element_type).has_value()) {
+                    add_diagnostic(validation, SchemaErrorCode::array_element_type_unsupported,
+                                   field_path(message_index, field_index, "elementType"));
+                }
+                if (!field.count.has_value()) {
+                    add_diagnostic(validation, SchemaErrorCode::array_count_required,
+                                   field_path(message_index, field_index, "count"));
+                } else if (*field.count == 0) {
+                    add_diagnostic(validation, SchemaErrorCode::array_count_zero,
+                                   field_path(message_index, field_index, "count"));
+                } else if (field.element_type.has_value()) {
+                    if (const auto element_width = primitive_width(*field.element_type);
+                        element_width.has_value() &&
+                        *field.count > std::numeric_limits<std::size_t>::max() / *element_width) {
+                        add_diagnostic(validation, SchemaErrorCode::array_length_overflow,
+                                       field_path(message_index, field_index, "count"));
+                    }
+                }
+                if (field.length.has_value()) {
+                    add_diagnostic(validation, SchemaErrorCode::array_length_not_allowed,
+                                   field_path(message_index, field_index, "length"));
+                }
+            } else {
+                if (field.element_type.has_value()) {
+                    add_diagnostic(validation, SchemaErrorCode::array_metadata_not_allowed,
+                                   field_path(message_index, field_index, "elementType"));
+                }
+                if (field.count.has_value()) {
+                    add_diagnostic(validation, SchemaErrorCode::array_metadata_not_allowed,
+                                   field_path(message_index, field_index, "count"));
+                }
+                if (field.length.has_value() && *field.length == 0) {
+                    add_diagnostic(validation, SchemaErrorCode::field_length_zero,
+                                   field_path(message_index, field_index, "length"));
+                }
 
-            const auto width = primitive_width(field.type);
-            if (!width.has_value() && !field.length.has_value()) {
-                add_diagnostic(validation, SchemaErrorCode::field_length_required,
-                               field_path(message_index, field_index, "length"));
-            }
-            if (field.length.has_value() && width.has_value() && *field.length != *width) {
-                add_diagnostic(validation, SchemaErrorCode::field_length_mismatch,
-                               field_path(message_index, field_index, "length"));
+                const auto width = primitive_width(field.type);
+                if (!width.has_value() && !field.length.has_value()) {
+                    add_diagnostic(validation, SchemaErrorCode::field_length_required,
+                                   field_path(message_index, field_index, "length"));
+                }
+                if (field.length.has_value() && width.has_value() && *field.length != *width) {
+                    add_diagnostic(validation, SchemaErrorCode::field_length_mismatch,
+                                   field_path(message_index, field_index, "length"));
+                }
             }
 
             const auto effective_length = fixed_width(field);
@@ -257,6 +305,20 @@ std::string_view to_string(const SchemaErrorCode code) noexcept {
         return "length_field_self_reference";
     case SchemaErrorCode::length_field_dependency_cycle:
         return "length_field_dependency_cycle";
+    case SchemaErrorCode::array_element_type_required:
+        return "array_element_type_required";
+    case SchemaErrorCode::array_element_type_unsupported:
+        return "array_element_type_unsupported";
+    case SchemaErrorCode::array_count_required:
+        return "array_count_required";
+    case SchemaErrorCode::array_count_zero:
+        return "array_count_zero";
+    case SchemaErrorCode::array_length_overflow:
+        return "array_length_overflow";
+    case SchemaErrorCode::array_length_not_allowed:
+        return "array_length_not_allowed";
+    case SchemaErrorCode::array_metadata_not_allowed:
+        return "array_metadata_not_allowed";
     case SchemaErrorCode::checksum_field_not_found:
         return "checksum_field_not_found";
     }

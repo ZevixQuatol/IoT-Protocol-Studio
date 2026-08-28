@@ -32,6 +32,7 @@ enum class FieldType {
     float64,
     bytes,
     string,
+    array,
 };
 
 enum class ChecksumAlgorithm {
@@ -57,6 +58,8 @@ struct FieldDefinition {
     std::optional<std::size_t> length;
     std::optional<std::size_t> offset;
     std::optional<std::string> length_of;
+    std::optional<FieldType> element_type;
+    std::optional<std::size_t> count;
 };
 
 struct ChecksumDefinition {
@@ -108,6 +111,13 @@ enum class SchemaErrorCode {
     length_field_target_not_found,
     length_field_self_reference,
     length_field_dependency_cycle,
+    array_element_type_required,
+    array_element_type_unsupported,
+    array_count_required,
+    array_count_zero,
+    array_length_overflow,
+    array_length_not_allowed,
+    array_metadata_not_allowed,
     checksum_field_not_found,
 };
 

@@ -465,6 +465,77 @@ messages:
         }
     }
 
+    constexpr std::string_view fixed_array_yaml = R"yaml(schemaVersion: "0.1"
+protocol:
+  name: array-frame
+  version: "1.0"
+messages:
+  data:
+    fields:
+      - name: samples
+        type: array
+        elementType: uint16
+        count: 3
+)yaml";
+    const auto loaded_array = load_yaml(fixed_array_yaml, "fixed-array.yaml");
+    CHECK(loaded_array.has_value());
+    if (const auto* schema = loaded_array.value_if()) {
+        const auto& field = schema->messages[0].fields[0];
+        CHECK(field.type == FieldType::array);
+        CHECK(field.element_type == FieldType::uint16);
+        CHECK(field.count == 3);
+    }
+
+    constexpr std::string_view zero_array_count = R"yaml(schemaVersion: "0.1"
+protocol:
+  name: array-frame
+  version: "1.0"
+messages:
+  data:
+    fields:
+      - name: samples
+        type: array
+        elementType: uint16
+        count: 0
+)yaml";
+    const auto rejected_zero_count = load_yaml(zero_array_count, "zero-array-count.yaml");
+    CHECK(!rejected_zero_count.has_value());
+    if (const auto* error = rejected_zero_count.error_if()) {
+        CHECK(error->code == SchemaErrorCode::array_count_zero);
+        CHECK(error->path == "messages[0].fields[0].count");
+        CHECK(error->source_location.has_value());
+        if (error->source_location.has_value()) {
+            CHECK(error->source_location->source == "zero-array-count.yaml");
+            CHECK(error->source_location->line == 11);
+            CHECK(error->source_location->column == 9);
+        }
+    }
+
+    constexpr std::string_view unsupported_array_element = R"yaml(schemaVersion: "0.1"
+protocol:
+  name: array-frame
+  version: "1.0"
+messages:
+  data:
+    fields:
+      - name: samples
+        type: array
+        elementType: string
+        count: 2
+)yaml";
+    const auto rejected_array_element =
+        load_yaml(unsupported_array_element, "unsupported-array-element.yaml");
+    CHECK(!rejected_array_element.has_value());
+    if (const auto* error = rejected_array_element.error_if()) {
+        CHECK(error->code == SchemaErrorCode::array_element_type_unsupported);
+        CHECK(error->path == "messages[0].fields[0].elementType");
+        CHECK(error->source_location.has_value());
+        if (error->source_location.has_value()) {
+            CHECK(error->source_location->line == 10);
+            CHECK(error->source_location->column == 9);
+        }
+    }
+
     const auto vector_directory = std::filesystem::path{IOTPS_TEST_VECTOR_DIR};
     const auto loaded_file = load_yaml_file(vector_directory / "smart-sensor.yaml");
     CHECK(loaded_file.has_value());

@@ -1,13 +1,13 @@
 # IoT Protocol Studio 功能清单与开发进度
 
 > 清单版本：1.0  
-> 更新日期：2026-08-27  
+> 更新日期：2026-08-28
 > 功能基线：`IoT Protocol Studio 功能设计文档.md` v0.1  
 > 当前程序版本：0.1.0  
 > 当前目标平台：Windows x86_64  
 > 用途：项目唯一功能树、进度看板和下一步开发入口
 
-相关文档：[功能设计基线](<./IoT Protocol Studio 功能设计文档.md>) · [Protocol Schema v0.1](<./Protocol Schema v0.1.md>) · [固定 Field 布局](<./固定 Field 布局.md>) · [固定长度 String 与 Bytes](<./固定长度 String 与 Bytes.md>) · [Length Field](<./Length Field.md>) · [Primitive Decode](<./Primitive Decode.md>) · [Primitive Encode](<./Primitive Encode.md>) · [Core 模块架构](<./Core 模块架构.md>) · [开发环境与构建](./开发环境与构建.md)
+相关文档：[功能设计基线](<./IoT Protocol Studio 功能设计文档.md>) · [Protocol Schema v0.1](<./Protocol Schema v0.1.md>) · [固定 Field 布局](<./固定 Field 布局.md>) · [固定长度 String 与 Bytes](<./固定长度 String 与 Bytes.md>) · [Length Field](<./Length Field.md>) · [固定长度 Array](<./固定长度 Array.md>) · [Primitive Decode](<./Primitive Decode.md>) · [Primitive Encode](<./Primitive Encode.md>) · [Core 模块架构](<./Core 模块架构.md>) · [开发环境与构建](./开发环境与构建.md)
 
 ---
 
@@ -57,11 +57,12 @@ flowchart LR
     E --> F["✅ Field length / offset"]
     F --> G["✅ 固定长度 string / bytes"]
     G --> H["✅ 最小 Length Field"]
-    H --> I["🚧 下一步：固定长度 Array"]
-    I --> J["⬜ Workspace + Protocol Designer"]
-    J --> K["⬜ Message Studio + 真实 Transport + Debugger"]
-    K --> L["⬜ 完整 Simulator + Test Runner"]
-    L --> M["⬜ MVP 验收"]
+    H --> I["✅ 固定长度 Array"]
+    I --> J["🚧 下一步：project.yaml + 最小项目目录"]
+    J --> K["⬜ 新建 / 打开项目 + Protocol Designer"]
+    K --> L["⬜ Message Studio + 真实 Transport + Debugger"]
+    L --> M["⬜ 完整 Simulator + Test Runner"]
+    M --> N["⬜ MVP 验收"]
 ```
 
 ### 2.2 当前结论
@@ -94,7 +95,7 @@ Core 内部已经新增一条不依赖 GUI 的最小架构链路：
 
 ```text
 Schema 领域模型
-  → 固定长度 Primitive / UTF-8 string / bytes Encode / Decode
+  → 固定长度 Primitive / UTF-8 string / bytes / Array Encode / Decode
   → Length Field Decode 校验 / Encode 自动回填
   → Simulator
   → Transport API 测试边界
@@ -134,6 +135,10 @@ Schema 纵向链路也已经打通：YAML 文件可以映射为领域模型，�
 - [x] 从 YAML 映射单字段 `lengthOf`，校验无符号类型、目标、自引用和依赖循环。
 - [x] Decode 校验 Length 声明值，Encode 按目标 wire 长度自动回填并支持前置/后置 Length Field。
 - [x] 通过 Length Field golden vector 验证 Little Endian、gap 排除、FieldRange 和双向 round-trip。
+- [x] 从 YAML 映射固定 Primitive Array 的 `elementType` 和固定 `count`，并校验非法组合与长度溢出。
+- [x] Decode/Encode 固定 Primitive Array，严格校验元素数量、类型和表示范围。
+- [x] 返回 Array 整体 `FieldRange` 和 `message.field[index]` 逐元素范围。
+- [x] 通过固定 Array golden vector 验证字节序、显式 offset、`lengthOf` 自动回填和双向 round-trip。
 
 ### 2.4 当前界面中尚未实现的占位功能
 
@@ -148,29 +153,28 @@ Schema 纵向链路也已经打通：YAML 文件可以映射为领域模型，�
 
 ## 3. 接下来应该做什么
 
-### 3.1 当前唯一首要任务：固定长度 Array
+### 3.1 当前唯一首要任务：`project.yaml` + 最小项目目录结构
 
-最小单字段 Length Field 已完成：`lengthOf` 引用同一 Message 的一个固定 wire Field，Decode 校验声明值，Encode 自动回填，前置/后置字段、Little Endian、gap 排除、容量溢出、截断和依赖诊断均有自动测试。连续范围和动态目标仍留在后续动态容器阶段。
+固定长度 Array 已完成：Schema 支持固定宽度 Primitive `elementType` 和固定 `count`；Codec 支持逐元素字节序、Decode/Encode、数组整体/元素范围、边界诊断和 `lengthOf` 组合。动态 Array、Struct 和嵌套容器仍留在后续动态 Schema 阶段。
 
-下一个工作包进入 **M02-F08 Array / Struct**，只实现固定长度 Array：
+下一个工作包进入 **M01-F02 项目目录和持久化**，先建立 Workspace 的 Core 基础：
 
-- 定义 Array Field 的元素类型和固定 `count` Schema 契约。
-- 第一阶段只允许固定宽度 Primitive 元素，不同时加入 Struct 元素或动态嵌套。
-- Decode 生成有序元素值，并返回数组整体及可用的元素字节范围。
-- Encode 严格校验元素数量、ScalarValue 类型和表示范围。
-- 复用 Protocol/Field 字节序和现有固定布局计划。
-- 建立 count 为零、长度溢出、输入截断、元素数量不一致和非法元素类型诊断。
-- 建立固定 Array golden vector 和 Decode/Encode round-trip。
+- 定义最小 `project.yaml` 版本、项目标识、显示名称和协议文件引用契约。
+- 定义普通文本项目的最小目录结构，第一阶段只创建真正需要的目录。
+- 建立跨平台项目路径模型，不让 Win32 类型进入 Core。
+- 加载并校验 `project.yaml`，返回稳定错误码、路径和源码位置。
+- 为后续“新建项目 / 打开项目”提供无 GUI 的 Core API 和测试资产。
+- 暂不实现最近项目、Explorer 全部文件操作、未保存提示或外部文件监听。
 
-固定 Array 第一阶段的完成标准：
+Workspace 基础第一阶段的完成标准：
 
 ```text
-给定 Schema YAML + 固定 count Array
-  → Core 建立固定数组布局
-  → Decode 产生稳定元素序列与范围
-  → Encode 严格校验并生成相同 golden HEX
-  → 数量、类型、溢出和截断错误可诊断
-  → Decode/Encode golden vectors 稳定通过
+给定普通目录 + project.yaml
+  → Core 识别并加载项目清单
+  → 校验项目版本、标识和协议文件引用
+  → 创建最小文本目录结构
+  → 非法或缺失文件返回稳定诊断
+  → Windows 路径测试通过且 Core API 保持跨平台
 ```
 
 ### 3.2 Schema 之后的执行顺序
@@ -180,14 +184,15 @@ Schema 纵向链路也已经打通：YAML 文件可以映射为领域模型，�
 3. **固定布局边界**：Field `length`/`offset`、重叠诊断和 padding。✅
 4. **固定字符串和 bytes**：编码、固定长度、填充、截断和 FieldRange。✅
 5. **Length Field**：单字段引用、Decode 校验、Encode 自动计算和依赖诊断。✅
-6. **其他动态结构**：先做固定 Array，再做 Count/Length 驱动 Array、Struct、Enum、BitField、Condition、Checksum Range。
-7. **Workspace**：创建、打开、保存普通目录项目，加载 `project.yaml` 和协议文件。
+6. **固定 Array**：固定宽度 Primitive 元素、固定 count、逐元素范围和 round-trip。✅
+7. **Workspace**：先定义 `project.yaml` 和最小项目目录，再实现创建、打开、保存普通目录项目。
 8. **Protocol Designer**：Schema 源码与可视化字段编辑器双向同步。
 9. **Message Studio**：结构化表单组包、自动 Length/CRC 和报文模板。
 10. **Transport 抽象 + TCP Client**：建立第一条真实收发链路。
 11. **Debugger + Timeline**：统一展示 TX/RX、Raw HEX 和解析字段。
 12. **Serial / TCP Server / UDP**：补齐 MVP Transport。
-13. **Basic Simulator + Basic Test Case**：完成无设备开发和自动验证。
+13. **动态 Schema 结构**：Count/Length 驱动 Array、Struct、Enum、BitField、Condition 和 Checksum Range。
+14. **Basic Simulator + Basic Test Case**：完成无设备开发和自动验证。
 
 ---
 
@@ -196,9 +201,9 @@ Schema 纵向链路也已经打通：YAML 文件可以映射为领域模型，�
 | 模块 | 当前状态 | 阶段 | 当前说明 |
 |---|---|---|---|
 | M00 工程与平台基础 | 🟡 部分完成 | M0 | 模块分层、格式化、统一 Result/Error 和 Windows 基线可运行；静态分析、安装发布和其他平台未完成 |
-| M01 Workspace 工作空间 | ⬜ 待开始 | MVP | 只有静态 Explorer UI |
-| M02 Protocol Designer / Schema | 🚧 下一步 | MVP | Protocol Schema v0.1 YAML、固定 Primitive/string/bytes、Field `length`/`offset` 和最小 `lengthOf` 已完成；下一步固定 Array，可视化设计器与其他动态结构未实现 |
-| M03 Codec 编解码 | 🟡 部分完成 | MVP | 固定 Primitive/string/bytes、最小 Length Field、非连续布局、padding、字节序和 round-trip 已完成；Array/Struct/Condition 和 Checksum 尚未实现 |
+| M01 Workspace 工作空间 | 🚧 下一步 | MVP | 只有静态 Explorer UI；下一步定义 `project.yaml` 和最小普通文本项目目录结构 |
+| M02 Protocol Designer / Schema | 🟡 部分完成 | MVP | Protocol Schema v0.1 YAML、固定 Primitive/string/bytes/Array、Field `length`/`offset` 和最小 `lengthOf` 已完成；可视化设计器与动态结构未实现 |
+| M03 Codec 编解码 | 🟡 部分完成 | MVP | 固定 Primitive/string/bytes/Array、最小 Length Field、非连续布局、padding、字节序和 round-trip 已完成；动态 Array、Struct/Condition 和 Checksum 尚未实现 |
 | M04 HEX Studio | 🟡 部分完成 | MVP | 已完成基础 HEX 检查和三种校验计算 |
 | M05 Transport 通信层 | 🟡 API 已建立 | MVP/P2 | 统一字节、生命周期、状态、事件和统计接口已建立；没有真实连接实现 |
 | M06 Debugger / Timeline | ⬜ 待开始 | MVP | 只有 Console/Timeline 静态布局 |
@@ -311,7 +316,7 @@ Schema 纵向链路也已经打通：YAML 文件可以映射为领域模型，�
 
 ### M01-F02 项目目录和持久化
 
-- [ ] 定义 `project.yaml`。
+- [ ] 🚧 定义 `project.yaml`，并建立最小普通文本项目目录结构。
 - [ ] 创建 `protocols/` 目录。
 - [ ] 创建 `messages/` 目录。
 - [ ] 创建 `connections/` 目录。
@@ -413,7 +418,7 @@ Schema 纵向链路也已经打通：YAML 文件可以映射为领域模型，�
 - [ ] `timestamp`。
 - [ ] `enum`。
 - [ ] `bitfield`。
-- [ ] `array`。
+- [ ] 🟡 `array`：固定长度 Primitive Array 已完成，动态 Array 未实现。
 - [ ] `struct`。
 
 ### M02-F04 Field 基础属性
@@ -462,13 +467,13 @@ Schema 纵向链路也已经打通：YAML 文件可以映射为领域模型，�
 
 ### M02-F08 Array / Struct
 
-- [ ] 🚧 固定长度数组：下一步先支持固定宽度 Primitive 元素和固定 `count`。
+- [x] 固定长度数组：支持固定宽度 Primitive 元素和固定 `count`。
 - [ ] Count 字段驱动数组。
 - [ ] Length 驱动数组。
 - [ ] 嵌套 Struct。
 - [ ] Struct 数组。
 - [ ] 多层嵌套偏移计算。
-- [ ] 数组越界和长度不一致诊断。
+- [ ] 🟡 数组越界和长度不一致诊断：固定 Array 的溢出、截断和数量诊断已完成，动态 Array 未实现。
 
 ### M02-F09 Enum / BitField
 
@@ -556,9 +561,9 @@ Schema 纵向链路也已经打通：YAML 文件可以映射为领域模型，�
 - [x] 应用 Protocol 默认与 Field 覆盖的 Big/Little Endian。
 - [ ] 应用 scale 和 offsetValue。
 - [ ] Decode Enum 和 BitField。
-- [ ] Decode Struct 和 Array。
+- [ ] 🟡 Decode Struct 和 Array：固定 Primitive Array 已完成，Struct 和动态 Array 未实现。
 - [ ] Decode Conditional Field。
-- [ ] 验证 Length 和 Checksum。
+- [ ] 🟡 验证 Length 和 Checksum：Length Field 已完成，Checksum Field 尚未接入 Codec。
 - [ ] 🟡 返回结构化字段树：固定 Primitive 返回一层字段列表，嵌套结构尚未实现。
 - [x] 返回每个已解析字段的 byte offset/length span。
 - [ ] 保留未知和未消费字节。
@@ -572,9 +577,9 @@ Schema 纵向链路也已经打通：YAML 文件可以映射为领域模型，�
 - [x] Encode 固定长度 UTF-8 string 和 bytes，并校验编码、padding 与精确长度。
 - [x] 按固定 `offset` 写入字段，并以 `0x00` 填充 gap。
 - [ ] Encode Enum 和 BitField。
-- [ ] Encode Struct 和 Array。
+- [ ] 🟡 Encode Struct 和 Array：固定 Primitive Array 已完成，Struct 和动态 Array 未实现。
 - [ ] Encode Conditional Field。
-- [ ] 自动计算 Length。
+- [x] 自动计算 Length。
 - [ ] 自动计算 Checksum。
 - [ ] 🟡 生成 ByteBuffer 和规范化 HEX：当前生成 ByteBuffer，未接入 HEX 输出。
 - [ ] 返回 Encode 字段到字节范围映射。
@@ -588,7 +593,7 @@ Schema 纵向链路也已经打通：YAML 文件可以映射为领域模型，�
 - [x] Primitive Decode/Encode 不同字节序测试。
 - [x] 非连续固定布局和 padding round-trip 测试。
 - [x] 固定 UTF-8 string/bytes golden vector 和 round-trip 测试。
-- [ ] 动态结构组合测试。
+- [ ] 🟡 动态结构组合测试：固定 Array 与 Length Field 组合已覆盖，动态容器未实现。
 - [ ] 协议版本兼容测试。
 
 ### M03-F05 实时解析和可视化联动
@@ -1507,13 +1512,22 @@ CI/CD
 - 长度只包含目标 Field，不包含 Length Field 自身、header、trailer、checksum 或 gap；固定 string 包含完整 NUL padding。
 - 新增独立 Length Field golden vector，覆盖 Little Endian、显式 gap、容量溢出、帧截断、FieldRange 和双向 round-trip；下一步进入固定长度 Array。
 
+### 2026-08-28：固定长度 Array
+
+- 本地提交：见包含本记录的 `feat: support fixed primitive arrays` 提交。
+- Schema/YAML 支持 `type: array`、固定宽度 Primitive `elementType` 和大于零的固定 `count`；数组禁止声明 `length`。
+- Array wire 长度由元素自然宽度乘以 `count` 计算，复用 Field `offset`、Protocol 默认字节序和 Field 字节序覆盖。
+- Codec 使用独立 `ArrayValue`，支持有序 Decode/Encode、严格数量/类型/范围校验、数组整体 `FieldRange` 和逐元素范围。
+- 新增固定 Array golden vector，覆盖整数/浮点数组、显式 offset、逐元素字节序、`lengthOf` 声明校验/自动回填和双向 round-trip。
+- 边界测试覆盖缺失/非法元素类型、缺失/零 count、长度溢出、非法 `length`、绕过 Schema 的非法布局、非法 bool、输入截断和元素数量不一致；下一步进入 Workspace `project.yaml`。
+
 ---
 
 ## 9. 下一次更新入口
 
 下次开始开发时，直接从以下功能点继续：
 
-> **M02-F08：定义并实现固定长度 Array，包括固定宽度 Primitive 元素、固定 count、Decode/Encode 和边界诊断**
+> **M01-F02：定义 `project.yaml`，建立最小普通文本项目目录结构和跨平台 Workspace Core 加载/校验基础**
 
 完成一个功能点后：
 

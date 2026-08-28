@@ -14,8 +14,10 @@
 
 namespace iotps::core::codec {
 
+using PrimitiveValue = std::variant<bool, std::int64_t, std::uint64_t, double>;
+using ArrayValue = std::vector<PrimitiveValue>;
 using ScalarValue =
-    std::variant<bool, std::int64_t, std::uint64_t, double, std::string, ByteBuffer>;
+    std::variant<bool, std::int64_t, std::uint64_t, double, std::string, ByteBuffer, ArrayValue>;
 
 struct FieldValue {
     std::string name;
@@ -36,6 +38,7 @@ struct FieldRange {
 struct DecodedMessage {
     StructuredMessage message;
     std::vector<FieldRange> field_ranges;
+    std::vector<FieldRange> element_ranges;
 };
 
 enum class CodecErrorCode {
@@ -53,6 +56,7 @@ enum class CodecErrorCode {
     invalid_string_padding,
     length_value_mismatch,
     length_value_out_of_range,
+    array_count_mismatch,
 };
 
 using CodecError = Error<CodecErrorCode>;

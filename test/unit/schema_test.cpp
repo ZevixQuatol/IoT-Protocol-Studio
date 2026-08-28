@@ -146,5 +146,58 @@ int main() {
     CHECK(to_string(SchemaErrorCode::length_field_dependency_cycle) ==
           "length_field_dependency_cycle");
 
+    auto fixed_array = valid;
+    fixed_array.messages[0].fields = {
+        {.name = "samples",
+         .type = FieldType::array,
+         .element_type = FieldType::uint16,
+         .count = 3},
+    };
+    CHECK(validate(fixed_array).ok());
+
+    auto missing_array_element_type = fixed_array;
+    missing_array_element_type.messages[0].fields[0].element_type.reset();
+    CHECK(contains_diagnostic(validate(missing_array_element_type),
+                              SchemaErrorCode::array_element_type_required,
+                              "messages[0].fields[0].elementType"));
+
+    auto unsupported_array_element_type = fixed_array;
+    unsupported_array_element_type.messages[0].fields[0].element_type = FieldType::string;
+    CHECK(contains_diagnostic(validate(unsupported_array_element_type),
+                              SchemaErrorCode::array_element_type_unsupported,
+                              "messages[0].fields[0].elementType"));
+
+    auto missing_array_count = fixed_array;
+    missing_array_count.messages[0].fields[0].count.reset();
+    CHECK(contains_diagnostic(validate(missing_array_count), SchemaErrorCode::array_count_required,
+                              "messages[0].fields[0].count"));
+
+    auto zero_array_count = fixed_array;
+    zero_array_count.messages[0].fields[0].count = 0;
+    CHECK(contains_diagnostic(validate(zero_array_count), SchemaErrorCode::array_count_zero,
+                              "messages[0].fields[0].count"));
+
+    auto overflowing_array = fixed_array;
+    overflowing_array.messages[0].fields[0].element_type = FieldType::uint64;
+    overflowing_array.messages[0].fields[0].count = std::numeric_limits<std::size_t>::max();
+    CHECK(contains_diagnostic(validate(overflowing_array), SchemaErrorCode::array_length_overflow,
+                              "messages[0].fields[0].count"));
+
+    auto array_with_length = fixed_array;
+    array_with_length.messages[0].fields[0].length = 6;
+    CHECK(contains_diagnostic(validate(array_with_length),
+                              SchemaErrorCode::array_length_not_allowed,
+                              "messages[0].fields[0].length"));
+
+    auto scalar_with_array_metadata = valid;
+    scalar_with_array_metadata.messages[0].fields[0].element_type = FieldType::uint8;
+    scalar_with_array_metadata.messages[0].fields[0].count = 2;
+    CHECK(contains_diagnostic(validate(scalar_with_array_metadata),
+                              SchemaErrorCode::array_metadata_not_allowed,
+                              "messages[0].fields[0].elementType"));
+    CHECK(to_string(SchemaErrorCode::array_element_type_required) == "array_element_type_required");
+    CHECK(to_string(SchemaErrorCode::array_count_required) == "array_count_required");
+    CHECK(to_string(SchemaErrorCode::array_length_overflow) == "array_length_overflow");
+
     return failures == 0 ? 0 : 1;
 }

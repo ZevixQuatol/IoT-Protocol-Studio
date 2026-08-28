@@ -812,5 +812,126 @@ int main() {
     CHECK(to_string(CodecErrorCode::length_value_mismatch) == "length_value_mismatch");
     CHECK(to_string(CodecErrorCode::length_value_out_of_range) == "length_value_out_of_range");
 
+    const MessageDefinition fixed_array_definition{
+        .name = "array-frame",
+        .fields =
+            {
+                {.name = "samples",
+                 .type = FieldType::array,
+                 .byte_order = ByteOrder::little_endian,
+                 .element_type = FieldType::uint16,
+                 .count = 3},
+            },
+    };
+    const StructuredMessage fixed_array_message{
+        .message_name = "array-frame",
+        .fields =
+            {
+                {.name = "samples",
+                 .value =
+                     ArrayValue{
+                         PrimitiveValue{std::uint64_t{0x1234U}},
+                         PrimitiveValue{std::uint64_t{0x0102U}},
+                         PrimitiveValue{std::uint64_t{0xFFFFU}},
+                     }},
+            },
+    };
+    const ByteBuffer fixed_array_bytes{0x34U, 0x12U, 0x02U, 0x01U, 0xFFU, 0xFFU};
+    const auto fixed_array_encoded = codec.encode(fixed_array_definition, fixed_array_message);
+    CHECK(fixed_array_encoded.has_value());
+    if (const auto* bytes = fixed_array_encoded.value_if()) {
+        CHECK(*bytes == fixed_array_bytes);
+    }
+
+    const auto fixed_array_decoded = codec.decode(fixed_array_definition, fixed_array_bytes);
+    CHECK(fixed_array_decoded.has_value());
+    if (const auto* output = fixed_array_decoded.value_if()) {
+        const auto& values = std::get<ArrayValue>(output->message.fields[0].value);
+        CHECK(values.size() == 3);
+        CHECK(std::get<std::uint64_t>(values[0]) == 0x1234U);
+        CHECK(std::get<std::uint64_t>(values[1]) == 0x0102U);
+        CHECK(std::get<std::uint64_t>(values[2]) == 0xFFFFU);
+        CHECK(output->field_ranges[0].offset == 0);
+        CHECK(output->field_ranges[0].length == 6);
+        CHECK(output->element_ranges.size() == 3);
+        CHECK(output->element_ranges[1].path == "array-frame.samples[1]");
+        CHECK(output->element_ranges[1].offset == 2);
+        CHECK(output->element_ranges[1].length == 2);
+    }
+
+    auto wrong_array_count = fixed_array_message;
+    std::get<ArrayValue>(wrong_array_count.fields[0].value).pop_back();
+    const auto wrong_array_count_result = codec.encode(fixed_array_definition, wrong_array_count);
+    CHECK(!wrong_array_count_result.has_value());
+    if (const auto* error = wrong_array_count_result.error_if()) {
+        CHECK(error->code == CodecErrorCode::array_count_mismatch);
+        CHECK(error->path == "array-frame.samples");
+        CHECK(error->offset == 0);
+        CHECK(error->detail == "array has 2 elements but schema count is 3");
+    }
+
+    auto wrong_array_type = fixed_array_message;
+    std::get<ArrayValue>(wrong_array_type.fields[0].value)[1] = std::int64_t{2};
+    const auto wrong_array_type_result = codec.encode(fixed_array_definition, wrong_array_type);
+    CHECK(!wrong_array_type_result.has_value());
+    if (const auto* error = wrong_array_type_result.error_if()) {
+        CHECK(error->code == CodecErrorCode::type_mismatch);
+        CHECK(error->path == "array-frame.samples[1]");
+        CHECK(error->offset == 2);
+    }
+
+    auto overflowing_array_element = fixed_array_message;
+    std::get<ArrayValue>(overflowing_array_element.fields[0].value)[2] = std::uint64_t{0x10000U};
+    const auto overflowing_array_element_result =
+        codec.encode(fixed_array_definition, overflowing_array_element);
+    CHECK(!overflowing_array_element_result.has_value());
+    if (const auto* error = overflowing_array_element_result.error_if()) {
+        CHECK(error->code == CodecErrorCode::value_out_of_range);
+        CHECK(error->path == "array-frame.samples[2]");
+        CHECK(error->offset == 4);
+    }
+
+    const auto truncated_array =
+        codec.decode(fixed_array_definition, ByteBuffer{0x34U, 0x12U, 0x02U, 0x01U});
+    CHECK(!truncated_array.has_value());
+    if (const auto* error = truncated_array.error_if()) {
+        CHECK(error->code == CodecErrorCode::insufficient_data);
+        CHECK(error->path == "array-frame.samples");
+        CHECK(error->offset == 0);
+    }
+
+    const MessageDefinition boolean_array_definition{
+        .name = "boolean-array",
+        .fields =
+            {
+                {.name = "flags",
+                 .type = FieldType::array,
+                 .element_type = FieldType::boolean,
+                 .count = 3},
+            },
+    };
+    const auto invalid_boolean_array =
+        codec.decode(boolean_array_definition, ByteBuffer{0x00U, 0x02U, 0x01U});
+    CHECK(!invalid_boolean_array.has_value());
+    if (const auto* error = invalid_boolean_array.error_if()) {
+        CHECK(error->code == CodecErrorCode::value_out_of_range);
+        CHECK(error->path == "boolean-array.flags[1]");
+        CHECK(error->offset == 1);
+        CHECK(error->detail == "boolean byte must be 0 or 1");
+    }
+
+    auto invalid_array_layout_definition = fixed_array_definition;
+    invalid_array_layout_definition.fields[0].length = 6;
+    const auto invalid_array_layout =
+        codec.decode(invalid_array_layout_definition, fixed_array_bytes);
+    CHECK(!invalid_array_layout.has_value());
+    if (const auto* error = invalid_array_layout.error_if()) {
+        CHECK(error->code == CodecErrorCode::invalid_layout);
+        CHECK(error->path == "array-frame.samples");
+        CHECK(error->offset == 0);
+        CHECK(error->detail == "array field must not declare length");
+    }
+    CHECK(to_string(CodecErrorCode::array_count_mismatch) == "array_count_mismatch");
+
     return failures == 0 ? 0 : 1;
 }

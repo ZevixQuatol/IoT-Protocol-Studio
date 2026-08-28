@@ -161,6 +161,9 @@ Result<FieldType, SchemaDiagnostic> field_type(const ryml::ConstNodeRef node, st
     if (value == "string") {
         return FieldType::string;
     }
+    if (value == "array") {
+        return FieldType::array;
+    }
     return make_error(SchemaErrorCode::yaml_unknown_field_type, std::move(path),
                       "unknown field type '" + value + "'", node, parser);
 }
@@ -234,6 +237,14 @@ load_field(const ryml::ConstNodeRef node, const std::string_view yaml_path,
         !node.has_child("length")) {
         source_map.emplace(std::string{domain_path} + ".length", type_node.id());
     }
+    if (field.type == FieldType::array) {
+        if (!node.has_child("elementType")) {
+            source_map.emplace(std::string{domain_path} + ".elementType", type_node.id());
+        }
+        if (!node.has_child("count")) {
+            source_map.emplace(std::string{domain_path} + ".count", type_node.id());
+        }
+    }
     if (node.has_child("displayName")) {
         const auto display_name_node = node["displayName"];
         const auto display_name_path = std::string{yaml_path} + ".displayName";
@@ -299,6 +310,37 @@ load_field(const ryml::ConstNodeRef node, const std::string_view yaml_path,
         }
         source_map.emplace(std::string{domain_path} + ".lengthOf", length_of_node.id());
         field.length_of = scalar(length_of_node);
+    }
+    if (node.has_child("elementType")) {
+        const auto element_type_node = node["elementType"];
+        const auto element_type_path = std::string{yaml_path} + ".elementType";
+        if (const auto error = require_scalar(element_type_node, element_type_path, parser)) {
+            return *error;
+        }
+        source_map.emplace(std::string{domain_path} + ".elementType", element_type_node.id());
+        auto element_type = field_type(element_type_node, element_type_path, parser);
+        if (const auto* error = element_type.error_if()) {
+            return *error;
+        }
+        field.element_type = element_type.value();
+    }
+    if (node.has_child("count")) {
+        const auto count_node = node["count"];
+        const auto count_path = std::string{yaml_path} + ".count";
+        if (const auto error = require_scalar(count_node, count_path, parser)) {
+            return *error;
+        }
+        source_map.emplace(std::string{domain_path} + ".count", count_node.id());
+        auto count = unsigned_integer(count_node, count_path, parser);
+        if (const auto* error = count.error_if()) {
+            return *error;
+        }
+        field.count = static_cast<std::size_t>(count.value());
+        if (count.value() != field.count.value()) {
+            return make_error(SchemaErrorCode::yaml_invalid_scalar, count_path,
+                              "YAML scalar '" + count_path + "' is outside size_t range",
+                              count_node, parser);
+        }
     }
     return field;
 }
