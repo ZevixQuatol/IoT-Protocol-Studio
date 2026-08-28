@@ -1,7 +1,7 @@
 # IoT Protocol Studio 功能清单与开发进度
 
 > 清单版本：1.0  
-> 更新日期：2026-08-28
+> 更新日期：2026-08-29
 > 功能基线：`IoT Protocol Studio 功能设计文档.md` v0.1  
 > 当前程序版本：0.1.0  
 > 当前目标平台：Windows x86_64  
@@ -60,10 +60,11 @@ flowchart LR
     H --> I["✅ 固定长度 Array"]
     I --> J["✅ project.yaml + Workspace Core"]
     J --> K["✅ HEX/Binary 协议解析核心"]
-    K --> L["🚧 下一步：Schema 资源 + 文件夹嵌套 + 协议创建"]
-    L --> M["⬜ Message Studio + 真实 Transport + Debugger"]
-    M --> N["⬜ 完整 Simulator + Test Runner"]
-    N --> O["⬜ MVP 验收"]
+    K --> L["✅ Schema 资源 + 文件夹嵌套 + 协议创建"]
+    L --> M["🚧 下一步：Windows 打开项目 + 真实嵌套协议树"]
+    M --> N["⬜ Message Studio + 真实 Transport + Debugger"]
+    N --> O["⬜ 完整 Simulator + Test Runner"]
+    O --> P["⬜ MVP 验收"]
 ```
 
 ### 2.2 当前结论
@@ -100,12 +101,12 @@ ProtocolSchema + Message 名称 + HEX / ByteBuffer
   → Schema 领域模型
   → 固定长度 Primitive / UTF-8 string / bytes / Array Encode / Decode
   → Length Field Decode 校验 / Encode 自动回填
-  → Workspace project.yaml / Protocol Schema 加载
+  → Workspace project.yaml / Protocol Schema 加载与嵌套 Protocol 创建
   → Simulator
   → Transport API 测试边界
 ```
 
-Schema、固定布局协议解析和 Workspace 纵向链路已经打通：Protocol YAML 和项目目录可以映射为领域模型，Core 可以按明确的 Message 名称解析 HEX/Binary 或反向编码，并保留文件、字段路径、字节偏移和源码位置诊断。自动 Message 匹配、GUI Workspace 和真实 Transport 仍未完成。
+Schema、固定布局协议解析和 Workspace 纵向链路已经打通：Protocol YAML 和项目目录可以映射为领域模型，Core 可以按明确的 Message 名称解析 HEX/Binary 或反向编码，也可以在嵌套目录创建最小 Protocol Schema 并安全写回项目引用。自动 Message 匹配、GUI Workspace 和真实 Transport 仍未完成。
 
 ### 2.3 已经可以使用的能力
 
@@ -148,6 +149,8 @@ Schema、固定布局协议解析和 Workspace 纵向链路已经打通：Protoc
 - [x] 通过 Workspace 测试资产和 CLI 验证 `project.yaml` → Protocol Schema 加载链路。
 - [x] 通过统一 Core API 按 Message 名称完成 Protocol Schema + HEX/Binary Decode，并反向生成 ByteBuffer 和规范化 HEX。
 - [x] 将 Message 不存在、HEX 解析失败和下层 Codec 失败映射为稳定协议级错误，同时保留下层错误码、路径和偏移。
+- [x] 在 `protocols/` 下按需创建嵌套目录和最小 Protocol Schema，并将引用写回 `project.yaml` 后重新加载校验。
+- [x] 创建 Protocol 时拒绝非便携路径、目录逃逸、重复引用和覆盖已有文件；失败时恢复原项目清单。
 
 ### 2.4 当前界面中尚未实现的占位功能
 
@@ -162,26 +165,26 @@ Schema、固定布局协议解析和 Workspace 纵向链路已经打通：Protoc
 
 ## 3. 接下来应该做什么
 
-### 3.1 当前唯一首要任务：Schema 资源、文件夹嵌套和协议创建
+### 3.1 当前唯一首要任务：Windows 打开项目与真实嵌套协议树
 
-协议解析 Core 已完成统一 HEX/Binary Decode/Encode 入口。下一步在现有 Workspace Core 上建立最小资源写入能力：
+Workspace Core 已完成项目加载、嵌套 Protocol 创建和项目引用写回。下一步只打通一个 Windows GUI 纵向切片：
 
-- 定义项目内 Schema 资源节点和嵌套文件夹规则。
-- 在 `protocols/` 下安全创建文件夹和 Protocol Schema 文件。
-- 更新 `project.yaml` 的协议引用，不重复实现 YAML 领域校验。
-- 创建后重新调用现有 Workspace/Schema Loader 验证结果。
-- 拒绝绝对路径、目录逃逸、重复资源和覆盖已有文件。
+- Windows Host 使用系统目录选择器打开包含 `project.yaml` 的目录。
+- Host Bridge 直接调用 Workspace Core，不在 TypeScript 中重复解析 YAML。
+- Web UI 根据 `ProjectProtocol::relative_path` 显示真实嵌套协议树。
+- GUI 调用 `create_protocol()` 创建协议并刷新项目树。
+- 支持关闭当前项目并恢复未打开状态。
 
-本工作包先实现 Core 模块和自动测试；GUI 交互在文件契约稳定后接入。
+暂不实现最近项目、Protocol 重命名/删除、拖放和完整 Protocol Designer。
 
 本阶段完成标准：
 
 ```text
-Workspace Core 创建嵌套协议目录
-  → 创建最小 Protocol Schema 文件
-  → project.yaml 引用写回
-  → Workspace 重新加载成功
-  → 非法路径和重复资源返回稳定错误
+Windows 选择项目目录
+  → Host Bridge 调用 Workspace Core
+  → Web UI 显示真实嵌套 Protocol 树
+  → GUI 创建 Protocol 并刷新
+  → 关闭项目恢复空状态
 ```
 
 ### 3.2 Schema 之后的执行顺序
@@ -194,8 +197,8 @@ Workspace Core 创建嵌套协议目录
 6. **固定 Array**：固定宽度 Primitive 元素、固定 count、逐元素范围和 round-trip。✅
 7. **Workspace Core**：定义 `project.yaml`、最小项目目录和加载/校验。✅
 8. **协议解析 Core**：按 Message 名称完成 Schema + HEX/Binary Decode/Encode。✅
-9. **Schema 资源与协议创建**：嵌套目录、Protocol Schema 创建和项目引用写回。
-10. **打开项目**：Windows 目录选择、Host Bridge、真实 Explorer 和关闭项目。
+9. **Schema 资源与协议创建**：嵌套目录、Protocol Schema 创建和项目引用写回。✅
+10. **打开项目**：Windows 目录选择、Host Bridge、真实 Explorer、协议创建和关闭项目。
 11. **Protocol Designer**：Schema 源码与可视化字段编辑器双向同步。
 12. **Message Studio**：结构化表单组包、自动 Length/CRC 和报文模板。
 13. **Transport 抽象 + TCP Client**：建立第一条真实收发链路。
@@ -211,7 +214,7 @@ Workspace Core 创建嵌套协议目录
 | 模块 | 当前状态 | 阶段 | 当前说明 |
 |---|---|---|---|
 | M00 工程与平台基础 | 🟡 部分完成 | M0 | 模块分层、格式化、统一 Result/Error 和 Windows 基线可运行；静态分析、安装发布和其他平台未完成 |
-| M01 Workspace 工作空间 | 🟡 部分完成 | MVP | Project Schema v0.1、Workspace Core、协议加载和 CLI 校验已完成；下一步打通 Windows GUI 打开/关闭项目 |
+| M01 Workspace 工作空间 | 🟡 部分完成 | MVP | Project Schema v0.1、Workspace 加载、嵌套 Protocol 创建/写回和 CLI 校验已完成；下一步打通 Windows GUI 打开、创建和关闭项目 |
 | M02 Protocol Designer / Schema | 🟡 部分完成 | MVP | Protocol Schema v0.1 YAML、固定 Primitive/string/bytes/Array、Field `length`/`offset` 和最小 `lengthOf` 已完成；可视化设计器与动态结构未实现 |
 | M03 Codec 编解码 | 🟡 部分完成 | MVP | 统一 HEX/Binary 协议入口及固定 Primitive/string/bytes/Array、最小 Length Field、非连续布局、padding、字节序和 round-trip 已完成；自动 Message 匹配、动态 Array、Struct/Condition 和 Checksum 尚未实现 |
 | M04 HEX Studio | 🟡 部分完成 | MVP | 已完成基础 HEX 检查和三种校验计算 |
@@ -327,7 +330,7 @@ Workspace Core 创建嵌套协议目录
 ### M01-F02 项目目录和持久化
 
 - [x] 定义 `project.yaml`，并建立最小普通文本项目目录结构。
-- [ ] 🟡 当前最小项目结构使用 `protocols/`；项目创建/写回 API 尚未实现。
+- [ ] 🟡 当前最小项目结构使用 `protocols/`；Protocol 创建和引用写回已完成，完整 Project 创建尚未实现。
 - [ ] 创建 `messages/` 目录。
 - [ ] 创建 `connections/` 目录。
 - [ ] 创建 `environments/` 目录。
@@ -345,7 +348,7 @@ Workspace Core 创建嵌套协议目录
 
 - [ ] 🟡 当前静态项目树布局。
 - [ ] 按项目内容动态生成树。
-- [ ] 新建/重命名/删除项目资源。
+- [ ] 🟡 新建/重命名/删除项目资源：Protocol 新建 Core API 已完成，GUI、重命名和删除尚未实现。
 - [ ] 双击打开编辑器。
 - [ ] 资源上下文菜单。
 - [ ] 文件变更状态和错误标记。
@@ -1014,6 +1017,7 @@ Workspace Core 创建嵌套协议目录
 - [x] Protocol Schema YAML/文件加载、源码位置和 CLI 成功/失败测试。
 - [x] Testing 断言和报告单元测试。
 - [x] Protocol Schema + Message 名称 + HEX/Binary 双向解析和协议级错误映射集成测试。
+- [x] Workspace 嵌套目录、Protocol 创建、项目引用写回、回读和失败保护测试。
 - [ ] Schema/Codec/Transport/Simulator 的完整系统化测试矩阵。
 
 ---
@@ -1551,13 +1555,24 @@ CI/CD
 - 自动 Message 匹配暂未实现：现有 `typeId` 只是元数据，必须先在 Schema 中定义 wire 匹配字段和规则。
 - Windows x86_64 Debug/Release 全量构建成功，两种配置均为 20/20 CTest 通过，包含协议解析集成测试和真实 WebView2 UI 烟雾测试。
 
+### 2026-08-29：Schema 资源、文件夹嵌套和协议创建 Core
+
+- 新增 `ProtocolCreateRequest` 和 `create_protocol()`，路径相对于项目 `protocols/`，支持按需创建多层目录。
+- 根据 Protocol 元数据生成并校验最小 Protocol Schema，追加 `project.yaml` 引用后重新调用 Workspace Loader 验证。
+- 复用现有跨平台路径规则，拒绝反斜杠、绝对路径、目录逃逸、重复引用和覆盖已有文件。
+- 使用临时文件和清单备份完成写回；替换或回读失败时恢复原 `project.yaml` 并删除本次协议文件。
+- Rapid YAML 写回保留未知节点，但会规范化排版，注释和原始格式不保证无损保留。
+- 单元测试覆盖缺失 `protocols/` 目录、多层创建、YAML 特殊字符、未知项目节点保留、非法元数据、逃逸、非便携路径、重复和已有文件。
+- C/C++ 与 Web UI 格式检查通过；Windows x86_64 Debug/Release 全量构建成功，两种配置均为 20/20 CTest 通过，包含真实 WebView2 UI 烟雾测试。
+- 本地提交：见包含本记录的 `feat: create nested protocol resources` 提交，未自动推送。
+
 ---
 
 ## 9. 下一次更新入口
 
 下次开始开发时，直接从以下功能点继续：
 
-> **M01-F02 / M01-F03：建立 Schema 资源节点、文件夹嵌套和 Protocol Schema 创建/写回 Core API，并通过重新加载 Workspace 验证结果**
+> **M01-F01 / M01-F03：打通 Windows 目录选择 → Host Bridge → Workspace Core → Web UI 真实嵌套 Protocol 树，并接入创建和关闭项目**
 
 完成一个功能点后：
 

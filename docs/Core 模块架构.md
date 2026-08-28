@@ -139,9 +139,11 @@ core/
 - `project.yaml` 文件加载及 YAML 文件、路径、偏移和行列诊断。
 - 使用 `/` 的跨平台协议相对路径、规范化、重复和目录逃逸校验。
 - 加载 `protocols/` 下引用的 Protocol Schema，并保留下层 Schema 诊断。
+- `create_protocol()` 按相对路径创建嵌套目录和最小 Protocol Schema，安全写回 `project.yaml` 并回读校验。
+- 创建时拒绝目录逃逸、非便携路径、重复引用和覆盖已有文件；写回失败时恢复原清单。
 - `iotps project validate <directory>` CLI 验证入口。
 
-当前没有提供：项目写回、目录选择器、最近项目、外部文件监听、未保存修改或 Explorer 文件操作。完整契约见 [Project Workspace v0.1](<./Project Workspace v0.1.md>)。
+当前没有提供：完整 Project 创建、Protocol 重命名/删除、目录选择器、最近项目、外部文件监听、未保存修改或 Explorer GUI 文件操作。完整契约见 [Project Workspace v0.1](<./Project Workspace v0.1.md>)。
 
 ### 5.3 Codec
 
@@ -256,7 +258,7 @@ simulator::SimulatorErrorCode
 | `iotps_result_unit_test` | Common | 成功值、错误值、指针访问和 `Status` |
 | `iotps_schema_unit_test` | Schema | 合法 Schema、重复名称、字段路径和错误码 |
 | `iotps_schema_loader_unit_test` | Schema | YAML/文件加载、节点类型、枚举、领域校验和源码位置 |
-| `iotps_workspace_unit_test` | Workspace、Schema | `project.yaml`、跨平台路径、协议文件加载和稳定诊断 |
+| `iotps_workspace_unit_test` | Workspace、Schema | `project.yaml`、跨平台路径、协议加载、嵌套 Protocol 创建/回滚和稳定诊断 |
 | `iotps_codec_unit_test` | Codec | 固定 Primitive/string/bytes/Array Encode/Decode、字节序、布局、padding、范围和错误诊断 |
 | `iotps_primitive_decode_integration_test` | Codec、Schema | Schema YAML → 非连续 HEX → 多类型 Decode → expected golden vector |
 | `iotps_primitive_encode_integration_test` | Codec、Schema | Schema YAML → Decode → 固定布局 Encode → golden HEX → Decode round-trip |
@@ -271,14 +273,14 @@ Simulator 集成测试只替换 Transport，因为 Transport 是操作系统和�
 
 ## 8. 下一步
 
-固定布局 Codec、协议级 HEX/Binary 解析入口和 Workspace Core 加载已经完成。按当前产品顺序，下一入口进入 Schema 资源、文件夹嵌套和协议创建：
+固定布局 Codec、协议级 HEX/Binary 解析入口、Workspace 加载以及嵌套 Protocol 创建已经完成。下一入口把已有 Workspace Core 接入 Windows Host 和 Web UI：
 
 ```text
-项目内协议资源目录
-  → 嵌套文件夹
-  → 创建 Protocol Schema 文件
-  → 写回 project.yaml 引用
-  → 重新加载并校验 Workspace
+Windows 选择项目目录
+  → Host Bridge 调用 Workspace Core
+  → Web UI 显示真实嵌套 Protocol 树
+  → GUI 创建 Protocol
+  → 关闭项目
 ```
 
-下一入口只建立 Core 文件操作和校验边界，不同时实现完整可视化 Protocol Designer、真实 TCP/Serial、Simulator 行为 DSL 或完整 Test Runner。自动 Message 匹配需要先定义 wire 匹配规则；Count/Length 驱动 Array 与 Struct/Condition 保留在后续动态 Schema 阶段。
+下一入口只打通打开、显示、创建和关闭项目纵向切片，不同时实现完整可视化 Protocol Designer、Protocol 重命名/删除、真实 TCP/Serial、Simulator 行为 DSL 或完整 Test Runner。自动 Message 匹配需要先定义 wire 匹配规则；Count/Length 驱动 Array 与 Struct/Condition 保留在后续动态 Schema 阶段。

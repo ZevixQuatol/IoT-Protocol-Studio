@@ -2,6 +2,8 @@
 
 #include "iotps/core/schema/loader.hpp"
 
+#include <algorithm>
+#include <c4/yml/std/string.hpp>
 #include <fstream>
 #include <optional>
 #include <ryml.hpp>
@@ -64,6 +66,44 @@ WorkspaceDiagnostic make_error(const WorkspaceErrorCode code, std::string path, 
     };
     attach_source(error, node, parser);
     return error;
+}
+
+WorkspaceDiagnostic make_error(const WorkspaceErrorCode code, std::string path,
+                               std::string detail) {
+    return {
+        .code = code,
+        .path = std::move(path),
+        .detail = std::move(detail),
+    };
+}
+
+Result<std::filesystem::path, WorkspaceDiagnostic>
+normalize_protocol_path(const std::string_view value, std::string error_path) {
+    if (value.empty()) {
+        return make_error(WorkspaceErrorCode::protocol_path_empty, std::move(error_path),
+                          "protocol path must not be empty");
+    }
+    if (value.find('\\') != std::string_view::npos) {
+        return make_error(WorkspaceErrorCode::protocol_path_not_portable, std::move(error_path),
+                          "project paths must use '/' separators");
+    }
+
+    auto relative_path = std::filesystem::u8path(value).lexically_normal();
+    auto component = relative_path.begin();
+    if (relative_path.is_absolute() || relative_path.has_root_name() ||
+        relative_path.has_root_directory() || component == relative_path.end() ||
+        component->generic_string() != "protocols" || ++component == relative_path.end()) {
+        return make_error(WorkspaceErrorCode::protocol_path_outside_project, std::move(error_path),
+                          "protocol path must name a file under 'protocols/'");
+    }
+    for (const auto& part : relative_path) {
+        if (part == "..") {
+            return make_error(WorkspaceErrorCode::protocol_path_outside_project,
+                              std::move(error_path),
+                              "protocol path must not leave the project directory");
+        }
+    }
+    return relative_path;
 }
 
 std::optional<WorkspaceDiagnostic> require_mapping(const ryml::ConstNodeRef node,
@@ -186,30 +226,12 @@ Result<ProjectManifest, WorkspaceDiagnostic> load_manifest(const std::string_vie
                 return *error;
             }
             const auto value = scalar(protocol);
-            if (value.empty()) {
-                return make_error(WorkspaceErrorCode::protocol_path_empty, path,
-                                  "protocol path must not be empty", protocol, parser);
+            auto normalized = normalize_protocol_path(value, path);
+            if (auto* error = normalized.error_if()) {
+                attach_source(*error, protocol, parser);
+                return *error;
             }
-            if (value.find('\\') != std::string::npos) {
-                return make_error(WorkspaceErrorCode::protocol_path_not_portable, path,
-                                  "project paths must use '/' separators", protocol, parser);
-            }
-            auto relative_path = std::filesystem::u8path(value).lexically_normal();
-            auto component = relative_path.begin();
-            if (relative_path.is_absolute() || relative_path.has_root_name() ||
-                relative_path.has_root_directory() || component == relative_path.end() ||
-                component->generic_string() != "protocols" || ++component == relative_path.end()) {
-                return make_error(WorkspaceErrorCode::protocol_path_outside_project, path,
-                                  "protocol path must name a file under 'protocols/'", protocol,
-                                  parser);
-            }
-            for (const auto& part : relative_path) {
-                if (part == "..") {
-                    return make_error(WorkspaceErrorCode::protocol_path_outside_project, path,
-                                      "protocol path must not leave the project directory",
-                                      protocol, parser);
-                }
-            }
+            auto relative_path = std::move(normalized).value();
             const auto portable_path = relative_path.generic_string();
             if (!unique_paths.insert(portable_path).second) {
                 return make_error(WorkspaceErrorCode::duplicate_protocol_path, path,
@@ -255,6 +277,89 @@ bool is_within(const std::filesystem::path& path, const std::filesystem::path& r
         return false;
     }
     return relative.begin() == relative.end() || *relative.begin() != "..";
+}
+
+Result<std::filesystem::path, WorkspaceDiagnostic>
+create_protocol_path(const std::string_view value) {
+    if (value.empty()) {
+        return make_error(WorkspaceErrorCode::protocol_path_empty, "$request.relativePath",
+                          "protocol path must not be empty");
+    }
+    if (value.find('\\') != std::string_view::npos) {
+        return make_error(WorkspaceErrorCode::protocol_path_not_portable, "$request.relativePath",
+                          "project paths must use '/' separators");
+    }
+
+    const auto requested = std::filesystem::u8path(value);
+    if (requested.is_absolute() || requested.has_root_name() || requested.has_root_directory()) {
+        return make_error(WorkspaceErrorCode::protocol_path_outside_project,
+                          "$request.relativePath",
+                          "protocol path must be relative to the 'protocols/' directory");
+    }
+    for (const auto& part : requested) {
+        if (part == "..") {
+            return make_error(WorkspaceErrorCode::protocol_path_outside_project,
+                              "$request.relativePath",
+                              "protocol path must not leave the 'protocols/' directory");
+        }
+    }
+
+    return normalize_protocol_path(
+        (std::filesystem::path{"protocols"} / requested).lexically_normal().generic_string(),
+        "$request.relativePath");
+}
+
+std::string protocol_yaml(const schema::ProtocolMetadata& protocol) {
+    ryml::Tree tree;
+    auto root = tree.rootref();
+    root.set_map();
+    root["schemaVersion"].save(std::string{schema::current_schema_version});
+    auto metadata = root["protocol"];
+    metadata.set_map();
+    metadata["name"].save(protocol.name);
+    if (!protocol.display_name.empty()) {
+        metadata["displayName"].save(protocol.display_name);
+    }
+    metadata["version"].save(protocol.version);
+    if (!protocol.description.empty()) {
+        metadata["description"].save(protocol.description);
+    }
+    metadata["defaultByteOrder"].set_val(
+        protocol.default_byte_order == schema::ByteOrder::little_endian ? "little" : "big");
+    root["messages"].set_map();
+    std::string output;
+    ryml::emitrs_yaml(tree, &output);
+    return output;
+}
+
+Result<std::string, WorkspaceDiagnostic>
+append_protocol_reference(const std::string_view yaml, const std::string& source_name,
+                          const std::string& portable_path) {
+    try {
+        ryml::EventHandlerTree event_handler{loader_callbacks()};
+        ryml::Parser parser(&event_handler);
+        auto tree = ryml::parse_in_arena(&parser, {source_name.data(), source_name.size()},
+                                         {yaml.data(), yaml.size()});
+        tree.rootref()["protocols"].append_child().save(portable_path);
+        std::string output;
+        ryml::emitrs_yaml(tree, &output);
+        return output;
+    } catch (const std::exception& error) {
+        return make_error(WorkspaceErrorCode::project_manifest_write_failed, "$manifest",
+                          "cannot update project manifest: " + std::string{error.what()});
+    }
+}
+
+bool write_text_file(const std::filesystem::path& path, const std::string_view contents) {
+    std::ofstream output{path, std::ios::binary | std::ios::trunc};
+    output.write(contents.data(), static_cast<std::streamsize>(contents.size()));
+    output.flush();
+    return output.good();
+}
+
+void remove_file(const std::filesystem::path& path) {
+    std::error_code ignored;
+    std::filesystem::remove(path, ignored);
 }
 
 } // namespace
@@ -339,6 +444,153 @@ ProjectLoadResult load_project(const std::filesystem::path& project_directory) {
     return loaded;
 }
 
+ProjectLoadResult create_protocol(const std::filesystem::path& project_directory,
+                                  const ProtocolCreateRequest& request) {
+    auto loaded = load_project(project_directory);
+    if (const auto* error = loaded.error_if()) {
+        return *error;
+    }
+    const auto& project = loaded.value();
+
+    auto relative_path = create_protocol_path(request.relative_path);
+    if (const auto* error = relative_path.error_if()) {
+        return *error;
+    }
+    const auto portable_path = relative_path.value().generic_string();
+    if (std::ranges::any_of(project.manifest.protocol_files, [&](const auto& existing) {
+            return existing.generic_string() == portable_path;
+        })) {
+        return make_error(WorkspaceErrorCode::duplicate_protocol_path, "$request.relativePath",
+                          "protocol path is already referenced: '" + portable_path + "'");
+    }
+
+    const auto yaml = protocol_yaml(request.protocol);
+    auto parsed_schema = schema::load_yaml(yaml, "$request.protocol");
+    if (const auto* error = parsed_schema.error_if()) {
+        return WorkspaceDiagnostic{
+            .code = WorkspaceErrorCode::protocol_schema_invalid,
+            .path = "$request.protocol",
+            .offset = error->offset,
+            .detail = "schema error[" + std::string{schema::to_string(error->code)} + "] " +
+                      error->path + ": " + error->detail,
+            .source_location = error->source_location,
+        };
+    }
+
+    const auto root = project.root_directory;
+    const auto destination = root / relative_path.value();
+    std::error_code filesystem_error;
+    const auto resolved_parent =
+        std::filesystem::weakly_canonical(destination.parent_path(), filesystem_error);
+    if (filesystem_error || !is_within(resolved_parent, root)) {
+        return make_error(WorkspaceErrorCode::protocol_path_outside_project,
+                          "$request.relativePath",
+                          "protocol path resolves outside the project directory");
+    }
+
+    filesystem_error.clear();
+    const auto destination_status = std::filesystem::symlink_status(destination, filesystem_error);
+    if (!filesystem_error && destination_status.type() != std::filesystem::file_type::not_found) {
+        return make_error(WorkspaceErrorCode::protocol_file_already_exists, "$request.relativePath",
+                          "protocol file already exists: '" + destination.string() + "'");
+    }
+
+    const auto manifest_path = root / "project.yaml";
+    std::ifstream manifest_input{manifest_path, std::ios::binary};
+    std::ostringstream manifest_contents;
+    manifest_contents << manifest_input.rdbuf();
+    if (!manifest_input.is_open() || manifest_input.bad()) {
+        return make_error(WorkspaceErrorCode::project_manifest_read_failed, "$manifest",
+                          "cannot read project manifest '" + manifest_path.string() + "'");
+    }
+    manifest_input.close();
+    auto updated_manifest =
+        append_protocol_reference(manifest_contents.str(), manifest_path.string(), portable_path);
+    if (const auto* error = updated_manifest.error_if()) {
+        return *error;
+    }
+
+    auto protocol_temporary = destination;
+    protocol_temporary += ".iotps.tmp";
+    auto manifest_temporary = manifest_path;
+    manifest_temporary += ".iotps.tmp";
+    auto manifest_backup = manifest_path;
+    manifest_backup += ".iotps.bak";
+    bool temporary_exists = false;
+    for (const auto& temporary : {protocol_temporary, manifest_temporary, manifest_backup}) {
+        filesystem_error.clear();
+        temporary_exists = std::filesystem::exists(temporary, filesystem_error) || temporary_exists;
+        if (filesystem_error) {
+            return make_error(WorkspaceErrorCode::project_manifest_write_failed, "$manifest",
+                              "cannot inspect temporary workspace files: " +
+                                  filesystem_error.message());
+        }
+    }
+    if (temporary_exists) {
+        return make_error(WorkspaceErrorCode::project_manifest_write_failed, "$manifest",
+                          "temporary workspace files already exist");
+    }
+
+    std::filesystem::create_directories(destination.parent_path(), filesystem_error);
+    if (filesystem_error) {
+        return make_error(WorkspaceErrorCode::protocol_directory_create_failed,
+                          "$request.relativePath",
+                          "cannot create protocol directory: " + filesystem_error.message());
+    }
+    if (!write_text_file(manifest_temporary, updated_manifest.value())) {
+        remove_file(manifest_temporary);
+        return make_error(WorkspaceErrorCode::project_manifest_write_failed, "$manifest",
+                          "cannot write temporary project manifest");
+    }
+    if (!write_text_file(protocol_temporary, yaml)) {
+        remove_file(manifest_temporary);
+        remove_file(protocol_temporary);
+        return make_error(WorkspaceErrorCode::protocol_file_write_failed, "$request.relativePath",
+                          "cannot write temporary protocol file");
+    }
+
+    std::filesystem::rename(protocol_temporary, destination, filesystem_error);
+    if (filesystem_error) {
+        remove_file(manifest_temporary);
+        remove_file(protocol_temporary);
+        return make_error(WorkspaceErrorCode::protocol_file_write_failed, "$request.relativePath",
+                          "cannot create protocol file: " + filesystem_error.message());
+    }
+    std::filesystem::rename(manifest_path, manifest_backup, filesystem_error);
+    if (filesystem_error) {
+        remove_file(destination);
+        remove_file(manifest_temporary);
+        return make_error(WorkspaceErrorCode::project_manifest_write_failed, "$manifest",
+                          "cannot back up project manifest: " + filesystem_error.message());
+    }
+    std::filesystem::rename(manifest_temporary, manifest_path, filesystem_error);
+    if (filesystem_error) {
+        std::error_code restore_error;
+        std::filesystem::rename(manifest_backup, manifest_path, restore_error);
+        remove_file(destination);
+        remove_file(manifest_temporary);
+        return make_error(WorkspaceErrorCode::project_manifest_write_failed, "$manifest",
+                          restore_error
+                              ? "cannot replace or restore project manifest"
+                              : "cannot replace project manifest: " + filesystem_error.message());
+    }
+
+    auto reloaded = load_project(root);
+    if (const auto* error = reloaded.error_if()) {
+        remove_file(manifest_path);
+        std::error_code restore_error;
+        std::filesystem::rename(manifest_backup, manifest_path, restore_error);
+        remove_file(destination);
+        if (restore_error) {
+            return make_error(WorkspaceErrorCode::project_manifest_write_failed, "$manifest",
+                              "created project failed validation and manifest restore failed");
+        }
+        return *error;
+    }
+    remove_file(manifest_backup);
+    return reloaded;
+}
+
 std::string_view to_string(const WorkspaceErrorCode code) noexcept {
     switch (code) {
     case WorkspaceErrorCode::project_directory_not_found:
@@ -373,6 +625,14 @@ std::string_view to_string(const WorkspaceErrorCode code) noexcept {
         return "protocol_file_load_failed";
     case WorkspaceErrorCode::protocol_schema_invalid:
         return "protocol_schema_invalid";
+    case WorkspaceErrorCode::protocol_file_already_exists:
+        return "protocol_file_already_exists";
+    case WorkspaceErrorCode::protocol_directory_create_failed:
+        return "protocol_directory_create_failed";
+    case WorkspaceErrorCode::protocol_file_write_failed:
+        return "protocol_file_write_failed";
+    case WorkspaceErrorCode::project_manifest_write_failed:
+        return "project_manifest_write_failed";
     }
     return "unknown";
 }

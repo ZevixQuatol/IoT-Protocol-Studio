@@ -18,7 +18,7 @@ YAML 文件
   → 稳定错误码、字段路径和源码位置
 ```
 
-v0.1 当前覆盖 Protocol、Message、基础 Field、固定 `length`/`offset`、固定长度 `string`/`bytes`、最小单字段 `lengthOf`、固定长度 Primitive Array 和 Checksum 的最小模型。连续 Length Range、动态目标、动态 Array、Struct、Enum、BitField、Condition、动态校验范围和 Schema 写回仍不在本阶段。
+v0.1 当前覆盖 Protocol、Message、基础 Field、固定 `length`/`offset`、固定长度 `string`/`bytes`、最小单字段 `lengthOf`、固定长度 Primitive Array 和 Checksum 的最小模型。Workspace 可以根据 Protocol 元数据生成一个空 `messages` 的最小 Schema；任意 Schema 结构的无损写回、连续 Length Range、动态目标、动态 Array、Struct、Enum、BitField、Condition 和动态校验范围仍不在本阶段。
 
 ## 2. YAML 依赖
 
