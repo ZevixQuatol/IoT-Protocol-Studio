@@ -1,0 +1,181 @@
+#include "iotps/core/workspace/workspace.hpp"
+
+#include <chrono>
+#include <filesystem>
+#include <fstream>
+#include <iostream>
+#include <string_view>
+
+namespace {
+
+int failures = 0;
+
+void check(const bool condition, const char* expression, const int line) {
+    if (!condition) {
+        std::cerr << "line " << line << ": check failed: " << expression << '\n';
+        ++failures;
+    }
+}
+
+#define CHECK(expression) check((expression), #expression, __LINE__)
+
+void write_file(const std::filesystem::path& path, const std::string_view contents) {
+    std::filesystem::create_directories(path.parent_path());
+    std::ofstream output{path, std::ios::binary};
+    output << contents;
+}
+
+} // namespace
+
+int main() {
+    using namespace iotps::core::workspace;
+
+    const auto vector_directory = std::filesystem::path{IOTPS_TEST_VECTOR_DIR};
+    const auto loaded = load_project(vector_directory / "project" / "smart-sensor");
+    CHECK(loaded.has_value());
+    if (const auto* project = loaded.value_if()) {
+        CHECK(project->manifest.schema_version == "0.1");
+        CHECK(project->manifest.metadata.name == "smart-sensor-studio");
+        CHECK(project->manifest.metadata.display_name == "Smart Sensor Studio");
+        CHECK(project->manifest.protocol_files.size() == 1);
+        CHECK(project->protocols.size() == 1);
+        if (!project->protocols.empty()) {
+            CHECK(project->protocols[0].relative_path.generic_string() ==
+                  "protocols/smart-sensor.protocol.yaml");
+            CHECK(project->protocols[0].schema.protocol.name == "smart-sensor");
+        }
+    }
+
+    const auto missing_manifest = load_project(vector_directory);
+    CHECK(!missing_manifest.has_value());
+    if (const auto* error = missing_manifest.error_if()) {
+        CHECK(error->code == WorkspaceErrorCode::project_manifest_open_failed);
+        CHECK(error->path == "$file");
+    }
+
+    const auto unique = std::chrono::steady_clock::now().time_since_epoch().count();
+    const auto temporary =
+        std::filesystem::temp_directory_path() / ("iotps-workspace-test-" + std::to_string(unique));
+    std::filesystem::create_directories(temporary / "protocols");
+
+    write_file(temporary / "project.yaml", R"yaml(schemaVersion: "9.9"
+project:
+  name: invalid-version
+protocols: []
+)yaml");
+    const auto unsupported_version = load_project(temporary);
+    CHECK(!unsupported_version.has_value());
+    if (const auto* error = unsupported_version.error_if()) {
+        CHECK(error->code == WorkspaceErrorCode::unsupported_schema_version);
+        CHECK(error->path == "schemaVersion");
+        CHECK(error->source_location.has_value());
+    }
+
+    write_file(temporary / "project.yaml", R"yaml(schemaVersion: "0.1"
+project: {}
+protocols: []
+)yaml");
+    const auto missing_name = load_project(temporary);
+    CHECK(!missing_name.has_value());
+    if (const auto* error = missing_name.error_if()) {
+        CHECK(error->code == WorkspaceErrorCode::project_name_required);
+        CHECK(error->path == "project.name");
+    }
+
+    write_file(temporary / "project.yaml", R"yaml(schemaVersion: "0.1"
+project:
+  name: empty-project
+protocols: []
+)yaml");
+    const auto empty_project = load_project(temporary);
+    CHECK(empty_project.has_value());
+    if (const auto* project = empty_project.value_if()) {
+        CHECK(project->protocols.empty());
+    }
+
+    write_file(temporary / "project.yaml", R"yaml(schemaVersion: "0.1"
+project:
+  name: nonportable-project
+protocols:
+  - protocols\device.yaml
+)yaml");
+    const auto nonportable_path = load_project(temporary);
+    CHECK(!nonportable_path.has_value());
+    if (const auto* error = nonportable_path.error_if()) {
+        CHECK(error->code == WorkspaceErrorCode::protocol_path_not_portable);
+        CHECK(error->path == "protocols[0]");
+    }
+
+    write_file(temporary / "project.yaml", R"yaml(schemaVersion: "0.1"
+project:
+  name: escaped-project
+protocols:
+  - ../outside.yaml
+)yaml");
+    const auto escaped_path = load_project(temporary);
+    CHECK(!escaped_path.has_value());
+    if (const auto* error = escaped_path.error_if()) {
+        CHECK(error->code == WorkspaceErrorCode::protocol_path_outside_project);
+        CHECK(error->path == "protocols[0]");
+    }
+
+    write_file(temporary / "project.yaml", R"yaml(schemaVersion: "0.1"
+project:
+  name: duplicate-project
+protocols:
+  - protocols/device.yaml
+  - protocols/./device.yaml
+)yaml");
+    const auto duplicate_path = load_project(temporary);
+    CHECK(!duplicate_path.has_value());
+    if (const auto* error = duplicate_path.error_if()) {
+        CHECK(error->code == WorkspaceErrorCode::duplicate_protocol_path);
+        CHECK(error->path == "protocols[1]");
+    }
+
+    write_file(temporary / "project.yaml", R"yaml(schemaVersion: "0.1"
+project:
+  name: missing-protocol-project
+protocols:
+  - protocols/missing.protocol.yaml
+)yaml");
+    const auto missing_protocol = load_project(temporary);
+    CHECK(!missing_protocol.has_value());
+    if (const auto* error = missing_protocol.error_if()) {
+        CHECK(error->code == WorkspaceErrorCode::protocol_file_load_failed);
+        CHECK(error->path == "protocols[0]");
+    }
+
+    write_file(temporary / "project.yaml", R"yaml(schemaVersion: "0.1"
+project:
+  name: invalid-schema-project
+protocols:
+  - protocols/invalid.protocol.yaml
+)yaml");
+    write_file(temporary / "protocols" / "invalid.protocol.yaml",
+               R"yaml(schemaVersion: "0.1"
+protocol:
+  name: invalid
+  version: "1.0"
+messages:
+  telemetry:
+    fields:
+      - name: value
+        type: uint128
+)yaml");
+    const auto invalid_schema = load_project(temporary);
+    CHECK(!invalid_schema.has_value());
+    if (const auto* error = invalid_schema.error_if()) {
+        CHECK(error->code == WorkspaceErrorCode::protocol_schema_invalid);
+        CHECK(error->path == "protocols[0]");
+        CHECK(error->source_location.has_value());
+        CHECK(error->detail.find("yaml_unknown_field_type") != std::string::npos);
+    }
+
+    std::error_code cleanup_error;
+    std::filesystem::remove_all(temporary, cleanup_error);
+    CHECK(!cleanup_error);
+    CHECK(to_string(WorkspaceErrorCode::duplicate_protocol_path) == "duplicate_protocol_path");
+
+    return failures == 0 ? 0 : 1;
+}

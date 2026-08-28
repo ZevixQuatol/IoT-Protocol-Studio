@@ -1,0 +1,64 @@
+#pragma once
+
+#include "iotps/core/result.hpp"
+#include "iotps/core/schema/schema.hpp"
+
+#include <filesystem>
+#include <string>
+#include <string_view>
+#include <vector>
+
+namespace iotps::core::workspace {
+
+inline constexpr std::string_view current_project_schema_version = "0.1";
+
+struct ProjectMetadata {
+    std::string name;
+    std::string display_name;
+    std::string version;
+    std::string description;
+};
+
+struct ProjectManifest {
+    std::string schema_version{current_project_schema_version};
+    ProjectMetadata metadata;
+    std::vector<std::filesystem::path> protocol_files;
+};
+
+struct ProjectProtocol {
+    std::filesystem::path relative_path;
+    schema::ProtocolSchema schema;
+};
+
+struct Project {
+    std::filesystem::path root_directory;
+    ProjectManifest manifest;
+    std::vector<ProjectProtocol> protocols;
+};
+
+enum class WorkspaceErrorCode {
+    project_directory_not_found,
+    project_manifest_open_failed,
+    project_manifest_read_failed,
+    yaml_parse_error,
+    yaml_root_mapping_required,
+    yaml_required_node_missing,
+    yaml_node_type_mismatch,
+    schema_version_required,
+    unsupported_schema_version,
+    project_name_required,
+    protocol_path_empty,
+    protocol_path_not_portable,
+    protocol_path_outside_project,
+    duplicate_protocol_path,
+    protocol_file_load_failed,
+    protocol_schema_invalid,
+};
+
+using WorkspaceDiagnostic = Error<WorkspaceErrorCode>;
+using ProjectLoadResult = Result<Project, WorkspaceDiagnostic>;
+
+[[nodiscard]] ProjectLoadResult load_project(const std::filesystem::path& project_directory);
+[[nodiscard]] std::string_view to_string(WorkspaceErrorCode code) noexcept;
+
+} // namespace iotps::core::workspace

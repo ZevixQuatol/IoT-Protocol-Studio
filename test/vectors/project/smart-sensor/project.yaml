@@ -1,0 +1,8 @@
+schemaVersion: "0.1"
+project:
+  name: smart-sensor-studio
+  displayName: Smart Sensor Studio
+  version: "1.0"
+  description: Minimal workspace fixture
+protocols:
+  - protocols/smart-sensor.protocol.yaml

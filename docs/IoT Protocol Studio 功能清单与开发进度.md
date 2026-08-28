@@ -7,7 +7,7 @@
 > 当前目标平台：Windows x86_64  
 > 用途：项目唯一功能树、进度看板和下一步开发入口
 
-相关文档：[功能设计基线](<./IoT Protocol Studio 功能设计文档.md>) · [Protocol Schema v0.1](<./Protocol Schema v0.1.md>) · [固定 Field 布局](<./固定 Field 布局.md>) · [固定长度 String 与 Bytes](<./固定长度 String 与 Bytes.md>) · [Length Field](<./Length Field.md>) · [固定长度 Array](<./固定长度 Array.md>) · [Primitive Decode](<./Primitive Decode.md>) · [Primitive Encode](<./Primitive Encode.md>) · [Core 模块架构](<./Core 模块架构.md>) · [开发环境与构建](./开发环境与构建.md)
+相关文档：[功能设计基线](<./IoT Protocol Studio 功能设计文档.md>) · [Project Workspace v0.1](<./Project Workspace v0.1.md>) · [Protocol Schema v0.1](<./Protocol Schema v0.1.md>) · [固定 Field 布局](<./固定 Field 布局.md>) · [固定长度 String 与 Bytes](<./固定长度 String 与 Bytes.md>) · [Length Field](<./Length Field.md>) · [固定长度 Array](<./固定长度 Array.md>) · [Primitive Decode](<./Primitive Decode.md>) · [Primitive Encode](<./Primitive Encode.md>) · [Core 模块架构](<./Core 模块架构.md>) · [开发环境与构建](./开发环境与构建.md)
 
 ---
 
@@ -58,11 +58,12 @@ flowchart LR
     F --> G["✅ 固定长度 string / bytes"]
     G --> H["✅ 最小 Length Field"]
     H --> I["✅ 固定长度 Array"]
-    I --> J["🚧 下一步：project.yaml + 最小项目目录"]
-    J --> K["⬜ 新建 / 打开项目 + Protocol Designer"]
-    K --> L["⬜ Message Studio + 真实 Transport + Debugger"]
-    L --> M["⬜ 完整 Simulator + Test Runner"]
-    M --> N["⬜ MVP 验收"]
+    I --> J["✅ project.yaml + Workspace Core"]
+    J --> K["🚧 下一步：Windows 打开项目 + 真实项目树"]
+    K --> L["⬜ Protocol Designer"]
+    L --> M["⬜ Message Studio + 真实 Transport + Debugger"]
+    M --> N["⬜ 完整 Simulator + Test Runner"]
+    N --> O["⬜ MVP 验收"]
 ```
 
 ### 2.2 当前结论
@@ -97,11 +98,12 @@ Core 内部已经新增一条不依赖 GUI 的最小架构链路：
 Schema 领域模型
   → 固定长度 Primitive / UTF-8 string / bytes / Array Encode / Decode
   → Length Field Decode 校验 / Encode 自动回填
+  → Workspace project.yaml / Protocol Schema 加载
   → Simulator
   → Transport API 测试边界
 ```
 
-Schema 纵向链路也已经打通：YAML 文件可以映射为领域模型，错误可以定位到文件、字段路径和源码行列，并可通过 `iotps schema validate <file>` 自动验证。完整 Codec 和真实 Transport 仍未完成。
+Schema 和 Workspace 纵向链路已经打通：Protocol YAML 和项目目录可以映射为领域模型，错误可以定位到文件、字段路径和源码行列，并可通过 CLI 自动验证。GUI 尚未连接 Workspace；完整 Codec 和真实 Transport 仍未完成。
 
 ### 2.3 已经可以使用的能力
 
@@ -111,7 +113,7 @@ Schema 纵向链路也已经打通：YAML 文件可以映射为领域模型，�
 - [x] 查看规范化 HEX、字节偏移、十进制值和 ASCII 预览。
 - [x] 计算 SUM8、XOR8 和 CRC16/MODBUS。
 - [x] 查看空输入、非法字符和不完整字节错误。
-- [x] 通过 CLI 执行 `iotps version`、`iotps inspect` 和 `iotps schema validate <file>`。
+- [x] 通过 CLI 执行 `iotps version`、`iotps inspect`、`iotps schema validate <file>` 和 `iotps project validate <directory>`。
 - [x] 通过真实 WebView2 烟雾测试验证 React 渲染和原生 Core Bridge。
 - [x] 分别构建 Schema、Codec、Transport、Simulator、Testing 静态库目标。
 - [x] 在 Core 中校验最小 Schema 领域对象，并完成 `uint8` 固定布局 Encode/Decode round-trip。
@@ -139,6 +141,9 @@ Schema 纵向链路也已经打通：YAML 文件可以映射为领域模型，�
 - [x] Decode/Encode 固定 Primitive Array，严格校验元素数量、类型和表示范围。
 - [x] 返回 Array 整体 `FieldRange` 和 `message.field[index]` 逐元素范围。
 - [x] 通过固定 Array golden vector 验证字节序、显式 offset、`lengthOf` 自动回填和双向 round-trip。
+- [x] 从普通目录加载 Project Schema v0.1、项目元数据和 `protocols/` 下引用的 Protocol Schema。
+- [x] 校验项目清单版本、必填值、跨平台相对路径、重复引用、目录逃逸和下层 Schema 错误。
+- [x] 通过 Workspace 测试资产和 CLI 验证 `project.yaml` → Protocol Schema 加载链路。
 
 ### 2.4 当前界面中尚未实现的占位功能
 
@@ -147,34 +152,33 @@ Schema 纵向链路也已经打通：YAML 文件可以映射为领域模型，�
 - [ ] Timeline、Problems 标签只是静态占位。
 - [ ] 当前 HEX 表格不是协议字段解析结果，只是逐字节展示。
 - [ ] 当前“解析”不是 Protocol Schema Decode。
-- [ ] 当前没有项目、连接、发送、接收、模拟器或测试执行能力。
+- [ ] 当前 GUI 还不能打开/关闭项目，也没有连接、发送、接收、模拟器或测试执行能力。
 
 ---
 
 ## 3. 接下来应该做什么
 
-### 3.1 当前唯一首要任务：`project.yaml` + 最小项目目录结构
+### 3.1 当前唯一首要任务：打开项目纵向切片
 
-固定长度 Array 已完成：Schema 支持固定宽度 Primitive `elementType` 和固定 `count`；Codec 支持逐元素字节序、Decode/Encode、数组整体/元素范围、边界诊断和 `lengthOf` 组合。动态 Array、Struct 和嵌套容器仍留在后续动态 Schema 阶段。
+Workspace Core 已完成：`project.yaml` 可以声明项目元数据和 `protocols/` 相对路径；Core 可以校验路径边界并加载真实 Protocol Schema；CLI 和自动测试可以复现成功与失败结果。
 
-下一个工作包进入 **M01-F02 项目目录和持久化**，先建立 Workspace 的 Core 基础：
+下一个工作包进入 **M01-F01 项目生命周期**，只打通单项目“打开 → 显示 → 关闭”链路：
 
-- 定义最小 `project.yaml` 版本、项目标识、显示名称和协议文件引用契约。
-- 定义普通文本项目的最小目录结构，第一阶段只创建真正需要的目录。
-- 建立跨平台项目路径模型，不让 Win32 类型进入 Core。
-- 加载并校验 `project.yaml`，返回稳定错误码、路径和源码位置。
-- 为后续“新建项目 / 打开项目”提供无 GUI 的 Core API 和测试资产。
-- 暂不实现最近项目、Explorer 全部文件操作、未保存提示或外部文件监听。
+- Windows Host 使用系统目录选择器选择一个项目目录。
+- Host Bridge 调用现有 Workspace Core，不在 TypeScript 中重复解析 YAML。
+- Web UI 用真实项目名和 Protocol 列表替换静态 Explorer 示例。
+- 显示 Workspace 稳定错误码对应的中英文错误信息。
+- 支持关闭当前项目并恢复未打开状态。
+- 暂不实现最近项目、新建/写回项目、Explorer 写操作或外部文件监听。
 
-Workspace 基础第一阶段的完成标准：
+打开项目第一阶段的完成标准：
 
 ```text
-给定普通目录 + project.yaml
-  → Core 识别并加载项目清单
-  → 校验项目版本、标识和协议文件引用
-  → 创建最小文本目录结构
-  → 非法或缺失文件返回稳定诊断
-  → Windows 路径测试通过且 Core API 保持跨平台
+Windows 选择项目目录
+  → Host Bridge 调用 Workspace Core
+  → Web UI 显示真实项目和 Protocol 节点
+  → 错误以中英文稳定展示
+  → 关闭项目恢复空状态
 ```
 
 ### 3.2 Schema 之后的执行顺序
@@ -185,14 +189,15 @@ Workspace 基础第一阶段的完成标准：
 4. **固定字符串和 bytes**：编码、固定长度、填充、截断和 FieldRange。✅
 5. **Length Field**：单字段引用、Decode 校验、Encode 自动计算和依赖诊断。✅
 6. **固定 Array**：固定宽度 Primitive 元素、固定 count、逐元素范围和 round-trip。✅
-7. **Workspace**：先定义 `project.yaml` 和最小项目目录，再实现创建、打开、保存普通目录项目。
-8. **Protocol Designer**：Schema 源码与可视化字段编辑器双向同步。
-9. **Message Studio**：结构化表单组包、自动 Length/CRC 和报文模板。
-10. **Transport 抽象 + TCP Client**：建立第一条真实收发链路。
-11. **Debugger + Timeline**：统一展示 TX/RX、Raw HEX 和解析字段。
-12. **Serial / TCP Server / UDP**：补齐 MVP Transport。
-13. **动态 Schema 结构**：Count/Length 驱动 Array、Struct、Enum、BitField、Condition 和 Checksum Range。
-14. **Basic Simulator + Basic Test Case**：完成无设备开发和自动验证。
+7. **Workspace Core**：定义 `project.yaml`、最小项目目录和加载/校验。✅
+8. **打开项目**：Windows 目录选择、Host Bridge、真实 Explorer 和关闭项目。
+9. **Protocol Designer**：Schema 源码与可视化字段编辑器双向同步。
+10. **Message Studio**：结构化表单组包、自动 Length/CRC 和报文模板。
+11. **Transport 抽象 + TCP Client**：建立第一条真实收发链路。
+12. **Debugger + Timeline**：统一展示 TX/RX、Raw HEX 和解析字段。
+13. **Serial / TCP Server / UDP**：补齐 MVP Transport。
+14. **动态 Schema 结构**：Count/Length 驱动 Array、Struct、Enum、BitField、Condition 和 Checksum Range。
+15. **Basic Simulator + Basic Test Case**：完成无设备开发和自动验证。
 
 ---
 
@@ -201,7 +206,7 @@ Workspace 基础第一阶段的完成标准：
 | 模块 | 当前状态 | 阶段 | 当前说明 |
 |---|---|---|---|
 | M00 工程与平台基础 | 🟡 部分完成 | M0 | 模块分层、格式化、统一 Result/Error 和 Windows 基线可运行；静态分析、安装发布和其他平台未完成 |
-| M01 Workspace 工作空间 | 🚧 下一步 | MVP | 只有静态 Explorer UI；下一步定义 `project.yaml` 和最小普通文本项目目录结构 |
+| M01 Workspace 工作空间 | 🟡 部分完成 | MVP | Project Schema v0.1、Workspace Core、协议加载和 CLI 校验已完成；下一步打通 Windows GUI 打开/关闭项目 |
 | M02 Protocol Designer / Schema | 🟡 部分完成 | MVP | Protocol Schema v0.1 YAML、固定 Primitive/string/bytes/Array、Field `length`/`offset` 和最小 `lengthOf` 已完成；可视化设计器与动态结构未实现 |
 | M03 Codec 编解码 | 🟡 部分完成 | MVP | 固定 Primitive/string/bytes/Array、最小 Length Field、非连续布局、padding、字节序和 round-trip 已完成；动态 Array、Struct/Condition 和 Checksum 尚未实现 |
 | M04 HEX Studio | 🟡 部分完成 | MVP | 已完成基础 HEX 检查和三种校验计算 |
@@ -218,7 +223,7 @@ Workspace 基础第一阶段的完成标准：
 | M15 Code Generator | 🔒 后续阶段 | P3 | 尚未开始 |
 | M16 Plugin System | 🔒 后续阶段 | P3 | 尚未开始 |
 | M17 系统与通用体验 | 🟡 部分完成 | M0/MVP | 中英双语、窗口和基础错误展示已完成 |
-| M18 CLI / Automation / CI | 🟡 部分完成 | M0/P3 | 已有 `version`、原始 HEX `inspect` 和 Schema 文件校验；JSON/stdin/批量能力未完成 |
+| M18 CLI / Automation / CI | 🟡 部分完成 | M0/P3 | 已有 `version`、原始 HEX `inspect`、Schema 文件和项目目录校验；JSON/stdin/批量能力未完成 |
 | M19 AI Protocol Assistant | 🔒 远期能力 | Later | 尚未开始，且只作为辅助能力 |
 
 ---
@@ -304,7 +309,7 @@ Workspace 基础第一阶段的完成标准：
 ### M01-F01 项目生命周期
 
 - [ ] 新建项目。
-- [ ] 打开项目。
+- [ ] 🚧 打开项目。
 - [ ] 关闭项目。
 - [ ] 最近项目列表。
 - [ ] 项目复制。
@@ -316,8 +321,8 @@ Workspace 基础第一阶段的完成标准：
 
 ### M01-F02 项目目录和持久化
 
-- [ ] 🚧 定义 `project.yaml`，并建立最小普通文本项目目录结构。
-- [ ] 创建 `protocols/` 目录。
+- [x] 定义 `project.yaml`，并建立最小普通文本项目目录结构。
+- [ ] 🟡 当前最小项目结构使用 `protocols/`；项目创建/写回 API 尚未实现。
 - [ ] 创建 `messages/` 目录。
 - [ ] 创建 `connections/` 目录。
 - [ ] 创建 `environments/` 目录。
@@ -326,10 +331,10 @@ Workspace 基础第一阶段的完成标准：
 - [ ] 创建 `scripts/` 目录。
 - [ ] 创建 `captures/` 目录。
 - [ ] 创建项目内 `docs/` 目录。
-- [ ] 使用普通文本文件保存全部项目数据。
+- [x] 当前 Project 和 Protocol 数据使用普通文本文件保存。
 - [ ] 支持外部编辑器修改后的文件刷新。
 - [ ] 支持未保存修改提示。
-- [ ] 支持项目文件 Git 管理，不生成不必要的二进制状态文件。
+- [x] 当前 Project 和 Protocol 文件可直接由 Git 管理，不生成二进制状态文件。
 
 ### M01-F03 Explorer
 
@@ -1521,13 +1526,23 @@ CI/CD
 - 新增固定 Array golden vector，覆盖整数/浮点数组、显式 offset、逐元素字节序、`lengthOf` 声明校验/自动回填和双向 round-trip。
 - 边界测试覆盖缺失/非法元素类型、缺失/零 count、长度溢出、非法 `length`、绕过 Schema 的非法布局、非法 bool、输入截断和元素数量不一致；下一步进入 Workspace `project.yaml`。
 
+### 2026-08-28：Project Workspace v0.1
+
+- 本地提交：见包含本记录的 `feat: load project workspaces` 提交。
+- 新增独立 `iotps::workspace` CMake 模块、Project Schema v0.1 领域模型和 `load_project()` 公共 API。
+- `project.yaml` 支持项目标识、可选显示信息和 `protocols/` 相对路径列表；项目和协议文件保持 UTF-8 普通文本，可直接纳入 Git。
+- 跨平台路径校验覆盖 `/` 分隔符、绝对路径、目录逃逸、符号链接逃逸和规范化后的重复引用。
+- Workspace 加载引用的 Protocol Schema v0.1，并将文件、Schema 错误码和源码位置保留在稳定 Workspace 诊断中。
+- 新增最小项目测试资产、Workspace 单元测试和 `iotps project validate <directory>`；下一步打通 Windows GUI 打开、显示和关闭项目。
+- Windows x86_64 Debug/Release 全量构建成功，两种配置均为 19/19 CTest 通过，包含 CLI 项目校验和真实 WebView2 UI 烟雾测试。
+
 ---
 
 ## 9. 下一次更新入口
 
 下次开始开发时，直接从以下功能点继续：
 
-> **M01-F02：定义 `project.yaml`，建立最小普通文本项目目录结构和跨平台 Workspace Core 加载/校验基础**
+> **M01-F01：打通 Windows 目录选择 → Host Bridge → Workspace Core → Web UI 真实项目树的“打开项目”纵向切片，并支持关闭项目**
 
 完成一个功能点后：
 

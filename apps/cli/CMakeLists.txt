@@ -15,4 +15,8 @@ if(BUILD_TESTING)
     COMMAND iotps_cli schema validate
             "${PROJECT_SOURCE_DIR}/test/vectors/invalid-schema.yaml")
   set_tests_properties(iotps_cli_schema_reject_test PROPERTIES WILL_FAIL TRUE)
+  add_test(
+    NAME iotps_cli_project_validate_test
+    COMMAND iotps_cli project validate
+            "${PROJECT_SOURCE_DIR}/test/vectors/project/smart-sensor")
 endif()

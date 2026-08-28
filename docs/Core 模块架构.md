@@ -5,14 +5,15 @@
 > 适用范围：Portable C++ Core  
 > 状态：模块边界和最小公共 API 已建立，完整 MVP 能力仍在开发中
 
-相关文档：[功能清单与开发进度](<./IoT Protocol Studio 功能清单与开发进度.md>) · [固定长度 String 与 Bytes](<./固定长度 String 与 Bytes.md>) · [Length Field](<./Length Field.md>) · [固定长度 Array](<./固定长度 Array.md>) · [开发环境与构建](./开发环境与构建.md)
+相关文档：[功能清单与开发进度](<./IoT Protocol Studio 功能清单与开发进度.md>) · [Project Workspace v0.1](<./Project Workspace v0.1.md>) · [固定长度 String 与 Bytes](<./固定长度 String 与 Bytes.md>) · [Length Field](<./Length Field.md>) · [固定长度 Array](<./固定长度 Array.md>) · [开发环境与构建](./开发环境与构建.md)
 
 ## 1. 目标
 
-Core 采用一个跨平台源码树，不按 CPU 或操作系统复制目录。当前建立五个业务模块：
+Core 采用一个跨平台源码树，不按 CPU 或操作系统复制目录。当前建立五个协议业务模块和一个 Workspace 模块：
 
 ```text
 Schema
+Workspace
 Codec
 Transport API
 Simulator
@@ -27,6 +28,7 @@ Testing
 flowchart LR
     Common["Common<br/>ByteBuffer 等基础类型"]
     Schema["Schema<br/>协议领域模型与校验"]
+    Workspace["Workspace<br/>项目清单与协议文件加载"]
     Codec["Codec<br/>结构化消息 ↔ ByteBuffer"]
     Transport["Transport API<br/>字节收发、状态、事件、统计"]
     Simulator["Simulator<br/>设备生命周期与消息发送"]
@@ -34,6 +36,7 @@ flowchart LR
     Facade["Core Facade<br/>现有应用兼容入口"]
 
     Common --> Schema
+    Schema --> Workspace
     Common --> Transport
     Schema --> Codec
     Common --> Codec
@@ -41,6 +44,7 @@ flowchart LR
     Transport --> Simulator
     Codec --> Testing
     Schema --> Facade
+    Workspace --> Facade
     Codec --> Facade
     Transport --> Facade
     Simulator --> Facade
@@ -50,11 +54,12 @@ flowchart LR
 关键约束：
 
 1. Schema 不依赖 Codec、Transport、Simulator 或 Testing。
-2. Codec 可以读取 Schema，但不负责连接、窗口或文件选择。
-3. Transport 只处理字节和连接事件，不引用 Protocol、Message 或 Field。
-4. Simulator 组合 Codec 与 Transport，不实现具体串口或 Socket。
-5. Testing 当前复用 Codec 值类型；完整 Test Runner 后续才连接 Transport 执行步骤。
-6. `iotps::core` 是给现有 CLI 和桌面 Host 使用的聚合 Facade，不允许反向成为各模块的依赖。
+2. Workspace 依赖 Schema 加载项目引用的协议文件，只使用标准文件系统类型，不负责窗口或文件选择。
+3. Codec 可以读取 Schema，但不负责连接、窗口或文件选择。
+4. Transport 只处理字节和连接事件，不引用 Protocol、Message 或 Field。
+5. Simulator 组合 Codec 与 Transport，不实现具体串口或 Socket。
+6. Testing 当前复用 Codec 值类型；完整 Test Runner 后续才连接 Transport 执行步骤。
+7. `iotps::core` 是给现有 CLI 和桌面 Host 使用的聚合 Facade，不允许反向成为各模块的依赖。
 
 ## 3. 目录结构
 
@@ -64,12 +69,14 @@ core/
 │   ├── types.hpp
 │   ├── result.hpp
 │   ├── schema/schema.hpp
+│   ├── workspace/workspace.hpp
 │   ├── codec/codec.hpp
 │   ├── transport/transport.hpp
 │   ├── simulator/simulator.hpp
 │   └── testing/testing.hpp
 ├── src/
 │   ├── schema/schema.cpp
+│   ├── workspace/workspace.cpp
 │   ├── codec/codec.cpp
 │   ├── transport/transport.cpp
 │   ├── simulator/simulator.cpp
@@ -85,6 +92,7 @@ core/
 |---|---|---|---|
 | `iotps_core_common` | `iotps::common` | 无 | `ByteBuffer`、`Result`、`Status`、`Error` 等跨模块基础类型 |
 | `iotps_schema` | `iotps::schema` | Common、Rapid YAML（私有） | Schema 领域模型、YAML/文件加载、版本和校验 |
+| `iotps_workspace` | `iotps::workspace` | Schema、Rapid YAML（私有） | `project.yaml`、跨平台路径校验和项目协议加载 |
 | `iotps_codec` | `iotps::codec` | Common、Schema | HEX/Checksum、Codec API、最小固定布局编解码 |
 | `iotps_transport` | `iotps::transport` | Common | Transport 生命周期、事件、错误和统计 API |
 | `iotps_simulator` | `iotps::simulator` | Codec、Transport | 单设备生命周期和编码后发送链路 |
@@ -121,7 +129,21 @@ core/
 - Schema 文件自动迁移和无损写回。
 - 完整 Field 属性和动态结构校验。
 
-### 5.2 Codec
+### 5.2 Workspace
+
+公共入口：`iotps/core/workspace/workspace.hpp`
+
+当前已经提供：
+
+- Project Schema 版本 `0.1` 和项目元数据模型。
+- `project.yaml` 文件加载及 YAML 文件、路径、偏移和行列诊断。
+- 使用 `/` 的跨平台协议相对路径、规范化、重复和目录逃逸校验。
+- 加载 `protocols/` 下引用的 Protocol Schema，并保留下层 Schema 诊断。
+- `iotps project validate <directory>` CLI 验证入口。
+
+当前没有提供：项目写回、目录选择器、最近项目、外部文件监听、未保存修改或 Explorer 文件操作。完整契约见 [Project Workspace v0.1](<./Project Workspace v0.1.md>)。
+
+### 5.3 Codec
 
 公共入口：`iotps/core/codec/codec.hpp`
 
@@ -146,7 +168,7 @@ Encode 对名称不匹配、缺失/重复/额外字段、ScalarValue 类型不�
 
 尚未实现的部分包括：动态长度 string/bytes、连续 Length Range、动态 Array、BCD、timestamp、Enum、BitField、Struct、Condition 和 Checksum。
 
-### 5.3 Transport API
+### 5.4 Transport API
 
 公共入口：`iotps/core/transport/transport.hpp`
 
@@ -160,7 +182,7 @@ Transport 与 Schema/Codec 完全解耦，统一暴露：
 
 接收数据通过事件推送，避免要求所有 Transport 使用同一种阻塞读取方式。当前尚无 Serial、TCP、UDP 或可复用 Loopback 实现，也没有取消对象和连接配置序列化。
 
-### 5.4 Simulator
+### 5.5 Simulator
 
 公共入口：`iotps/core/simulator/simulator.hpp`
 
@@ -174,7 +196,7 @@ Transport 与 Schema/Codec 完全解耦，统一暴露：
 
 当前尚无配置文件、定时任务、WAIT、IF/ELSE、多设备和 GUI。
 
-### 5.5 Testing
+### 5.6 Testing
 
 公共入口：`iotps/core/testing/testing.hpp`
 
@@ -215,6 +237,7 @@ detail  非本地化技术细节或下层原因码
 
 ```text
 schema::SchemaErrorCode
+workspace::WorkspaceErrorCode
 codec::CodecErrorCode
 transport::TransportErrorCode
 simulator::SimulatorErrorCode
@@ -231,6 +254,7 @@ simulator::SimulatorErrorCode
 | `iotps_result_unit_test` | Common | 成功值、错误值、指针访问和 `Status` |
 | `iotps_schema_unit_test` | Schema | 合法 Schema、重复名称、字段路径和错误码 |
 | `iotps_schema_loader_unit_test` | Schema | YAML/文件加载、节点类型、枚举、领域校验和源码位置 |
+| `iotps_workspace_unit_test` | Workspace、Schema | `project.yaml`、跨平台路径、协议文件加载和稳定诊断 |
 | `iotps_codec_unit_test` | Codec | 固定 Primitive/string/bytes/Array Encode/Decode、字节序、布局、padding、范围和错误诊断 |
 | `iotps_primitive_decode_integration_test` | Codec、Schema | Schema YAML → 非连续 HEX → 多类型 Decode → expected golden vector |
 | `iotps_primitive_encode_integration_test` | Codec、Schema | Schema YAML → Decode → 固定布局 Encode → golden HEX → Decode round-trip |
@@ -244,13 +268,13 @@ Simulator 集成测试只替换 Transport，因为 Transport 是操作系统和�
 
 ## 8. 下一步
 
-固定长度 Primitive、UTF-8 string、bytes、Field `length`/`offset`、非连续布局、最小 Length Field 和固定 Primitive Array round-trip 已完成。当前产品主线进入 Workspace 基础纵向切片：
+固定长度 Primitive、UTF-8 string、bytes、Field `length`/`offset`、非连续布局、最小 Length Field、固定 Primitive Array round-trip 和 Workspace Core 加载已经完成。当前产品主线进入项目打开纵向切片：
 
 ```text
-project.yaml 最小契约
-  → 普通文本项目目录结构
-  → Core 加载和校验
-  → 新建/打开项目的稳定 API 基础
+Windows 选择项目目录
+  → Host Bridge 调用 Workspace Core
+  → Web UI 显示真实项目和协议树
+  → 关闭项目
 ```
 
-下一入口只建立 `project.yaml` 和最小项目目录结构，不同时实现最近项目、Explorer 全部操作、真实 TCP/Serial、Simulator 行为 DSL 或完整 Test Runner。Count/Length 驱动 Array 与 Struct/Condition 保留在后续动态 Schema 阶段。
+下一入口只打通一个项目的打开、显示和关闭，不同时实现最近项目、Explorer 写操作、真实 TCP/Serial、Simulator 行为 DSL 或完整 Test Runner。Count/Length 驱动 Array 与 Struct/Condition 保留在后续动态 Schema 阶段。

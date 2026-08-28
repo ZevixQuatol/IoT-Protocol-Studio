@@ -1,6 +1,7 @@
 #include "iotps/core/engine.hpp"
 #include "iotps/core/schema/loader.hpp"
 #include "iotps/core/version.hpp"
+#include "iotps/core/workspace/workspace.hpp"
 
 #include <iomanip>
 #include <iostream>
@@ -14,7 +15,8 @@ void print_usage() {
     std::cout << "Usage:\n"
                  "  iotps version\n"
                  "  iotps inspect <hex bytes>\n"
-                 "  iotps schema validate <file>\n";
+                 "  iotps schema validate <file>\n"
+                 "  iotps project validate <directory>\n";
 }
 
 std::string join_arguments(const int argc, char* argv[], const int first) {
@@ -35,6 +37,15 @@ void print_byte(const std::uint8_t value) {
 
 void print_schema_error(const iotps::core::schema::SchemaDiagnostic& error) {
     std::cerr << "error[" << iotps::core::schema::to_string(error.code) << "] " << error.path;
+    if (error.source_location.has_value()) {
+        const auto& location = *error.source_location;
+        std::cerr << " at " << location.source << ':' << location.line << ':' << location.column;
+    }
+    std::cerr << ": " << error.detail << '\n';
+}
+
+void print_workspace_error(const iotps::core::workspace::WorkspaceDiagnostic& error) {
+    std::cerr << "error[" << iotps::core::workspace::to_string(error.code) << "] " << error.path;
     if (error.source_location.has_value()) {
         const auto& location = *error.source_location;
         std::cerr << " at " << location.source << ':' << location.line << ':' << location.column;
@@ -99,6 +110,24 @@ int main(const int argc, char* argv[]) {
         std::cout << "Schema valid: " << schema.protocol.name << ' ' << schema.protocol.version
                   << '\n';
         std::cout << "Messages: " << schema.messages.size() << '\n';
+        return 0;
+    }
+
+    if (command == "project") {
+        if (argc != 4 || std::string_view{argv[2]} != "validate") {
+            std::cerr << "project requires: validate <directory>\n";
+            return 2;
+        }
+
+        const auto result = iotps::core::workspace::load_project(argv[3]);
+        if (const auto* error = result.error_if()) {
+            print_workspace_error(*error);
+            return 1;
+        }
+
+        const auto& project = result.value();
+        std::cout << "Project valid: " << project.manifest.metadata.name << '\n';
+        std::cout << "Protocols: " << project.protocols.size() << '\n';
         return 0;
     }
 

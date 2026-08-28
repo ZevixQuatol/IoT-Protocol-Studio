@@ -1,0 +1,12 @@
+schemaVersion: "0.1"
+protocol:
+  name: smart-sensor
+  displayName: Smart Sensor
+  version: "1.0"
+  defaultByteOrder: little
+messages:
+  telemetry:
+    typeId: 1
+    fields:
+      - name: temperature
+        type: int16

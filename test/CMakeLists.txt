@@ -11,6 +11,7 @@ iotps_add_test(iotps_checksum_unit_test unit/checksum_test.cpp iotps::codec)
 iotps_add_test(iotps_result_unit_test unit/result_test.cpp iotps::common)
 iotps_add_test(iotps_schema_unit_test unit/schema_test.cpp iotps::schema)
 iotps_add_test(iotps_schema_loader_unit_test unit/schema_loader_test.cpp iotps::schema)
+iotps_add_test(iotps_workspace_unit_test unit/workspace_test.cpp iotps::workspace)
 iotps_add_test(iotps_codec_unit_test unit/codec_test.cpp iotps::codec)
 iotps_add_test(
   iotps_primitive_decode_integration_test
@@ -44,6 +45,9 @@ target_compile_definitions(
   PRIVATE IOTPS_TEST_VECTOR_DIR="${CMAKE_CURRENT_SOURCE_DIR}/vectors")
 target_compile_definitions(
   iotps_schema_loader_unit_test
+  PRIVATE IOTPS_TEST_VECTOR_DIR="${CMAKE_CURRENT_SOURCE_DIR}/vectors")
+target_compile_definitions(
+  iotps_workspace_unit_test
   PRIVATE IOTPS_TEST_VECTOR_DIR="${CMAKE_CURRENT_SOURCE_DIR}/vectors")
 target_compile_definitions(
   iotps_primitive_decode_integration_test

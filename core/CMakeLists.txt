@@ -39,6 +39,11 @@ add_library(iotps::schema ALIAS iotps_schema)
 iotps_configure_core_target(iotps_schema)
 target_link_libraries(iotps_schema PUBLIC iotps::common PRIVATE ryml::ryml)
 
+add_library(iotps_workspace STATIC src/workspace/workspace.cpp)
+add_library(iotps::workspace ALIAS iotps_workspace)
+iotps_configure_core_target(iotps_workspace)
+target_link_libraries(iotps_workspace PUBLIC iotps::schema PRIVATE ryml::ryml)
+
 add_library(
   iotps_codec STATIC
   src/checksum.cpp
@@ -71,6 +76,7 @@ target_link_libraries(
   PUBLIC
     iotps::common
     iotps::schema
+    iotps::workspace
     iotps::codec
     iotps::transport
     iotps::simulator
