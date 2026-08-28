@@ -5,7 +5,7 @@
 > 适用范围：Portable C++ Core  
 > 状态：模块边界和最小公共 API 已建立，完整 MVP 能力仍在开发中
 
-相关文档：[功能清单与开发进度](<./IoT Protocol Studio 功能清单与开发进度.md>) · [Project Workspace v0.1](<./Project Workspace v0.1.md>) · [固定长度 String 与 Bytes](<./固定长度 String 与 Bytes.md>) · [Length Field](<./Length Field.md>) · [固定长度 Array](<./固定长度 Array.md>) · [开发环境与构建](./开发环境与构建.md)
+相关文档：[功能清单与开发进度](<./IoT Protocol Studio 功能清单与开发进度.md>) · [Project Workspace v0.1](<./Project Workspace v0.1.md>) · [协议解析核心](<./协议解析核心.md>) · [固定长度 String 与 Bytes](<./固定长度 String 与 Bytes.md>) · [Length Field](<./Length Field.md>) · [固定长度 Array](<./固定长度 Array.md>) · [开发环境与构建](./开发环境与构建.md)
 
 ## 1. 目标
 
@@ -166,6 +166,8 @@ MessageDefinition + StructuredMessage / ByteBuffer
 
 Encode 对名称不匹配、缺失/重复/额外字段、ScalarValue 类型不匹配、数组数量不一致、数值或长度越界、非法 UTF-8 和非法布局返回稳定路径、偏移和原因；Decode 对非法 bool、输入不足、非法 UTF-8/NUL padding、Length 声明不一致、非法数组布局和尾随数据提供同类诊断。详细契约见 [Primitive Encode](<./Primitive Encode.md>)、[Primitive Decode](<./Primitive Decode.md>)、[固定 Field 布局](<./固定 Field 布局.md>)、[固定长度 String 与 Bytes](<./固定长度 String 与 Bytes.md>)、[Length Field](<./Length Field.md>) 和 [固定长度 Array](<./固定长度 Array.md>)。
 
+协议级入口 `decode_protocol_message()`、`decode_protocol_hex()`、`encode_protocol_message()` 和 `encode_protocol_hex()` 负责按 Message 名称查找 Schema、转换 HEX、应用 Protocol 默认字节序并调用 `FixedLayoutCodec`。稳定的 `ProtocolCodecErrorCode` 区分 Message 不存在、HEX 解析失败、Decode 失败和 Encode 失败；下层错误码、路径和偏移继续保留。详细契约见 [协议解析核心](<./协议解析核心.md>)。
+
 尚未实现的部分包括：动态长度 string/bytes、连续 Length Range、动态 Array、BCD、timestamp、Enum、BitField、Struct、Condition 和 Checksum。
 
 ### 5.4 Transport API
@@ -261,6 +263,7 @@ simulator::SimulatorErrorCode
 | `iotps_fixed_text_integration_test` | Codec、Schema | Schema YAML → UTF-8 string/bytes Decode → expected → Encode round-trip |
 | `iotps_length_field_integration_test` | Codec、Schema | Schema YAML → Length Decode 校验 → 自动 Encode → golden round-trip |
 | `iotps_fixed_array_integration_test` | Codec、Schema | Schema YAML → 固定 Array Decode/Encode → 元素范围 → Length 组合 → golden round-trip |
+| `iotps_protocol_codec_integration_test` | Codec、Schema | Protocol Schema + Message 名称 + HEX/ByteBuffer → Decode/Encode → golden round-trip 和错误映射 |
 | `iotps_simulator_integration_test` | Simulator | Codec → Simulator → Transport 发送链路和生命周期 |
 | `iotps_testing_unit_test` | Testing | 断言求值和测试报告汇总 |
 
@@ -268,13 +271,14 @@ Simulator 集成测试只替换 Transport，因为 Transport 是操作系统和�
 
 ## 8. 下一步
 
-固定长度 Primitive、UTF-8 string、bytes、Field `length`/`offset`、非连续布局、最小 Length Field、固定 Primitive Array round-trip 和 Workspace Core 加载已经完成。当前产品主线进入项目打开纵向切片：
+固定布局 Codec、协议级 HEX/Binary 解析入口和 Workspace Core 加载已经完成。按当前产品顺序，下一入口进入 Schema 资源、文件夹嵌套和协议创建：
 
 ```text
-Windows 选择项目目录
-  → Host Bridge 调用 Workspace Core
-  → Web UI 显示真实项目和协议树
-  → 关闭项目
+项目内协议资源目录
+  → 嵌套文件夹
+  → 创建 Protocol Schema 文件
+  → 写回 project.yaml 引用
+  → 重新加载并校验 Workspace
 ```
 
-下一入口只打通一个项目的打开、显示和关闭，不同时实现最近项目、Explorer 写操作、真实 TCP/Serial、Simulator 行为 DSL 或完整 Test Runner。Count/Length 驱动 Array 与 Struct/Condition 保留在后续动态 Schema 阶段。
+下一入口只建立 Core 文件操作和校验边界，不同时实现完整可视化 Protocol Designer、真实 TCP/Serial、Simulator 行为 DSL 或完整 Test Runner。自动 Message 匹配需要先定义 wire 匹配规则；Count/Length 驱动 Array 与 Struct/Condition 保留在后续动态 Schema 阶段。

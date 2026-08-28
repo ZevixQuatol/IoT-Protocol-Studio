@@ -1,5 +1,7 @@
 #include "iotps/core/codec/codec.hpp"
 
+#include "iotps/core/hex.hpp"
+
 #include <algorithm>
 #include <bit>
 #include <cmath>
@@ -26,6 +28,35 @@ CodecError make_error(const CodecErrorCode code, std::string path, const std::si
         .path = std::move(path),
         .offset = offset,
         .detail = std::move(detail),
+    };
+}
+
+ProtocolCodecError make_protocol_error(const ProtocolCodecErrorCode code, std::string path,
+                                       std::optional<std::size_t> offset, std::string detail) {
+    return {
+        .code = code,
+        .path = std::move(path),
+        .offset = offset,
+        .detail = std::move(detail),
+    };
+}
+
+const schema::MessageDefinition* find_message(const schema::ProtocolSchema& protocol,
+                                              const std::string_view message_name) {
+    const auto message =
+        std::ranges::find_if(protocol.messages, [message_name](const auto& candidate) {
+            return candidate.name == message_name;
+        });
+    return message == protocol.messages.end() ? nullptr : &*message;
+}
+
+ProtocolCodecError wrap_codec_error(const ProtocolCodecErrorCode code, const CodecError& error) {
+    return {
+        .code = code,
+        .path = error.path,
+        .offset = error.offset,
+        .detail = "codec error[" + std::string{to_string(error.code)} + "]: " + error.detail,
+        .source_location = error.source_location,
     };
 }
 
@@ -731,6 +762,62 @@ DecodeResult FixedLayoutCodec::decode(const schema::MessageDefinition& definitio
     return decoded;
 }
 
+ProtocolDecodeResult decode_protocol_message(const schema::ProtocolSchema& protocol,
+                                             const std::string_view message_name,
+                                             const std::span<const std::uint8_t> bytes) {
+    const auto* definition = find_message(protocol, message_name);
+    if (definition == nullptr) {
+        return make_protocol_error(
+            ProtocolCodecErrorCode::message_not_found, "messages." + std::string{message_name},
+            std::nullopt, "message is not defined by protocol '" + protocol.protocol.name + "'");
+    }
+
+    const FixedLayoutCodec codec;
+    auto decoded = codec.decode(*definition, bytes, protocol.protocol.default_byte_order);
+    if (const auto* error = decoded.error_if()) {
+        return wrap_codec_error(ProtocolCodecErrorCode::decode_failed, *error);
+    }
+    return std::move(decoded).value();
+}
+
+ProtocolDecodeResult decode_protocol_hex(const schema::ProtocolSchema& protocol,
+                                         const std::string_view message_name,
+                                         const std::string_view hex) {
+    auto bytes = parse_hex(hex);
+    if (const auto* error = bytes.error_if()) {
+        return make_protocol_error(ProtocolCodecErrorCode::hex_parse_failed, "$hex", error->offset,
+                                   "hex error[" + std::string{iotps::core::to_string(error->code)} +
+                                       "]: " + error->detail);
+    }
+    return decode_protocol_message(protocol, message_name, bytes.value());
+}
+
+ProtocolEncodeResult encode_protocol_message(const schema::ProtocolSchema& protocol,
+                                             const StructuredMessage& message) {
+    const auto* definition = find_message(protocol, message.message_name);
+    if (definition == nullptr) {
+        return make_protocol_error(
+            ProtocolCodecErrorCode::message_not_found, "messages." + message.message_name,
+            std::nullopt, "message is not defined by protocol '" + protocol.protocol.name + "'");
+    }
+
+    const FixedLayoutCodec codec;
+    auto encoded = codec.encode(*definition, message, protocol.protocol.default_byte_order);
+    if (const auto* error = encoded.error_if()) {
+        return wrap_codec_error(ProtocolCodecErrorCode::encode_failed, *error);
+    }
+    return std::move(encoded).value();
+}
+
+ProtocolHexEncodeResult encode_protocol_hex(const schema::ProtocolSchema& protocol,
+                                            const StructuredMessage& message) {
+    auto encoded = encode_protocol_message(protocol, message);
+    if (const auto* error = encoded.error_if()) {
+        return *error;
+    }
+    return format_hex(encoded.value());
+}
+
 std::string_view to_string(const CodecErrorCode code) noexcept {
     switch (code) {
     case CodecErrorCode::message_name_mismatch:
@@ -763,6 +850,20 @@ std::string_view to_string(const CodecErrorCode code) noexcept {
         return "length_value_out_of_range";
     case CodecErrorCode::array_count_mismatch:
         return "array_count_mismatch";
+    }
+    return "unknown";
+}
+
+std::string_view to_string(const ProtocolCodecErrorCode code) noexcept {
+    switch (code) {
+    case ProtocolCodecErrorCode::message_not_found:
+        return "message_not_found";
+    case ProtocolCodecErrorCode::hex_parse_failed:
+        return "hex_parse_failed";
+    case ProtocolCodecErrorCode::decode_failed:
+        return "decode_failed";
+    case ProtocolCodecErrorCode::encode_failed:
+        return "encode_failed";
     }
     return "unknown";
 }

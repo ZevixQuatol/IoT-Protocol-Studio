@@ -7,7 +7,7 @@
 > 当前目标平台：Windows x86_64  
 > 用途：项目唯一功能树、进度看板和下一步开发入口
 
-相关文档：[功能设计基线](<./IoT Protocol Studio 功能设计文档.md>) · [Project Workspace v0.1](<./Project Workspace v0.1.md>) · [Protocol Schema v0.1](<./Protocol Schema v0.1.md>) · [固定 Field 布局](<./固定 Field 布局.md>) · [固定长度 String 与 Bytes](<./固定长度 String 与 Bytes.md>) · [Length Field](<./Length Field.md>) · [固定长度 Array](<./固定长度 Array.md>) · [Primitive Decode](<./Primitive Decode.md>) · [Primitive Encode](<./Primitive Encode.md>) · [Core 模块架构](<./Core 模块架构.md>) · [开发环境与构建](./开发环境与构建.md)
+相关文档：[功能设计基线](<./IoT Protocol Studio 功能设计文档.md>) · [Project Workspace v0.1](<./Project Workspace v0.1.md>) · [Protocol Schema v0.1](<./Protocol Schema v0.1.md>) · [协议解析核心](<./协议解析核心.md>) · [固定 Field 布局](<./固定 Field 布局.md>) · [固定长度 String 与 Bytes](<./固定长度 String 与 Bytes.md>) · [Length Field](<./Length Field.md>) · [固定长度 Array](<./固定长度 Array.md>) · [Primitive Decode](<./Primitive Decode.md>) · [Primitive Encode](<./Primitive Encode.md>) · [Core 模块架构](<./Core 模块架构.md>) · [开发环境与构建](./开发环境与构建.md)
 
 ---
 
@@ -59,8 +59,8 @@ flowchart LR
     G --> H["✅ 最小 Length Field"]
     H --> I["✅ 固定长度 Array"]
     I --> J["✅ project.yaml + Workspace Core"]
-    J --> K["🚧 下一步：Windows 打开项目 + 真实项目树"]
-    K --> L["⬜ Protocol Designer"]
+    J --> K["✅ HEX/Binary 协议解析核心"]
+    K --> L["🚧 下一步：Schema 资源 + 文件夹嵌套 + 协议创建"]
     L --> M["⬜ Message Studio + 真实 Transport + Debugger"]
     M --> N["⬜ 完整 Simulator + Test Runner"]
     N --> O["⬜ MVP 验收"]
@@ -95,7 +95,9 @@ Protocol Schema
 Core 内部已经新增一条不依赖 GUI 的最小架构链路：
 
 ```text
-Schema 领域模型
+ProtocolSchema + Message 名称 + HEX / ByteBuffer
+  → 协议级 Decode / Encode 入口
+  → Schema 领域模型
   → 固定长度 Primitive / UTF-8 string / bytes / Array Encode / Decode
   → Length Field Decode 校验 / Encode 自动回填
   → Workspace project.yaml / Protocol Schema 加载
@@ -103,7 +105,7 @@ Schema 领域模型
   → Transport API 测试边界
 ```
 
-Schema 和 Workspace 纵向链路已经打通：Protocol YAML 和项目目录可以映射为领域模型，错误可以定位到文件、字段路径和源码行列，并可通过 CLI 自动验证。GUI 尚未连接 Workspace；完整 Codec 和真实 Transport 仍未完成。
+Schema、固定布局协议解析和 Workspace 纵向链路已经打通：Protocol YAML 和项目目录可以映射为领域模型，Core 可以按明确的 Message 名称解析 HEX/Binary 或反向编码，并保留文件、字段路径、字节偏移和源码位置诊断。自动 Message 匹配、GUI Workspace 和真实 Transport 仍未完成。
 
 ### 2.3 已经可以使用的能力
 
@@ -144,6 +146,8 @@ Schema 和 Workspace 纵向链路已经打通：Protocol YAML 和项目目录可
 - [x] 从普通目录加载 Project Schema v0.1、项目元数据和 `protocols/` 下引用的 Protocol Schema。
 - [x] 校验项目清单版本、必填值、跨平台相对路径、重复引用、目录逃逸和下层 Schema 错误。
 - [x] 通过 Workspace 测试资产和 CLI 验证 `project.yaml` → Protocol Schema 加载链路。
+- [x] 通过统一 Core API 按 Message 名称完成 Protocol Schema + HEX/Binary Decode，并反向生成 ByteBuffer 和规范化 HEX。
+- [x] 将 Message 不存在、HEX 解析失败和下层 Codec 失败映射为稳定协议级错误，同时保留下层错误码、路径和偏移。
 
 ### 2.4 当前界面中尚未实现的占位功能
 
@@ -158,27 +162,26 @@ Schema 和 Workspace 纵向链路已经打通：Protocol YAML 和项目目录可
 
 ## 3. 接下来应该做什么
 
-### 3.1 当前唯一首要任务：打开项目纵向切片
+### 3.1 当前唯一首要任务：Schema 资源、文件夹嵌套和协议创建
 
-Workspace Core 已完成：`project.yaml` 可以声明项目元数据和 `protocols/` 相对路径；Core 可以校验路径边界并加载真实 Protocol Schema；CLI 和自动测试可以复现成功与失败结果。
+协议解析 Core 已完成统一 HEX/Binary Decode/Encode 入口。下一步在现有 Workspace Core 上建立最小资源写入能力：
 
-下一个工作包进入 **M01-F01 项目生命周期**，只打通单项目“打开 → 显示 → 关闭”链路：
+- 定义项目内 Schema 资源节点和嵌套文件夹规则。
+- 在 `protocols/` 下安全创建文件夹和 Protocol Schema 文件。
+- 更新 `project.yaml` 的协议引用，不重复实现 YAML 领域校验。
+- 创建后重新调用现有 Workspace/Schema Loader 验证结果。
+- 拒绝绝对路径、目录逃逸、重复资源和覆盖已有文件。
 
-- Windows Host 使用系统目录选择器选择一个项目目录。
-- Host Bridge 调用现有 Workspace Core，不在 TypeScript 中重复解析 YAML。
-- Web UI 用真实项目名和 Protocol 列表替换静态 Explorer 示例。
-- 显示 Workspace 稳定错误码对应的中英文错误信息。
-- 支持关闭当前项目并恢复未打开状态。
-- 暂不实现最近项目、新建/写回项目、Explorer 写操作或外部文件监听。
+本工作包先实现 Core 模块和自动测试；GUI 交互在文件契约稳定后接入。
 
-打开项目第一阶段的完成标准：
+本阶段完成标准：
 
 ```text
-Windows 选择项目目录
-  → Host Bridge 调用 Workspace Core
-  → Web UI 显示真实项目和 Protocol 节点
-  → 错误以中英文稳定展示
-  → 关闭项目恢复空状态
+Workspace Core 创建嵌套协议目录
+  → 创建最小 Protocol Schema 文件
+  → project.yaml 引用写回
+  → Workspace 重新加载成功
+  → 非法路径和重复资源返回稳定错误
 ```
 
 ### 3.2 Schema 之后的执行顺序
@@ -190,14 +193,16 @@ Windows 选择项目目录
 5. **Length Field**：单字段引用、Decode 校验、Encode 自动计算和依赖诊断。✅
 6. **固定 Array**：固定宽度 Primitive 元素、固定 count、逐元素范围和 round-trip。✅
 7. **Workspace Core**：定义 `project.yaml`、最小项目目录和加载/校验。✅
-8. **打开项目**：Windows 目录选择、Host Bridge、真实 Explorer 和关闭项目。
-9. **Protocol Designer**：Schema 源码与可视化字段编辑器双向同步。
-10. **Message Studio**：结构化表单组包、自动 Length/CRC 和报文模板。
-11. **Transport 抽象 + TCP Client**：建立第一条真实收发链路。
-12. **Debugger + Timeline**：统一展示 TX/RX、Raw HEX 和解析字段。
-13. **Serial / TCP Server / UDP**：补齐 MVP Transport。
-14. **动态 Schema 结构**：Count/Length 驱动 Array、Struct、Enum、BitField、Condition 和 Checksum Range。
-15. **Basic Simulator + Basic Test Case**：完成无设备开发和自动验证。
+8. **协议解析 Core**：按 Message 名称完成 Schema + HEX/Binary Decode/Encode。✅
+9. **Schema 资源与协议创建**：嵌套目录、Protocol Schema 创建和项目引用写回。
+10. **打开项目**：Windows 目录选择、Host Bridge、真实 Explorer 和关闭项目。
+11. **Protocol Designer**：Schema 源码与可视化字段编辑器双向同步。
+12. **Message Studio**：结构化表单组包、自动 Length/CRC 和报文模板。
+13. **Transport 抽象 + TCP Client**：建立第一条真实收发链路。
+14. **Debugger + Timeline**：统一展示 TX/RX、Raw HEX 和解析字段。
+15. **Serial / TCP Server / UDP**：补齐 MVP Transport。
+16. **动态 Schema 结构**：Count/Length 驱动 Array、Struct、Enum、BitField、Condition 和 Checksum Range。
+17. **Basic Simulator + Basic Test Case**：完成无设备开发和自动验证。
 
 ---
 
@@ -208,7 +213,7 @@ Windows 选择项目目录
 | M00 工程与平台基础 | 🟡 部分完成 | M0 | 模块分层、格式化、统一 Result/Error 和 Windows 基线可运行；静态分析、安装发布和其他平台未完成 |
 | M01 Workspace 工作空间 | 🟡 部分完成 | MVP | Project Schema v0.1、Workspace Core、协议加载和 CLI 校验已完成；下一步打通 Windows GUI 打开/关闭项目 |
 | M02 Protocol Designer / Schema | 🟡 部分完成 | MVP | Protocol Schema v0.1 YAML、固定 Primitive/string/bytes/Array、Field `length`/`offset` 和最小 `lengthOf` 已完成；可视化设计器与动态结构未实现 |
-| M03 Codec 编解码 | 🟡 部分完成 | MVP | 固定 Primitive/string/bytes/Array、最小 Length Field、非连续布局、padding、字节序和 round-trip 已完成；动态 Array、Struct/Condition 和 Checksum 尚未实现 |
+| M03 Codec 编解码 | 🟡 部分完成 | MVP | 统一 HEX/Binary 协议入口及固定 Primitive/string/bytes/Array、最小 Length Field、非连续布局、padding、字节序和 round-trip 已完成；自动 Message 匹配、动态 Array、Struct/Condition 和 Checksum 尚未实现 |
 | M04 HEX Studio | 🟡 部分完成 | MVP | 已完成基础 HEX 检查和三种校验计算 |
 | M05 Transport 通信层 | 🟡 API 已建立 | MVP/P2 | 统一字节、生命周期、状态、事件和统计接口已建立；没有真实连接实现 |
 | M06 Debugger / Timeline | ⬜ 待开始 | MVP | 只有 Console/Timeline 静态布局 |
@@ -558,7 +563,7 @@ Windows 选择项目目录
 
 ### M03-F02 Schema Decode：HEX → Object
 
-- [ ] 按 Message Schema 选择报文类型。
+- [ ] 🟡 按 Message Schema 选择报文类型：调用方可按名称明确选择，自动匹配规则尚未定义。
 - [x] 按字段顺序和固定 `offset` 读取字节，并跳过 gap。
 - [x] Decode bool、8/16/32/64 位有符号和无符号整数、float32/float64。
 - [x] Decode 固定长度 UTF-8 字符串和 bytes。
@@ -586,7 +591,7 @@ Windows 选择项目目录
 - [ ] Encode Conditional Field。
 - [x] 自动计算 Length。
 - [ ] 自动计算 Checksum。
-- [ ] 🟡 生成 ByteBuffer 和规范化 HEX：当前生成 ByteBuffer，未接入 HEX 输出。
+- [x] 生成 ByteBuffer 和规范化 HEX。
 - [ ] 返回 Encode 字段到字节范围映射。
 
 ### M03-F04 Round-trip 和兼容性
@@ -615,11 +620,11 @@ Windows 选择项目目录
 - [x] 数据不足。
 - [x] 多余数据。
 - [ ] 固定头不匹配。
-- [ ] Length 不匹配。
+- [x] Length 不匹配。
 - [ ] Checksum 错误。
 - [x] 类型转换错误。
 - [ ] 条件表达式错误。
-- [ ] 数组长度错误。
+- [x] 数组长度错误。
 - [x] 错误包含 Message/Field Path、Byte Offset 和稳定错误码。
 
 ---
@@ -1008,6 +1013,7 @@ Windows 选择项目目录
 - [x] Simulator → Codec → Transport 集成测试。
 - [x] Protocol Schema YAML/文件加载、源码位置和 CLI 成功/失败测试。
 - [x] Testing 断言和报告单元测试。
+- [x] Protocol Schema + Message 名称 + HEX/Binary 双向解析和协议级错误映射集成测试。
 - [ ] Schema/Codec/Transport/Simulator 的完整系统化测试矩阵。
 
 ---
@@ -1536,13 +1542,22 @@ CI/CD
 - 新增最小项目测试资产、Workspace 单元测试和 `iotps project validate <directory>`；下一步打通 Windows GUI 打开、显示和关闭项目。
 - Windows x86_64 Debug/Release 全量构建成功，两种配置均为 19/19 CTest 通过，包含 CLI 项目校验和真实 WebView2 UI 烟雾测试。
 
+### 2026-08-28：HEX/Binary 协议解析核心
+
+- 增加按 Message 名称协调 `ProtocolSchema`、HEX/ByteBuffer 和 `FixedLayoutCodec` 的协议级 Decode/Encode API。
+- Encode 可直接返回 ByteBuffer 或规范化 HEX；Protocol 默认字节序和 Field 覆盖继续复用现有 Codec。
+- 增加 `message_not_found`、`hex_parse_failed`、`decode_failed`、`encode_failed` 稳定错误码，并保留下层错误码、路径和偏移。
+- 集成测试覆盖 Binary/HEX Decode、ByteBuffer/HEX Encode、golden round-trip、未知 Message、非法 HEX、截断输入和缺失字段。
+- 自动 Message 匹配暂未实现：现有 `typeId` 只是元数据，必须先在 Schema 中定义 wire 匹配字段和规则。
+- Windows x86_64 Debug/Release 全量构建成功，两种配置均为 20/20 CTest 通过，包含协议解析集成测试和真实 WebView2 UI 烟雾测试。
+
 ---
 
 ## 9. 下一次更新入口
 
 下次开始开发时，直接从以下功能点继续：
 
-> **M01-F01：打通 Windows 目录选择 → Host Bridge → Workspace Core → Web UI 真实项目树的“打开项目”纵向切片，并支持关闭项目**
+> **M01-F02 / M01-F03：建立 Schema 资源节点、文件夹嵌套和 Protocol Schema 创建/写回 Core API，并通过重新加载 Workspace 验证结果**
 
 完成一个功能点后：
 

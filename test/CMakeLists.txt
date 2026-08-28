@@ -33,6 +33,10 @@ iotps_add_test(
   iotps_fixed_array_integration_test
   integration/fixed_array_test.cpp
   iotps::codec)
+iotps_add_test(
+  iotps_protocol_codec_integration_test
+  integration/protocol_codec_test.cpp
+  iotps::codec)
 iotps_add_test(iotps_testing_unit_test unit/testing_test.cpp iotps::testing)
 iotps_add_test(
   iotps_simulator_integration_test
@@ -63,6 +67,9 @@ target_compile_definitions(
   PRIVATE IOTPS_TEST_VECTOR_DIR="${CMAKE_CURRENT_SOURCE_DIR}/vectors")
 target_compile_definitions(
   iotps_fixed_array_integration_test
+  PRIVATE IOTPS_TEST_VECTOR_DIR="${CMAKE_CURRENT_SOURCE_DIR}/vectors")
+target_compile_definitions(
+  iotps_protocol_codec_integration_test
   PRIVATE IOTPS_TEST_VECTOR_DIR="${CMAKE_CURRENT_SOURCE_DIR}/vectors")
 
 if(IOTPS_BUILD_FUZZ)

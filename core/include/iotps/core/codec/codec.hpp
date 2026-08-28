@@ -85,6 +85,30 @@ class FixedLayoutCodec final : public MessageCodec {
            schema::ByteOrder default_byte_order = schema::ByteOrder::big_endian) const override;
 };
 
+enum class ProtocolCodecErrorCode {
+    message_not_found,
+    hex_parse_failed,
+    decode_failed,
+    encode_failed,
+};
+
+using ProtocolCodecError = Error<ProtocolCodecErrorCode>;
+using ProtocolDecodeResult = Result<DecodedMessage, ProtocolCodecError>;
+using ProtocolEncodeResult = Result<ByteBuffer, ProtocolCodecError>;
+using ProtocolHexEncodeResult = Result<std::string, ProtocolCodecError>;
+
+[[nodiscard]] ProtocolDecodeResult decode_protocol_message(const schema::ProtocolSchema& protocol,
+                                                           std::string_view message_name,
+                                                           std::span<const std::uint8_t> bytes);
+[[nodiscard]] ProtocolDecodeResult decode_protocol_hex(const schema::ProtocolSchema& protocol,
+                                                       std::string_view message_name,
+                                                       std::string_view hex);
+[[nodiscard]] ProtocolEncodeResult encode_protocol_message(const schema::ProtocolSchema& protocol,
+                                                           const StructuredMessage& message);
+[[nodiscard]] ProtocolHexEncodeResult encode_protocol_hex(const schema::ProtocolSchema& protocol,
+                                                          const StructuredMessage& message);
+
 [[nodiscard]] std::string_view to_string(CodecErrorCode code) noexcept;
+[[nodiscard]] std::string_view to_string(ProtocolCodecErrorCode code) noexcept;
 
 } // namespace iotps::core::codec
