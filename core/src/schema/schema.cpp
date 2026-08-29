@@ -247,6 +247,48 @@ SchemaValidation validate(const ProtocolSchema& schema) {
     return validation;
 }
 
+std::optional<std::size_t> wire_size(const FieldDefinition& field) noexcept {
+    return fixed_width(field);
+}
+
+std::string_view to_string(const ByteOrder byte_order) noexcept {
+    return byte_order == ByteOrder::little_endian ? "little" : "big";
+}
+
+std::string_view to_string(const FieldType type) noexcept {
+    switch (type) {
+    case FieldType::boolean:
+        return "bool";
+    case FieldType::int8:
+        return "int8";
+    case FieldType::uint8:
+        return "uint8";
+    case FieldType::int16:
+        return "int16";
+    case FieldType::uint16:
+        return "uint16";
+    case FieldType::int32:
+        return "int32";
+    case FieldType::uint32:
+        return "uint32";
+    case FieldType::int64:
+        return "int64";
+    case FieldType::uint64:
+        return "uint64";
+    case FieldType::float32:
+        return "float32";
+    case FieldType::float64:
+        return "float64";
+    case FieldType::bytes:
+        return "bytes";
+    case FieldType::string:
+        return "string";
+    case FieldType::array:
+        return "array";
+    }
+    return "unknown";
+}
+
 std::string_view to_string(const SchemaErrorCode code) noexcept {
     switch (code) {
     case SchemaErrorCode::file_open_failed:

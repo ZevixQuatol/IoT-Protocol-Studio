@@ -30,7 +30,30 @@ export type TranslationMessages = {
     cancel: string;
     submit: string;
   };
-  editor: { save: string; saved: string; unsaved: string; editingHint: string };
+  editor: {
+    view: string;
+    code: string;
+    visual: string;
+    save: string;
+    saved: string;
+    unsaved: string;
+    editingHint: string;
+  };
+  structure: {
+    schemaVersion: string;
+    protocolVersion: string;
+    defaultByteOrder: string;
+    messages: string;
+    fields: string;
+    typeId: string;
+    offset: string;
+    length: string;
+    byteOrder: string;
+    inherited: string;
+    lengthOf: string;
+    empty: string;
+    unsavedHint: string;
+  };
   settings: { title: string; language: string; languageHint: string };
 };
 
@@ -74,10 +97,28 @@ export const messages: Record<Locale, TranslationMessages> = {
       submit: "创建",
     },
     editor: {
+      view: "设计器视图",
+      code: "代码",
+      visual: "结构",
       save: "保存",
       saved: "已保存",
       unsaved: "未保存",
       editingHint: "保存前由 C++ Schema Loader 校验；校验失败不会覆盖原文件。",
+    },
+    structure: {
+      schemaVersion: "Schema 版本",
+      protocolVersion: "协议版本",
+      defaultByteOrder: "默认字节序",
+      messages: "消息",
+      fields: "字段",
+      typeId: "类型 ID",
+      offset: "偏移",
+      length: "长度",
+      byteOrder: "字节序",
+      inherited: "继承默认值",
+      lengthOf: "长度目标",
+      empty: "当前协议还没有 Message 定义。",
+      unsavedHint: "结构视图显示最后一次成功保存并通过 Core 校验的 Schema。",
     },
     settings: {
       title: "设置",
@@ -123,11 +164,29 @@ export const messages: Record<Locale, TranslationMessages> = {
       submit: "Create",
     },
     editor: {
+      view: "Designer view",
+      code: "Code",
+      visual: "Structure",
       save: "Save",
       saved: "Saved",
       unsaved: "Unsaved",
       editingHint:
         "The C++ Schema Loader validates before save; invalid YAML never replaces the original file.",
+    },
+    structure: {
+      schemaVersion: "Schema version",
+      protocolVersion: "Protocol version",
+      defaultByteOrder: "Default byte order",
+      messages: "Messages",
+      fields: "Fields",
+      typeId: "Type ID",
+      offset: "Offset",
+      length: "Length",
+      byteOrder: "Byte order",
+      inherited: "Inherited default",
+      lengthOf: "Length target",
+      empty: "This protocol has no Message definitions yet.",
+      unsavedHint: "Structure shows the last successfully saved and Core-validated Schema.",
     },
     settings: {
       title: "Settings",

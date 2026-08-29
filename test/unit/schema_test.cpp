@@ -38,6 +38,10 @@ int main() {
                       .fields = {{.name = "command", .type = FieldType::uint8}}}},
     };
     CHECK(validate(valid).ok());
+    CHECK(to_string(ByteOrder::big_endian) == "big");
+    CHECK(to_string(ByteOrder::little_endian) == "little");
+    CHECK(to_string(FieldType::int32) == "int32");
+    CHECK(wire_size(valid.messages[0].fields[0]) == 1);
 
     auto invalid = valid;
     invalid.messages.push_back(invalid.messages.front());
@@ -154,6 +158,8 @@ int main() {
          .count = 3},
     };
     CHECK(validate(fixed_array).ok());
+    CHECK(to_string(FieldType::array) == "array");
+    CHECK(wire_size(fixed_array.messages[0].fields[0]) == 6);
 
     auto missing_array_element_type = fixed_array;
     missing_array_element_type.messages[0].fields[0].element_type.reset();

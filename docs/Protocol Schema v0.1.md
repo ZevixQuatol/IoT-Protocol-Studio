@@ -172,16 +172,20 @@ custom
 
 ## 6. 公共 C++ API
 
-公共头文件：`iotps/core/schema/loader.hpp`
+公共头文件：`iotps/core/schema/schema.hpp`、`iotps/core/schema/loader.hpp`
 
 ```cpp
 SchemaLoadResult load_yaml(std::string_view yaml,
                            std::string source_name = "<memory>");
 
 SchemaLoadResult load_yaml_file(const std::filesystem::path& path);
+
+std::optional<std::size_t> wire_size(const FieldDefinition& field);
+std::string_view to_string(ByteOrder byte_order);
+std::string_view to_string(FieldType type);
 ```
 
-成功值是 `ProtocolSchema`，失败值是 `SchemaDiagnostic`。公共 API 不暴露 Rapid YAML 类型。
+加载成功值是 `ProtocolSchema`，失败值是 `SchemaDiagnostic`。`wire_size()` 按 Schema 固定布局规则返回 Field 有效 wire 长度，供 Codec 之外的只读展示复用；两个 `to_string()` 输出稳定的 YAML 枚举名。公共 API 不暴露 Rapid YAML 类型。
 
 ## 7. 诊断契约
 

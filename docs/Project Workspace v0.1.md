@@ -166,8 +166,8 @@ Protocols: 1
 以下能力仍不属于 v0.1 Workspace Core：
 
 - 完整 Project 创建、Protocol 重命名/删除和任意 Schema 结构写回。
-- Windows 目录选择器和 WebView Host Bridge 属于 `apps/desktop-win` 平台层；现已复用 Workspace Core 实现项目打开、读取、Protocol 创建、编辑保存和关闭。
+- Windows 目录选择器和 WebView Host Bridge 属于 `apps/desktop-win` 平台层；现已复用 Workspace Core 实现项目打开、读取、Protocol 创建、编辑保存、关闭，以及从已加载的 `ProtocolSchema` 输出只读 Message / Field 结构。
 - 最近项目、项目复制、导入、导出和归档。
 - 外部文件监听、自动刷新和未保存修改提示。
-- Explorer GUI 已支持真实嵌套树、Protocol 新建和 YAML 源码编辑；重命名、删除和拖放仍未实现。
+- Explorer GUI 已支持真实嵌套树、Protocol 新建、YAML 源码编辑和 Code / Structure 只读结构树；属性检查器、重命名、删除和拖放仍未实现。
 - `messages/`、`connections/` 等资源文件的加载契约。

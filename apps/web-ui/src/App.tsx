@@ -11,6 +11,7 @@ import {
   FolderOpen,
   HardDrive,
   Languages,
+  ListTree,
   LoaderCircle,
   Minus,
   PanelLeftClose,
@@ -44,6 +45,7 @@ import {
 } from "./i18n";
 
 type Page = "schema" | "settings";
+type DesignerView = "code" | "visual";
 
 type TreeNode = {
   key: string;
@@ -166,6 +168,7 @@ export default function App() {
   const [busy, setBusy] = useState(false);
   const [createOpen, setCreateOpen] = useState(false);
   const [draftContent, setDraftContent] = useState("");
+  const [designerView, setDesignerView] = useState<DesignerView>("code");
   const [errorMessage, setErrorMessage] = useState<string>();
   const translation = messages[locale];
   const page = navigation.entries[navigation.index];
@@ -535,30 +538,156 @@ export default function App() {
                   ) : (
                     <section className="protocol-source">
                       <div className="source-toolbar">
-                        <div>
+                        <div className="source-identity">
                           <FileCode2 size={15} />
                           <span>{selectedProtocol.path.split("/").at(-1)}</span>
                         </div>
-                        <div className="source-actions" title={translation.editor.editingHint}>
-                          <span className={isDirty ? "dirty" : ""}>
-                            {isDirty ? translation.editor.unsaved : translation.editor.saved}
-                          </span>
-                          <button
-                            disabled={busy || !isDirty}
-                            onClick={saveSelectedProtocol}
-                            type="button"
+                        <div className="designer-actions">
+                          <div
+                            aria-label={translation.editor.view}
+                            className="designer-tabs"
+                            role="tablist"
                           >
-                            <Save size={13} />
-                            {translation.editor.save}
-                          </button>
+                            <button
+                              aria-selected={designerView === "code"}
+                              className={designerView === "code" ? "active" : ""}
+                              onClick={() => setDesignerView("code")}
+                              role="tab"
+                              type="button"
+                            >
+                              <FileCode2 size={13} />
+                              {translation.editor.code}
+                            </button>
+                            <button
+                              aria-selected={designerView === "visual"}
+                              className={designerView === "visual" ? "active" : ""}
+                              onClick={() => setDesignerView("visual")}
+                              role="tab"
+                              type="button"
+                            >
+                              <ListTree size={13} />
+                              {translation.editor.visual}
+                            </button>
+                          </div>
+                          {designerView === "code" && (
+                            <div className="source-actions" title={translation.editor.editingHint}>
+                              <span className={isDirty ? "dirty" : ""}>
+                                {isDirty ? translation.editor.unsaved : translation.editor.saved}
+                              </span>
+                              <button
+                                disabled={busy || !isDirty}
+                                onClick={saveSelectedProtocol}
+                                type="button"
+                              >
+                                <Save size={13} />
+                                {translation.editor.save}
+                              </button>
+                            </div>
+                          )}
                         </div>
                       </div>
-                      <textarea
-                        aria-label={`${translation.workspace.physicalFile}: ${selectedProtocol.path}`}
-                        onChange={(event) => setDraftContent(event.target.value)}
-                        spellCheck={false}
-                        value={draftContent}
-                      />
+                      {designerView === "code" ? (
+                        <textarea
+                          aria-label={`${translation.workspace.physicalFile}: ${selectedProtocol.path}`}
+                          onChange={(event) => setDraftContent(event.target.value)}
+                          spellCheck={false}
+                          value={draftContent}
+                        />
+                      ) : (
+                        <div className="protocol-structure" role="tabpanel">
+                          <div className="structure-summary">
+                            <span>
+                              <small>{translation.structure.schemaVersion}</small>
+                              <strong>{selectedProtocol.schema.version}</strong>
+                            </span>
+                            <span>
+                              <small>{translation.structure.protocolVersion}</small>
+                              <strong>{selectedProtocol.schema.protocolVersion}</strong>
+                            </span>
+                            <span>
+                              <small>{translation.structure.defaultByteOrder}</small>
+                              <strong>{selectedProtocol.schema.defaultByteOrder}</strong>
+                            </span>
+                            <span>
+                              <small>{translation.structure.messages}</small>
+                              <strong>{selectedProtocol.schema.messages.length}</strong>
+                            </span>
+                          </div>
+                          {isDirty && (
+                            <div className="structure-notice">
+                              <CircleAlert size={14} />
+                              {translation.structure.unsavedHint}
+                            </div>
+                          )}
+                          {selectedProtocol.schema.messages.length === 0 ? (
+                            <div className="structure-empty">
+                              <ListTree size={24} />
+                              <span>{translation.structure.empty}</span>
+                            </div>
+                          ) : (
+                            <ul className="message-tree" role="tree">
+                              {selectedProtocol.schema.messages.map((message) => (
+                                <li aria-expanded="true" key={message.name} role="treeitem">
+                                  <div className="message-node">
+                                    <ChevronDown size={15} />
+                                    <div>
+                                      <strong>{message.displayName || message.name}</strong>
+                                      {message.displayName && <code>{message.name}</code>}
+                                    </div>
+                                    <span>
+                                      {message.fields.length} {translation.structure.fields}
+                                    </span>
+                                    {message.typeId && (
+                                      <span>
+                                        {translation.structure.typeId} {message.typeId}
+                                      </span>
+                                    )}
+                                  </div>
+                                  <ul role="group">
+                                    {message.fields.map((field, fieldIndex) => (
+                                      <li
+                                        aria-label={`${field.name}: ${field.type}`}
+                                        className="field-node"
+                                        key={field.name}
+                                        role="treeitem"
+                                      >
+                                        <span className="field-index">{fieldIndex + 1}</span>
+                                        <div className="field-name">
+                                          <strong>{field.displayName || field.name}</strong>
+                                          {field.displayName && <code>{field.name}</code>}
+                                        </div>
+                                        <code className="field-type">
+                                          {field.type === "array"
+                                            ? `${field.elementType ?? "?"}[${field.count ?? "?"}]`
+                                            : field.type}
+                                        </code>
+                                        <div className="field-metadata">
+                                          <span title={translation.structure.offset}>
+                                            @{field.offset}
+                                          </span>
+                                          <span title={translation.structure.length}>
+                                            {field.length ?? "—"} B
+                                          </span>
+                                          <span
+                                            title={`${translation.structure.byteOrder}${field.byteOrderInherited ? ` · ${translation.structure.inherited}` : ""}`}
+                                          >
+                                            {field.byteOrder === "little" ? "LE" : "BE"}
+                                          </span>
+                                          {field.lengthOf && (
+                                            <span title={translation.structure.lengthOf}>
+                                              → {field.lengthOf}
+                                            </span>
+                                          )}
+                                        </div>
+                                      </li>
+                                    ))}
+                                  </ul>
+                                </li>
+                              ))}
+                            </ul>
+                          )}
+                        </div>
+                      )}
                     </section>
                   )}
                 </div>

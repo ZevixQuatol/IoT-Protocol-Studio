@@ -245,6 +245,74 @@ string_arguments(const std::string_view request) {
            ",\"column\":" + std::to_string(column) + "}}";
 }
 
+void append_protocol_schema(std::ostringstream& response,
+                            const iotps::core::schema::ProtocolSchema& schema) {
+    response << "{\"version\":" << json_string(schema.schema_version)
+             << ",\"protocolVersion\":" << json_string(schema.protocol.version)
+             << ",\"defaultByteOrder\":"
+             << json_string(iotps::core::schema::to_string(schema.protocol.default_byte_order))
+             << ",\"messages\":[";
+    for (std::size_t message_index = 0; message_index < schema.messages.size(); ++message_index) {
+        const auto& message = schema.messages[message_index];
+        if (message_index != 0) {
+            response << ',';
+        }
+        response << "{\"name\":" << json_string(message.name)
+                 << ",\"displayName\":" << json_string(message.display_name) << ",\"typeId\":";
+        if (message.type_id.has_value()) {
+            response << json_string(std::to_string(*message.type_id));
+        } else {
+            response << "null";
+        }
+        response << ",\"fields\":[";
+
+        std::size_t cursor = 0;
+        for (std::size_t field_index = 0; field_index < message.fields.size(); ++field_index) {
+            const auto& field = message.fields[field_index];
+            const auto length = iotps::core::schema::wire_size(field);
+            const auto offset = field.offset.value_or(cursor);
+            if (field_index != 0) {
+                response << ',';
+            }
+            response << "{\"name\":" << json_string(field.name)
+                     << ",\"displayName\":" << json_string(field.display_name)
+                     << ",\"type\":" << json_string(iotps::core::schema::to_string(field.type))
+                     << ",\"offset\":" << json_string(std::to_string(offset)) << ",\"length\":";
+            if (length.has_value()) {
+                response << json_string(std::to_string(*length));
+                cursor = offset + *length;
+            } else {
+                response << "null";
+            }
+            response << ",\"byteOrder\":"
+                     << json_string(iotps::core::schema::to_string(
+                            field.byte_order.value_or(schema.protocol.default_byte_order)))
+                     << ",\"byteOrderInherited\":"
+                     << (field.byte_order.has_value() ? "false" : "true") << ",\"lengthOf\":";
+            if (field.length_of.has_value()) {
+                response << json_string(*field.length_of);
+            } else {
+                response << "null";
+            }
+            response << ",\"elementType\":";
+            if (field.element_type.has_value()) {
+                response << json_string(iotps::core::schema::to_string(*field.element_type));
+            } else {
+                response << "null";
+            }
+            response << ",\"count\":";
+            if (field.count.has_value()) {
+                response << json_string(std::to_string(*field.count));
+            } else {
+                response << "null";
+            }
+            response << '}';
+        }
+        response << "]}";
+    }
+    response << "]}";
+}
+
 [[nodiscard]] std::string workspace_project_response(const iotps::core::workspace::Project& project,
                                                      const bool cancelled = false) {
     const auto& metadata = project.manifest.metadata;
@@ -269,7 +337,9 @@ string_arguments(const std::string_view request) {
                  << ",\"path\":" << json_string(path_utf8(protocol.relative_path))
                  << ",\"content\":"
                  << json_string(read_text_file(project.root_directory / protocol.relative_path))
-                 << '}';
+                 << ",\"schema\":";
+        append_protocol_schema(response, protocol.schema);
+        response << '}';
     }
     response << "]}}";
     return response.str();

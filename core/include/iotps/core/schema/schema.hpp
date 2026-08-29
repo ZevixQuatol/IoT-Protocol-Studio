@@ -132,6 +132,9 @@ struct SchemaValidation {
 };
 
 [[nodiscard]] SchemaValidation validate(const ProtocolSchema& schema);
+[[nodiscard]] std::optional<std::size_t> wire_size(const FieldDefinition& field) noexcept;
+[[nodiscard]] std::string_view to_string(ByteOrder byte_order) noexcept;
+[[nodiscard]] std::string_view to_string(FieldType type) noexcept;
 [[nodiscard]] std::string_view to_string(SchemaErrorCode code) noexcept;
 
 } // namespace iotps::core::schema

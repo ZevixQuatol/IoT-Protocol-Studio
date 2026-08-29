@@ -1,7 +1,7 @@
 # IoT Protocol Studio Core 模块架构
 
 > 架构版本：0.1  
-> 更新日期：2026-08-28
+> 更新日期：2026-08-29
 > 适用范围：Portable C++ Core  
 > 状态：模块边界和最小公共 API 已建立，完整 MVP 能力仍在开发中
 
@@ -122,6 +122,7 @@ core/
 - SmartSensor 示例、合法/非法向量和 `iotps schema validate <file>`。
 - 单字段 `lengthOf` 模型、YAML 加载、无符号类型/目标/自引用/循环依赖校验。
 - 固定 Array 的 Primitive `elementType`、固定 `count`、布局宽度和稳定诊断。
+- `wire_size()` 复用 Schema 固定布局规则，`to_string()` 为 Host Bridge 输出稳定的 ByteOrder/FieldType 名称。
 - Schema v0.1 兼容规则，详见 [Protocol Schema v0.1](<./Protocol Schema v0.1.md>)。
 
 当前没有提供：
@@ -143,7 +144,7 @@ core/
 - 创建时拒绝目录逃逸、非便携路径、重复引用和覆盖已有文件；写回失败时恢复原清单。
 - `iotps project validate <directory>` CLI 验证入口。
 
-Windows Host 已通过系统目录选择器和 WebView Bridge 复用以上 Core API，实现项目打开/关闭、真实嵌套 Explorer、Protocol 创建以及 YAML 校验后原子保存。Core 当前没有提供完整 Project 创建、Protocol 重命名/删除、最近项目、外部文件监听或未保存修改处理。完整契约见 [Project Workspace v0.1](<./Project Workspace v0.1.md>)。
+Windows Host 已通过系统目录选择器和 WebView Bridge 复用以上 Core API，实现项目打开/关闭、真实嵌套 Explorer、Protocol 创建、YAML 校验后原子保存，以及从 `ProtocolSchema` 输出只读 Message / Field 结构。Core 当前没有提供完整 Project 创建、Protocol 重命名/删除、最近项目、外部文件监听或未保存修改处理。完整契约见 [Project Workspace v0.1](<./Project Workspace v0.1.md>)。
 
 ### 5.3 Codec
 
@@ -273,13 +274,13 @@ Simulator 集成测试只替换 Transport，因为 Transport 是操作系统和�
 
 ## 8. 下一步
 
-固定布局 Codec、协议级 HEX/Binary 解析入口、Workspace 加载以及 Protocol 源码编辑安全保存已经完成。下一入口进入 Protocol Designer 的只读可视化字段树：
+固定布局 Codec、协议级 HEX/Binary 解析入口、Workspace 加载、Protocol 源码安全保存和只读结构树已经完成。下一入口进入 Protocol Designer 的只读属性检查器：
 
 ```text
-ProtocolSchema 领域模型
-  → Host Bridge 输出 Message / Field 层级
-  → Web UI 显示只读可视化字段树
-  → Code / Visual 视图共享当前 Protocol
+Structure 字段树选择
+  → 当前 Message / Field 标识
+  → 只读属性检查器
+  → Code / Structure 继续共享当前 Protocol
 ```
 
-下一入口只展示现有 Core 已解析的 Message / Field 结构，不在 TypeScript 中解析 YAML，也不同时实现可视化修改、双向同步、拖放、语法高亮、自动补全、Protocol 重命名/删除、真实 TCP/Serial、Simulator 行为 DSL 或完整 Test Runner。自动 Message 匹配需要先定义 wire 匹配规则；Count/Length 驱动 Array 与 Struct/Condition 保留在后续动态 Schema 阶段。
+下一入口只选择并展示现有 Core 已解析的 Message / Field 属性，不增加可视化修改、双向写回、拖放、语法高亮、自动补全、Protocol 重命名/删除、真实 TCP/Serial、Simulator 行为 DSL 或完整 Test Runner。自动 Message 匹配需要先定义 wire 匹配规则；Count/Length 驱动 Array 与 Struct/Condition 保留在后续动态 Schema 阶段。

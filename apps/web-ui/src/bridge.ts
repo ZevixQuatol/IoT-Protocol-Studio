@@ -32,10 +32,36 @@ export type InspectionResult = InspectionSuccess | InspectionFailure;
 
 export type WindowAction = "drag" | "minimize" | "maximize" | "close";
 
+export type WorkspaceField = {
+  name: string;
+  displayName: string;
+  type: string;
+  offset: string;
+  length: string | null;
+  byteOrder: "big" | "little";
+  byteOrderInherited: boolean;
+  lengthOf: string | null;
+  elementType: string | null;
+  count: string | null;
+};
+
+export type WorkspaceMessage = {
+  name: string;
+  displayName: string;
+  typeId: string | null;
+  fields: WorkspaceField[];
+};
+
 export type WorkspaceProtocol = {
   name: string;
   path: string;
   content: string;
+  schema: {
+    version: string;
+    protocolVersion: string;
+    defaultByteOrder: "big" | "little";
+    messages: WorkspaceMessage[];
+  };
 };
 
 export type WorkspaceProject = {
