@@ -203,6 +203,8 @@ SchemaLoadResult load_yaml_file(const std::filesystem::path& path);
 
 加载器只返回第一个阻止建立稳定领域模型的错误。后续 Protocol Designer 的 Problems 功能可以在模型建立成功后扩展为多诊断展示。
 
+Windows Protocol Designer 保存源码时复用同一个 `load_yaml()`，不会在 TypeScript 中建立第二套 YAML 规则。候选 YAML 校验失败时保留原文件，并把稳定错误码、领域路径和 1-based 行列返回 Web UI；校验成功后由 Workspace Core 原子替换并重新加载项目。
+
 ## 8. CLI
 
 ```powershell

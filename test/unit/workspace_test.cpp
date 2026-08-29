@@ -255,6 +255,55 @@ customSetting: preserved
     CHECK(read_file(temporary / "project.yaml").find("customSetting: preserved") !=
           std::string::npos);
 
+    const auto protocol_path =
+        temporary / "protocols" / "vendors" / "acme" / "telemetry.protocol.yaml";
+    const auto original_protocol = read_file(protocol_path);
+    const auto invalid_update =
+        update_protocol(temporary, "protocols/vendors/acme/telemetry.protocol.yaml",
+                        R"yaml(schemaVersion: "0.1"
+protocol:
+  name: invalid-update
+  version: "1.0"
+messages:
+  telemetry:
+    fields:
+      - name: value
+        type: uint128
+)yaml");
+    CHECK(!invalid_update.has_value());
+    if (const auto* error = invalid_update.error_if()) {
+        CHECK(error->code == WorkspaceErrorCode::protocol_schema_invalid);
+        CHECK(error->path == "messages.telemetry.fields[0].type");
+        CHECK(error->source_location.has_value());
+    }
+    CHECK(read_file(protocol_path) == original_protocol);
+
+    const auto updated =
+        update_protocol(temporary, "protocols/vendors/acme/telemetry.protocol.yaml",
+                        R"yaml(schemaVersion: "0.1"
+protocol:
+  name: updated-telemetry
+  displayName: Updated Telemetry
+  version: "2.0"
+  defaultByteOrder: big
+messages: {}
+)yaml");
+    CHECK(updated.has_value());
+    if (const auto* project = updated.value_if()) {
+        CHECK(project->protocols[0].schema.protocol.name == "updated-telemetry");
+        CHECK(project->protocols[0].schema.protocol.version == "2.0");
+    }
+    CHECK(read_file(protocol_path).find("updated-telemetry") != std::string::npos);
+    CHECK(!std::filesystem::exists(protocol_path.string() + ".iotps.tmp"));
+    CHECK(!std::filesystem::exists(protocol_path.string() + ".iotps.bak"));
+
+    const auto unreferenced_update =
+        update_protocol(temporary, "protocols/orphan.protocol.yaml", original_protocol);
+    CHECK(!unreferenced_update.has_value());
+    if (const auto* error = unreferenced_update.error_if()) {
+        CHECK(error->code == WorkspaceErrorCode::protocol_not_referenced);
+    }
+
     const auto duplicate_create = create_protocol(temporary, request);
     CHECK(!duplicate_create.has_value());
     if (const auto* error = duplicate_create.error_if()) {
@@ -278,6 +327,7 @@ customSetting: preserved
     CHECK(to_string(WorkspaceErrorCode::duplicate_protocol_path) == "duplicate_protocol_path");
     CHECK(to_string(WorkspaceErrorCode::protocol_file_already_exists) ==
           "protocol_file_already_exists");
+    CHECK(to_string(WorkspaceErrorCode::protocol_not_referenced) == "protocol_not_referenced");
 
     return failures == 0 ? 0 : 1;
 }

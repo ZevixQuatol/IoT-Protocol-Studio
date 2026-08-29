@@ -17,6 +17,7 @@ import {
   PanelLeftOpen,
   Plus,
   Settings,
+  Save,
   Square,
   X,
 } from "lucide-react";
@@ -28,6 +29,7 @@ import {
   getCurrentProject,
   openProject,
   performWindowAction,
+  saveProtocol,
   type CoreInfo,
   type WorkspaceProject,
   type WorkspaceProtocol,
@@ -163,6 +165,7 @@ export default function App() {
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [busy, setBusy] = useState(false);
   const [createOpen, setCreateOpen] = useState(false);
+  const [draftContent, setDraftContent] = useState("");
   const [errorMessage, setErrorMessage] = useState<string>();
   const translation = messages[locale];
   const page = navigation.entries[navigation.index];
@@ -170,11 +173,15 @@ export default function App() {
   const selectedProtocol = project?.protocols.find(
     (protocol) => protocol.path === selectedProtocolPath,
   );
+  const isDirty = selectedProtocol ? draftContent !== selectedProtocol.content : false;
 
   const applyWorkspace = (result: WorkspaceResult, preferredPath?: string) => {
     if (!result.ok) {
+      const errorLocation = result.error.line
+        ? `${result.error.path}:${result.error.line}:${result.error.column ?? 1}`
+        : result.error.path;
       setErrorMessage(
-        `${translateWorkspaceError(locale, result.error.code, result.error.message)} [${result.error.code}]${result.error.path ? ` (${result.error.path})` : ""}`,
+        `${translateWorkspaceError(locale, result.error.code, result.error.message)} [${result.error.code}]${errorLocation ? ` (${errorLocation})` : ""}`,
       );
       return false;
     }
@@ -199,6 +206,10 @@ export default function App() {
     document.documentElement.lang = locale;
     storeLocale(locale);
   }, [locale]);
+
+  useEffect(() => {
+    setDraftContent(selectedProtocol?.content ?? "");
+  }, [selectedProtocol?.content, selectedProtocol?.path]);
 
   useEffect(() => {
     void getCoreInfo()
@@ -257,6 +268,12 @@ export default function App() {
         form.reset();
       }
     });
+  };
+
+  const saveSelectedProtocol = () => {
+    if (selectedProtocol) {
+      void run(() => saveProtocol(selectedProtocol.path, draftContent), selectedProtocol.path);
+    }
   };
 
   const toggleExpanded = (key: string) => {
@@ -522,9 +539,26 @@ export default function App() {
                           <FileCode2 size={15} />
                           <span>{selectedProtocol.path.split("/").at(-1)}</span>
                         </div>
-                        <span>{translation.workspace.physicalFile}</span>
+                        <div className="source-actions" title={translation.editor.editingHint}>
+                          <span className={isDirty ? "dirty" : ""}>
+                            {isDirty ? translation.editor.unsaved : translation.editor.saved}
+                          </span>
+                          <button
+                            disabled={busy || !isDirty}
+                            onClick={saveSelectedProtocol}
+                            type="button"
+                          >
+                            <Save size={13} />
+                            {translation.editor.save}
+                          </button>
+                        </div>
                       </div>
-                      <pre>{selectedProtocol.content}</pre>
+                      <textarea
+                        aria-label={`${translation.workspace.physicalFile}: ${selectedProtocol.path}`}
+                        onChange={(event) => setDraftContent(event.target.value)}
+                        spellCheck={false}
+                        value={draftContent}
+                      />
                     </section>
                   )}
                 </div>

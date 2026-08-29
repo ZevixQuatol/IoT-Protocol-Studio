@@ -12,6 +12,13 @@
 #include <string>
 #include <utility>
 
+#if defined(_WIN32)
+#ifndef WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN
+#endif
+#include <windows.h>
+#endif
+
 namespace iotps::core::workspace {
 namespace {
 
@@ -362,6 +369,21 @@ void remove_file(const std::filesystem::path& path) {
     std::filesystem::remove(path, ignored);
 }
 
+bool atomic_replace_file(const std::filesystem::path& source,
+                         const std::filesystem::path& destination, std::error_code& error) {
+#if defined(_WIN32)
+    if (MoveFileExW(source.c_str(), destination.c_str(),
+                    MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH) != FALSE) {
+        error.clear();
+        return true;
+    }
+    error = std::error_code{static_cast<int>(GetLastError()), std::system_category()};
+#else
+    std::filesystem::rename(source, destination, error);
+#endif
+    return !error;
+}
+
 } // namespace
 
 ProjectLoadResult load_project(const std::filesystem::path& project_directory) {
@@ -591,6 +613,93 @@ ProjectLoadResult create_protocol(const std::filesystem::path& project_directory
     return reloaded;
 }
 
+ProjectLoadResult update_protocol(const std::filesystem::path& project_directory,
+                                  const std::string_view relative_path_value,
+                                  const std::string_view yaml) {
+    auto loaded = load_project(project_directory);
+    if (const auto* error = loaded.error_if()) {
+        return *error;
+    }
+    const auto& project = loaded.value();
+
+    auto relative_path = normalize_protocol_path(relative_path_value, "$request.relativePath");
+    if (const auto* error = relative_path.error_if()) {
+        return *error;
+    }
+    const auto portable_path = relative_path.value().generic_string();
+    if (std::ranges::none_of(project.manifest.protocol_files, [&](const auto& existing) {
+            return existing.generic_string() == portable_path;
+        })) {
+        return make_error(WorkspaceErrorCode::protocol_not_referenced, "$request.relativePath",
+                          "protocol is not referenced by project.yaml: '" + portable_path + "'");
+    }
+
+    std::error_code filesystem_error;
+    const auto destination = std::filesystem::weakly_canonical(
+        project.root_directory / relative_path.value(), filesystem_error);
+    if (filesystem_error || !is_within(destination, project.root_directory)) {
+        return make_error(WorkspaceErrorCode::protocol_path_outside_project,
+                          "$request.relativePath",
+                          "protocol path resolves outside the project directory");
+    }
+
+    auto parsed_schema = schema::load_yaml(yaml, destination.string());
+    if (const auto* error = parsed_schema.error_if()) {
+        return WorkspaceDiagnostic{
+            .code = WorkspaceErrorCode::protocol_schema_invalid,
+            .path = error->path,
+            .offset = error->offset,
+            .detail = "schema error[" + std::string{schema::to_string(error->code)} + "] " +
+                      error->path + ": " + error->detail,
+            .source_location = error->source_location,
+        };
+    }
+
+    auto temporary = destination;
+    temporary += ".iotps.tmp";
+    auto backup = destination;
+    backup += ".iotps.bak";
+    for (const auto& path : {temporary, backup}) {
+        filesystem_error.clear();
+        if (std::filesystem::exists(path, filesystem_error) || filesystem_error) {
+            return make_error(WorkspaceErrorCode::protocol_file_write_failed,
+                              "$request.relativePath",
+                              "temporary protocol file already exists or cannot be inspected");
+        }
+    }
+    if (!write_text_file(temporary, yaml)) {
+        remove_file(temporary);
+        return make_error(WorkspaceErrorCode::protocol_file_write_failed, "$request.relativePath",
+                          "cannot write temporary protocol file");
+    }
+
+    std::filesystem::copy_file(destination, backup, std::filesystem::copy_options::none,
+                               filesystem_error);
+    if (filesystem_error) {
+        remove_file(temporary);
+        return make_error(WorkspaceErrorCode::protocol_file_write_failed, "$request.relativePath",
+                          "cannot back up protocol file: " + filesystem_error.message());
+    }
+    if (!atomic_replace_file(temporary, destination, filesystem_error)) {
+        remove_file(temporary);
+        return make_error(WorkspaceErrorCode::protocol_file_write_failed, "$request.relativePath",
+                          "cannot replace protocol file: " + filesystem_error.message());
+    }
+
+    auto reloaded = load_project(project.root_directory);
+    if (const auto* error = reloaded.error_if()) {
+        std::error_code restore_error;
+        if (!atomic_replace_file(backup, destination, restore_error)) {
+            return make_error(WorkspaceErrorCode::protocol_file_write_failed,
+                              "$request.relativePath",
+                              "updated project failed validation and protocol restore failed");
+        }
+        return *error;
+    }
+    remove_file(backup);
+    return reloaded;
+}
+
 std::string_view to_string(const WorkspaceErrorCode code) noexcept {
     switch (code) {
     case WorkspaceErrorCode::project_directory_not_found:
@@ -625,6 +734,8 @@ std::string_view to_string(const WorkspaceErrorCode code) noexcept {
         return "protocol_file_load_failed";
     case WorkspaceErrorCode::protocol_schema_invalid:
         return "protocol_schema_invalid";
+    case WorkspaceErrorCode::protocol_not_referenced:
+        return "protocol_not_referenced";
     case WorkspaceErrorCode::protocol_file_already_exists:
         return "protocol_file_already_exists";
     case WorkspaceErrorCode::protocol_directory_create_failed:

@@ -58,6 +58,7 @@ enum class WorkspaceErrorCode {
     duplicate_protocol_path,
     protocol_file_load_failed,
     protocol_schema_invalid,
+    protocol_not_referenced,
     protocol_file_already_exists,
     protocol_directory_create_failed,
     protocol_file_write_failed,
@@ -70,6 +71,9 @@ using ProjectLoadResult = Result<Project, WorkspaceDiagnostic>;
 [[nodiscard]] ProjectLoadResult load_project(const std::filesystem::path& project_directory);
 [[nodiscard]] ProjectLoadResult create_protocol(const std::filesystem::path& project_directory,
                                                 const ProtocolCreateRequest& request);
+[[nodiscard]] ProjectLoadResult update_protocol(const std::filesystem::path& project_directory,
+                                                std::string_view relative_path,
+                                                std::string_view yaml);
 [[nodiscard]] std::string_view to_string(WorkspaceErrorCode code) noexcept;
 
 } // namespace iotps::core::workspace

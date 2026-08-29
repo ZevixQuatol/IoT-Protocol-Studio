@@ -504,18 +504,43 @@ button {
   color: var(--accent);
 }
 
-.protocol-source pre {
+.protocol-source > textarea {
   flex: 1;
+  width: 100%;
   min-height: 0;
   margin: 0;
   padding: 18px 20px;
   overflow: auto;
+  resize: none;
+  border: 0;
+  outline: 0;
+  background: transparent;
   color: #c6d3de;
   font-family: "Cascadia Code", Consolas, monospace;
   font-size: 12px;
   line-height: 1.65;
   tab-size: 2;
   white-space: pre;
+}
+
+.source-actions button {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-height: 25px;
+  padding: 0 8px;
+  border: 1px solid #33414e;
+  border-radius: 4px;
+  background: #17222c;
+  color: #b9c5cf;
+}
+
+.source-actions button:disabled {
+  opacity: 0.45;
+}
+
+.source-actions .dirty {
+  color: #e6b76a;
 }
 
 .settings-page .content-header p {

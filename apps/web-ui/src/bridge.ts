@@ -55,7 +55,7 @@ export type WorkspaceResult =
   | {
       ok: false;
       source: "native-workspace" | "browser-preview";
-      error: { code: string; message: string; path: string };
+      error: { code: string; message: string; path: string; line?: number; column?: number };
     };
 
 export type ProtocolCreateRequest = {
@@ -81,6 +81,10 @@ declare global {
       version: string,
       description: string,
       byteOrder: "big" | "little",
+    ) => Promise<WorkspaceResult>;
+    iotpsWorkspaceSaveProtocol?: (
+      relativePath: string,
+      content: string,
     ) => Promise<WorkspaceResult>;
     iotpsWorkspaceClose?: () => Promise<WorkspaceResult>;
   }
@@ -211,6 +215,15 @@ export async function createProtocol(request: ProtocolCreateRequest): Promise<Wo
         request.description,
         request.byteOrder,
       )
+    : nativeRequired();
+}
+
+export async function saveProtocol(
+  relativePath: string,
+  content: string,
+): Promise<WorkspaceResult> {
+  return window.iotpsWorkspaceSaveProtocol
+    ? window.iotpsWorkspaceSaveProtocol(relativePath, content)
     : nativeRequired();
 }
 

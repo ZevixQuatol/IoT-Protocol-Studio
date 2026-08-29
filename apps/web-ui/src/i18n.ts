@@ -30,6 +30,7 @@ export type TranslationMessages = {
     cancel: string;
     submit: string;
   };
+  editor: { save: string; saved: string; unsaved: string; editingHint: string };
   settings: { title: string; language: string; languageHint: string };
 };
 
@@ -71,6 +72,12 @@ export const messages: Record<Locale, TranslationMessages> = {
       description: "描述",
       cancel: "取消",
       submit: "创建",
+    },
+    editor: {
+      save: "保存",
+      saved: "已保存",
+      unsaved: "未保存",
+      editingHint: "保存前由 C++ Schema Loader 校验；校验失败不会覆盖原文件。",
     },
     settings: {
       title: "设置",
@@ -114,6 +121,13 @@ export const messages: Record<Locale, TranslationMessages> = {
       description: "Description",
       cancel: "Cancel",
       submit: "Create",
+    },
+    editor: {
+      save: "Save",
+      saved: "Saved",
+      unsaved: "Unsaved",
+      editingHint:
+        "The C++ Schema Loader validates before save; invalid YAML never replaces the original file.",
     },
     settings: {
       title: "Settings",
@@ -165,6 +179,7 @@ const chineseWorkspaceErrors: Record<string, string> = {
   duplicate_protocol_path: "协议路径已存在",
   protocol_file_load_failed: "无法加载协议文件",
   protocol_schema_invalid: "协议 Schema 无效",
+  protocol_not_referenced: "协议未被 project.yaml 引用",
   protocol_file_already_exists: "协议文件已经存在",
   protocol_directory_create_failed: "无法创建协议目录",
   protocol_file_write_failed: "无法写入协议文件",

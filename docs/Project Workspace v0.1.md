@@ -131,6 +131,7 @@ protocol_path_outside_project
 duplicate_protocol_path
 protocol_file_load_failed
 protocol_schema_invalid
+protocol_not_referenced
 protocol_file_already_exists
 protocol_directory_create_failed
 protocol_file_write_failed
@@ -154,13 +155,19 @@ Protocols: 1
 
 成功返回 `0`，项目或协议错误返回 `1`，命令用法错误返回 `2`。
 
-## 8. 后续边界
+## 8. Protocol YAML 安全更新
+
+`update_protocol(projectDirectory, relativePath, yaml)` 只允许更新 `project.yaml` 已引用且仍位于项目目录内的 Protocol。候选内容先由 Schema Loader 建立完整领域模型；失败时返回 `protocol_schema_invalid`、领域路径和源码行列，磁盘原文件不变。
+
+校验成功后，Core 在目标文件同目录写入 `.iotps.tmp`，将原文件改名为 `.iotps.bak`，再替换目标并调用 `load_project()` 回读整个项目。回读失败时恢复备份；成功后删除备份。残留临时文件不会被覆盖，而是返回 `protocol_file_write_failed` 供用户处理。未被清单引用的路径返回 `protocol_not_referenced`。
+
+## 9. 后续边界
 
 以下能力仍不属于 v0.1 Workspace Core：
 
 - 完整 Project 创建、Protocol 重命名/删除和任意 Schema 结构写回。
-- Windows 目录选择器和 WebView Host Bridge 属于 `apps/desktop-win` 平台层；现已复用 Workspace Core 实现项目打开、读取、Protocol 创建和关闭。
+- Windows 目录选择器和 WebView Host Bridge 属于 `apps/desktop-win` 平台层；现已复用 Workspace Core 实现项目打开、读取、Protocol 创建、编辑保存和关闭。
 - 最近项目、项目复制、导入、导出和归档。
 - 外部文件监听、自动刷新和未保存修改提示。
-- Explorer GUI 已支持真实嵌套树和 Protocol 新建；重命名、删除和拖放仍未实现。
+- Explorer GUI 已支持真实嵌套树、Protocol 新建和 YAML 源码编辑；重命名、删除和拖放仍未实现。
 - `messages/`、`connections/` 等资源文件的加载契约。

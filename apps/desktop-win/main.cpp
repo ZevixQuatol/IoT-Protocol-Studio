@@ -236,10 +236,13 @@ string_arguments(const std::string_view request) {
 
 [[nodiscard]] std::string workspace_error_response(const std::string_view code,
                                                    const std::string_view message,
-                                                   const std::string_view path = {}) {
+                                                   const std::string_view path = {},
+                                                   const std::size_t line = 0,
+                                                   const std::size_t column = 0) {
     return "{\"ok\":false,\"source\":\"native-workspace\",\"error\":{\"code\":" +
            json_string(code) + ",\"message\":" + json_string(message) +
-           ",\"path\":" + json_string(path) + "}}";
+           ",\"path\":" + json_string(path) + ",\"line\":" + std::to_string(line) +
+           ",\"column\":" + std::to_string(column) + "}}";
 }
 
 [[nodiscard]] std::string workspace_project_response(const iotps::core::workspace::Project& project,
@@ -280,8 +283,10 @@ string_arguments(const std::string_view request) {
 [[nodiscard]] std::string
 workspace_result_response(const iotps::core::workspace::ProjectLoadResult& result) {
     if (const auto* error = result.error_if()) {
+        const auto line = error->source_location.has_value() ? error->source_location->line : 0;
+        const auto column = error->source_location.has_value() ? error->source_location->column : 0;
         return workspace_error_response(iotps::core::workspace::to_string(error->code),
-                                        error->detail, error->path);
+                                        error->detail, error->path, line, column);
     }
     try {
         return workspace_project_response(result.value());
@@ -379,6 +384,21 @@ create_workspace_protocol(const std::string_view request,
         }));
 }
 
+[[nodiscard]] std::string
+save_workspace_protocol(const std::string_view request,
+                        const std::optional<std::filesystem::path>& current_project) {
+    const auto arguments = string_arguments(request);
+    if (!arguments.has_value() || arguments->size() != 2) {
+        return workspace_error_response("invalid_request", "saveProtocol expects two strings");
+    }
+    if (!current_project.has_value()) {
+        return workspace_error_response("project_not_open",
+                                        "Open a project before saving a protocol");
+    }
+    return workspace_result_response(iotps::core::workspace::update_protocol(
+        *current_project, (*arguments)[0], (*arguments)[1]));
+}
+
 [[nodiscard]] std::string inspect_hex(const std::string& request,
                                       const iotps::core::Engine& engine) {
     try {
@@ -444,18 +464,20 @@ window.addEventListener("DOMContentLoaded", () => {
         window.iotpsWorkspaceCurrent(),
         window.iotpsWorkspaceCreateProtocol(
           "smoke.protocol.yaml", "smoke", "", "1.0", "", "big"),
+        window.iotpsWorkspaceSaveProtocol("protocols/smoke.protocol.yaml", "messages: {}"),
         window.iotpsWorkspaceClose(),
         Promise.resolve(window.iotpsWindowAction("maximize"))
           .then((result) => result?.ok && window.iotpsWindowAction("maximize")),
       ])
-        .then(([current, createResult, closed, windowResult]) => {
+        .then(([current, createResult, saveResult, closed, windowResult]) => {
           if (!windowResult?.ok) {
             report("window-controls-failed");
             return;
           }
           if (!current?.ok || current.project !== null || !closed?.ok ||
               closed.project !== null || createResult?.ok ||
-              createResult?.error?.code !== "project_not_open") {
+              createResult?.error?.code !== "project_not_open" || saveResult?.ok ||
+              saveResult?.error?.code !== "project_not_open") {
             report("workspace-bridge-failed");
             return;
           }
@@ -701,6 +723,9 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR command_line, int) {
         });
         window.bind("iotpsWorkspaceCreateProtocol", [&current_project](const std::string& request) {
             return create_workspace_protocol(request, current_project);
+        });
+        window.bind("iotpsWorkspaceSaveProtocol", [&current_project](const std::string& request) {
+            return save_workspace_protocol(request, current_project);
         });
         window.bind("iotpsWorkspaceClose", [&current_project](const std::string&) {
             current_project.reset();

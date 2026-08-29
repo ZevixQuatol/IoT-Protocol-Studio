@@ -62,9 +62,11 @@ flowchart LR
     J --> K["✅ HEX/Binary 协议解析核心"]
     K --> L["✅ Schema 资源 + 文件夹嵌套 + 协议创建"]
     L --> M["✅ Windows 打开项目 + 真实嵌套协议树"]
-    M --> N["🚧 下一步：Protocol YAML 源码编辑 + Core 校验保存"]
-    N --> O["⬜ 完整 Simulator + Test Runner"]
-    O --> P["⬜ MVP 验收"]
+    M --> N["✅ Protocol YAML 源码编辑 + Core 校验保存"]
+    N --> O["🚧 下一步：只读可视化字段树"]
+    O --> P["⬜ Message Studio + Transport + Debugger"]
+    P --> Q["⬜ 完整 Simulator + Test Runner"]
+    Q --> R["⬜ MVP 验收"]
 ```
 
 ### 2.2 当前结论
@@ -106,7 +108,7 @@ ProtocolSchema + Message 名称 + HEX / ByteBuffer
   → Transport API 测试边界
 ```
 
-Schema、固定布局协议解析和 Workspace 纵向链路已经打通：Protocol YAML 和项目目录可以映射为领域模型，Core 可以按明确的 Message 名称解析 HEX/Binary 或反向编码，也可以在嵌套目录创建最小 Protocol Schema 并安全写回项目引用。Windows GUI 已能打开、显示、创建和关闭真实项目；自动 Message 匹配、Protocol 编辑保存和真实 Transport 仍未完成。
+Schema、固定布局协议解析和 Workspace 纵向链路已经打通：Protocol YAML 和项目目录可以映射为领域模型，Core 可以按明确的 Message 名称解析 HEX/Binary 或反向编码，也可以在嵌套目录创建和安全更新 Protocol Schema。Windows GUI 已能打开、显示、创建、编辑保存和关闭真实项目；自动 Message 匹配、可视化字段树和真实 Transport 仍未完成。
 
 ### 2.3 已经可以使用的能力
 
@@ -154,10 +156,10 @@ Schema、固定布局协议解析和 Workspace 纵向链路已经打通：Protoc
 - [x] 通过 Windows 系统目录选择器打开包含 `project.yaml` 的真实项目目录。
 - [x] Host Bridge 直接调用 Workspace Core，并在 Web UI 中显示真实嵌套 Protocol 树和源码。
 - [x] 从 GUI 创建嵌套 Protocol、刷新并选中新资源；支持关闭项目恢复空状态。
+- [x] 在 Web UI 编辑 Protocol YAML，经 Schema Loader 校验后原子保存并由 Workspace 回读刷新；失败不覆盖原文件。
 
 ### 2.4 当前界面中尚未实现的占位功能
 
-- [ ] Protocol YAML 当前只能查看和创建，尚不能编辑、校验后保存。
 - [ ] 当前没有可视化字段树、属性检查器或 Visual + Code 双向同步。
 - [ ] 当前 GUI 没有连接、发送、接收、模拟器或测试执行能力。
 
@@ -165,25 +167,24 @@ Schema、固定布局协议解析和 Workspace 纵向链路已经打通：Protoc
 
 ## 3. 接下来应该做什么
 
-### 3.1 当前唯一首要任务：Protocol YAML 源码编辑与安全保存
+### 3.1 当前唯一首要任务：只读可视化字段树
 
-Windows 项目打开、真实嵌套树、GUI 创建和关闭项目已经完成。下一步只打通 Protocol Designer 的第一个可编辑纵向切片：
+Protocol YAML 源码编辑、Core 校验、原子保存和回读刷新已经完成。下一步只打通 Protocol Designer 的第一个可视化纵向切片：
 
-- Web UI 提供 Protocol YAML 源码编辑器和保存动作。
-- Host Bridge 把候选 YAML 交给现有 Schema Loader 校验，不在 TypeScript 中解析 YAML。
-- 校验通过后原子替换协议文件，再调用 Workspace Loader 回读整个项目。
-- 校验失败时保留磁盘原文件并返回稳定错误码、领域路径和源码位置。
+- Host Bridge 从现有 `ProtocolSchema` 领域模型输出 Message / Field 层级，不在 TypeScript 中解析 YAML。
+- Web UI 为当前 Protocol 提供 Code / Visual 视图切换。
+- Visual 视图只读展示 Message、Field、类型、offset/length、字节序和固定 Array 元数据。
+- Code / Visual 共享当前 Protocol，保存并回读后同步刷新。
 
-暂不实现可视化字段树、双向同步、语法高亮、自动补全、Protocol 重命名/删除和外部文件监听。
+暂不实现可视化修改、属性检查器、双向写回、拖放、语法高亮、自动补全、Protocol 重命名/删除和外部文件监听。
 
 本阶段完成标准：
 
 ```text
-编辑 Protocol YAML
-  → Host Bridge 调用 Schema Loader 校验
-  → 原子保存协议文件
-  → Workspace Loader 回读项目
-  → Web UI 刷新源码与诊断
+ProtocolSchema 领域模型
+  → Host Bridge 输出 Message / Field 层级
+  → Web UI 显示只读可视化字段树
+  → Code / Visual 共享当前 Protocol
 ```
 
 ### 3.2 Schema 之后的执行顺序
@@ -198,13 +199,14 @@ Windows 项目打开、真实嵌套树、GUI 创建和关闭项目已经完成�
 8. **协议解析 Core**：按 Message 名称完成 Schema + HEX/Binary Decode/Encode。✅
 9. **Schema 资源与协议创建**：嵌套目录、Protocol Schema 创建和项目引用写回。✅
 10. **打开项目**：Windows 目录选择、Host Bridge、真实 Explorer、协议创建和关闭项目。✅
-11. **Protocol Designer**：Schema 源码与可视化字段编辑器双向同步。
-12. **Message Studio**：结构化表单组包、自动 Length/CRC 和报文模板。
-13. **Transport 抽象 + TCP Client**：建立第一条真实收发链路。
-14. **Debugger + Timeline**：统一展示 TX/RX、Raw HEX 和解析字段。
-15. **Serial / TCP Server / UDP**：补齐 MVP Transport。
-16. **动态 Schema 结构**：Count/Length 驱动 Array、Struct、Enum、BitField、Condition 和 Checksum Range。
-17. **Basic Simulator + Basic Test Case**：完成无设备开发和自动验证。
+11. **Protocol Designer 源码编辑**：YAML 编辑、Core 校验、原子保存和回读刷新。✅
+12. **Protocol Designer 可视化**：Schema 可视化字段树，再推进 Visual + Code 双向同步。
+13. **Message Studio**：结构化表单组包、自动 Length/CRC 和报文模板。
+14. **Transport 抽象 + TCP Client**：建立第一条真实收发链路。
+15. **Debugger + Timeline**：统一展示 TX/RX、Raw HEX 和解析字段。
+16. **Serial / TCP Server / UDP**：补齐 MVP Transport。
+17. **动态 Schema 结构**：Count/Length 驱动 Array、Struct、Enum、BitField、Condition 和 Checksum Range。
+18. **Basic Simulator + Basic Test Case**：完成无设备开发和自动验证。
 
 ---
 
@@ -214,7 +216,7 @@ Windows 项目打开、真实嵌套树、GUI 创建和关闭项目已经完成�
 |---|---|---|---|
 | M00 工程与平台基础 | 🟡 部分完成 | M0 | 模块分层、格式化、统一 Result/Error 和 Windows 基线可运行；静态分析、安装发布和其他平台未完成 |
 | M01 Workspace 工作空间 | 🟡 部分完成 | MVP | Project Schema、Workspace Core、Windows GUI 打开/关闭、真实嵌套树和 Protocol 创建已完成；完整 Project 创建、最近项目、重命名/删除和文件监听未实现 |
-| M02 Protocol Designer / Schema | 🟡 部分完成 | MVP | Protocol Schema v0.1 YAML、固定 Primitive/string/bytes/Array、Field `length`/`offset` 和最小 `lengthOf` 已完成；下一步实现 YAML 编辑、校验和保存 |
+| M02 Protocol Designer / Schema | 🟡 部分完成 | MVP | Protocol Schema v0.1、固定字段能力以及 YAML 编辑、Core 校验和原子保存已完成；下一步实现只读可视化字段树 |
 | M03 Codec 编解码 | 🟡 部分完成 | MVP | 统一 HEX/Binary 协议入口及固定 Primitive/string/bytes/Array、最小 Length Field、非连续布局、padding、字节序和 round-trip 已完成；自动 Message 匹配、动态 Array、Struct/Condition 和 Checksum 尚未实现 |
 | M04 HEX Studio | 🟡 部分完成 | MVP | 已完成基础 HEX 检查和三种校验计算 |
 | M05 Transport 通信层 | 🟡 API 已建立 | MVP/P2 | 统一字节、生命周期、状态、事件和统计接口已建立；没有真实连接实现 |
@@ -526,8 +528,8 @@ Windows 项目打开、真实嵌套树、GUI 创建和关闭项目已经完成�
 
 ### M02-F12 Visual + Code 双向编辑
 
-- [ ] 🚧 YAML Schema 源码编辑、Core 校验和安全保存。
-- [ ] 可视化字段树。
+- [x] YAML Schema 源码编辑、Core 校验和安全保存。
+- [ ] 🚧 可视化字段树。
 - [ ] 属性检查器。
 - [ ] 添加/删除/复制/移动字段。
 - [ ] 拖放排序。
@@ -1575,13 +1577,22 @@ CI/CD
 - Debug/Release 全量构建和两种配置 20/20 CTest 通过，真实桌面验收覆盖目录选择、项目加载、中文嵌套 Protocol 创建、树刷新和关闭项目。
 - 本地提交：见包含本记录的 `feat: open workspace projects in desktop` 提交，未自动推送。
 
+### 2026-08-29：Protocol YAML 源码编辑与安全保存
+
+- Workspace Core 新增 `update_protocol()`，只更新 `project.yaml` 已引用且未逃逸项目根目录的 Protocol。
+- 候选 YAML 先由现有 Schema Loader 校验；失败返回稳定错误码、领域路径和源码行列，磁盘原文件保持不变。
+- 校验成功后使用同目录临时文件和备份原子替换，再由 Workspace Loader 回读整个项目；回读失败自动恢复原文件。
+- Windows Host 新增保存 Bridge，Web UI 提供受控 YAML 编辑器、未保存状态和保存动作；保存成功刷新真实项目树和源码。
+- 单元测试覆盖无效内容不覆盖、合法更新、回读、临时文件清理和未引用路径拒绝；Debug/Release 均为 20/20 CTest 通过。
+- 本地提交：见包含本记录的 `feat: edit and safely save protocol YAML` 提交，未自动推送。
+
 ---
 
 ## 9. 下一次更新入口
 
 下次开始开发时，直接从以下功能点继续：
 
-> **M02-F12：实现 Protocol YAML 源码编辑 → Host Bridge → Schema Loader 校验 → 原子保存 → Workspace 回读刷新**
+> **M02-F12：从 Core `ProtocolSchema` 输出 Message / Field 层级，在 Web UI 建立只读可视化字段树并与 Code 视图共享当前 Protocol**
 
 完成一个功能点后：
 
