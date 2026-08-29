@@ -38,87 +38,70 @@ export type WorkspaceProtocol = {
   content: string;
 };
 
-export type WorkspaceSchema = {
-  id: string;
+export type WorkspaceProject = {
   name: string;
   description: string;
+  rootPath: string;
   protocols: WorkspaceProtocol[];
 };
 
-export type WorkspaceCatalog =
+export type WorkspaceResult =
   | {
       ok: true;
       source: "native-workspace" | "browser-preview";
-      cacheRoot: string;
-      schemas: WorkspaceSchema[];
+      cancelled: boolean;
+      project: WorkspaceProject | null;
     }
   | {
       ok: false;
-      source: "native-workspace";
-      error: { message: string };
+      source: "native-workspace" | "browser-preview";
+      error: { code: string; message: string; path: string };
     };
+
+export type ProtocolCreateRequest = {
+  relativePath: string;
+  name: string;
+  displayName: string;
+  version: string;
+  description: string;
+  byteOrder: "big" | "little";
+};
 
 declare global {
   interface Window {
     iotpsCoreInfo?: () => Promise<CoreInfo>;
     iotpsInspectHex?: (input: string) => Promise<InspectionResult>;
     iotpsWindowAction?: (action: WindowAction) => Promise<{ ok: boolean }>;
-    iotpsWorkspaceCatalog?: () => Promise<WorkspaceCatalog>;
+    iotpsWorkspaceCurrent?: () => Promise<WorkspaceResult>;
+    iotpsWorkspaceOpen?: () => Promise<WorkspaceResult>;
+    iotpsWorkspaceCreateProtocol?: (
+      relativePath: string,
+      name: string,
+      displayName: string,
+      version: string,
+      description: string,
+      byteOrder: "big" | "little",
+    ) => Promise<WorkspaceResult>;
+    iotpsWorkspaceClose?: () => Promise<WorkspaceResult>;
   }
 }
 
-const browserWorkspace: WorkspaceCatalog = {
+const browserWorkspace: WorkspaceResult = {
   ok: true,
   source: "browser-preview",
-  cacheRoot: "Browser preview / schemas",
-  schemas: [
-    {
-      id: "smart-sensor",
-      name: "智能传感器",
-      description: "环境传感器与 Modbus 网关协议",
-      protocols: [
-        {
-          name: "环境传感器",
-          path: "protocols/sensors/environment/environment-sensor.protocol.yaml",
-          content: `schemaVersion: "0.1"
-protocol:
-  name: environment-sensor
-  displayName: 环境传感器
-  version: "1.0"
-  defaultByteOrder: little
-messages:
-  telemetry:
-    typeId: 1
-    fields:
-      - name: temperature
-        type: int16
-      - name: humidity
-        type: uint16
-`,
-        },
-        {
-          name: "Modbus 网关",
-          path: "protocols/gateways/modbus/modbus-gateway.protocol.yaml",
-          content: `schemaVersion: "0.1"
-protocol:
-  name: modbus-gateway
-  displayName: Modbus 网关
-  version: "1.0"
-  defaultByteOrder: big
-messages:
-  status:
-    typeId: 2
-    fields:
-      - name: address
-        type: uint8
-      - name: online
-        type: bool
-`,
-        },
-      ],
-    },
-  ],
+  cancelled: false,
+  project: null,
 };
+
+const nativeRequired = (): WorkspaceResult => ({
+  ok: false,
+  source: "browser-preview",
+  error: {
+    code: "native_host_required",
+    message: "This action requires the Windows desktop host",
+    path: "",
+  },
+});
 
 const separators = /[\s,:_-]/g;
 
@@ -210,6 +193,27 @@ export async function performWindowAction(action: WindowAction): Promise<void> {
   await window.iotpsWindowAction?.(action);
 }
 
-export async function getWorkspaceCatalog(): Promise<WorkspaceCatalog> {
-  return window.iotpsWorkspaceCatalog ? window.iotpsWorkspaceCatalog() : browserWorkspace;
+export async function getCurrentProject(): Promise<WorkspaceResult> {
+  return window.iotpsWorkspaceCurrent ? window.iotpsWorkspaceCurrent() : browserWorkspace;
+}
+
+export async function openProject(): Promise<WorkspaceResult> {
+  return window.iotpsWorkspaceOpen ? window.iotpsWorkspaceOpen() : nativeRequired();
+}
+
+export async function createProtocol(request: ProtocolCreateRequest): Promise<WorkspaceResult> {
+  return window.iotpsWorkspaceCreateProtocol
+    ? window.iotpsWorkspaceCreateProtocol(
+        request.relativePath,
+        request.name,
+        request.displayName,
+        request.version,
+        request.description,
+        request.byteOrder,
+      )
+    : nativeRequired();
+}
+
+export async function closeProject(): Promise<WorkspaceResult> {
+  return window.iotpsWorkspaceClose ? window.iotpsWorkspaceClose() : browserWorkspace;
 }

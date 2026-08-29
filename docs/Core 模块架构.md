@@ -143,7 +143,7 @@ core/
 - 创建时拒绝目录逃逸、非便携路径、重复引用和覆盖已有文件；写回失败时恢复原清单。
 - `iotps project validate <directory>` CLI 验证入口。
 
-当前没有提供：完整 Project 创建、Protocol 重命名/删除、目录选择器、最近项目、外部文件监听、未保存修改或 Explorer GUI 文件操作。完整契约见 [Project Workspace v0.1](<./Project Workspace v0.1.md>)。
+Windows Host 已通过系统目录选择器和 WebView Bridge 复用以上 Core API，实现项目打开/关闭、真实嵌套 Explorer 和 Protocol 创建。Core 当前没有提供完整 Project 创建、Protocol 编辑/重命名/删除、最近项目、外部文件监听或未保存修改处理。完整契约见 [Project Workspace v0.1](<./Project Workspace v0.1.md>)。
 
 ### 5.3 Codec
 
@@ -273,14 +273,14 @@ Simulator 集成测试只替换 Transport，因为 Transport 是操作系统和�
 
 ## 8. 下一步
 
-固定布局 Codec、协议级 HEX/Binary 解析入口、Workspace 加载以及嵌套 Protocol 创建已经完成。下一入口把已有 Workspace Core 接入 Windows Host 和 Web UI：
+固定布局 Codec、协议级 HEX/Binary 解析入口、Workspace 加载、嵌套 Protocol 创建以及 Windows GUI 项目纵向切片已经完成。下一入口进入 Protocol Designer 的源码编辑与安全保存：
 
 ```text
-Windows 选择项目目录
-  → Host Bridge 调用 Workspace Core
-  → Web UI 显示真实嵌套 Protocol 树
-  → GUI 创建 Protocol
-  → 关闭项目
+编辑 Protocol YAML
+  → Host Bridge 调用 Schema Loader 校验
+  → 原子替换协议文件
+  → Workspace Loader 回读项目
+  → Web UI 刷新源码与诊断
 ```
 
-下一入口只打通打开、显示、创建和关闭项目纵向切片，不同时实现完整可视化 Protocol Designer、Protocol 重命名/删除、真实 TCP/Serial、Simulator 行为 DSL 或完整 Test Runner。自动 Message 匹配需要先定义 wire 匹配规则；Count/Length 驱动 Array 与 Struct/Condition 保留在后续动态 Schema 阶段。
+下一入口只打通 YAML 编辑、校验、保存和失败不覆盖原文件的纵向切片，不同时实现可视化字段树、语法高亮、自动补全、Protocol 重命名/删除、真实 TCP/Serial、Simulator 行为 DSL 或完整 Test Runner。自动 Message 匹配需要先定义 wire 匹配规则；Count/Length 驱动 Array 与 Struct/Condition 保留在后续动态 Schema 阶段。

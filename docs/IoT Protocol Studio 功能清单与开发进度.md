@@ -61,8 +61,8 @@ flowchart LR
     I --> J["✅ project.yaml + Workspace Core"]
     J --> K["✅ HEX/Binary 协议解析核心"]
     K --> L["✅ Schema 资源 + 文件夹嵌套 + 协议创建"]
-    L --> M["🚧 下一步：Windows 打开项目 + 真实嵌套协议树"]
-    M --> N["⬜ Message Studio + 真实 Transport + Debugger"]
+    L --> M["✅ Windows 打开项目 + 真实嵌套协议树"]
+    M --> N["🚧 下一步：Protocol YAML 源码编辑 + Core 校验保存"]
     N --> O["⬜ 完整 Simulator + Test Runner"]
     O --> P["⬜ MVP 验收"]
 ```
@@ -106,7 +106,7 @@ ProtocolSchema + Message 名称 + HEX / ByteBuffer
   → Transport API 测试边界
 ```
 
-Schema、固定布局协议解析和 Workspace 纵向链路已经打通：Protocol YAML 和项目目录可以映射为领域模型，Core 可以按明确的 Message 名称解析 HEX/Binary 或反向编码，也可以在嵌套目录创建最小 Protocol Schema 并安全写回项目引用。自动 Message 匹配、GUI Workspace 和真实 Transport 仍未完成。
+Schema、固定布局协议解析和 Workspace 纵向链路已经打通：Protocol YAML 和项目目录可以映射为领域模型，Core 可以按明确的 Message 名称解析 HEX/Binary 或反向编码，也可以在嵌套目录创建最小 Protocol Schema 并安全写回项目引用。Windows GUI 已能打开、显示、创建和关闭真实项目；自动 Message 匹配、Protocol 编辑保存和真实 Transport 仍未完成。
 
 ### 2.3 已经可以使用的能力
 
@@ -151,40 +151,39 @@ Schema、固定布局协议解析和 Workspace 纵向链路已经打通：Protoc
 - [x] 将 Message 不存在、HEX 解析失败和下层 Codec 失败映射为稳定协议级错误，同时保留下层错误码、路径和偏移。
 - [x] 在 `protocols/` 下按需创建嵌套目录和最小 Protocol Schema，并将引用写回 `project.yaml` 后重新加载校验。
 - [x] 创建 Protocol 时拒绝非便携路径、目录逃逸、重复引用和覆盖已有文件；失败时恢复原项目清单。
+- [x] 通过 Windows 系统目录选择器打开包含 `project.yaml` 的真实项目目录。
+- [x] Host Bridge 直接调用 Workspace Core，并在 Web UI 中显示真实嵌套 Protocol 树和源码。
+- [x] 从 GUI 创建嵌套 Protocol、刷新并选中新资源；支持关闭项目恢复空状态。
 
 ### 2.4 当前界面中尚未实现的占位功能
 
-- [ ] Explorer 中的 `device.yaml` 还不能打开、编辑或保存。
-- [ ] Messages、Connections、Tests 节点只是静态占位。
-- [ ] Timeline、Problems 标签只是静态占位。
-- [ ] 当前 HEX 表格不是协议字段解析结果，只是逐字节展示。
-- [ ] 当前“解析”不是 Protocol Schema Decode。
-- [ ] 当前 GUI 还不能打开/关闭项目，也没有连接、发送、接收、模拟器或测试执行能力。
+- [ ] Protocol YAML 当前只能查看和创建，尚不能编辑、校验后保存。
+- [ ] 当前没有可视化字段树、属性检查器或 Visual + Code 双向同步。
+- [ ] 当前 GUI 没有连接、发送、接收、模拟器或测试执行能力。
 
 ---
 
 ## 3. 接下来应该做什么
 
-### 3.1 当前唯一首要任务：Windows 打开项目与真实嵌套协议树
+### 3.1 当前唯一首要任务：Protocol YAML 源码编辑与安全保存
 
-Workspace Core 已完成项目加载、嵌套 Protocol 创建和项目引用写回。下一步只打通一个 Windows GUI 纵向切片：
+Windows 项目打开、真实嵌套树、GUI 创建和关闭项目已经完成。下一步只打通 Protocol Designer 的第一个可编辑纵向切片：
 
-- Windows Host 使用系统目录选择器打开包含 `project.yaml` 的目录。
-- Host Bridge 直接调用 Workspace Core，不在 TypeScript 中重复解析 YAML。
-- Web UI 根据 `ProjectProtocol::relative_path` 显示真实嵌套协议树。
-- GUI 调用 `create_protocol()` 创建协议并刷新项目树。
-- 支持关闭当前项目并恢复未打开状态。
+- Web UI 提供 Protocol YAML 源码编辑器和保存动作。
+- Host Bridge 把候选 YAML 交给现有 Schema Loader 校验，不在 TypeScript 中解析 YAML。
+- 校验通过后原子替换协议文件，再调用 Workspace Loader 回读整个项目。
+- 校验失败时保留磁盘原文件并返回稳定错误码、领域路径和源码位置。
 
-暂不实现最近项目、Protocol 重命名/删除、拖放和完整 Protocol Designer。
+暂不实现可视化字段树、双向同步、语法高亮、自动补全、Protocol 重命名/删除和外部文件监听。
 
 本阶段完成标准：
 
 ```text
-Windows 选择项目目录
-  → Host Bridge 调用 Workspace Core
-  → Web UI 显示真实嵌套 Protocol 树
-  → GUI 创建 Protocol 并刷新
-  → 关闭项目恢复空状态
+编辑 Protocol YAML
+  → Host Bridge 调用 Schema Loader 校验
+  → 原子保存协议文件
+  → Workspace Loader 回读项目
+  → Web UI 刷新源码与诊断
 ```
 
 ### 3.2 Schema 之后的执行顺序
@@ -198,7 +197,7 @@ Windows 选择项目目录
 7. **Workspace Core**：定义 `project.yaml`、最小项目目录和加载/校验。✅
 8. **协议解析 Core**：按 Message 名称完成 Schema + HEX/Binary Decode/Encode。✅
 9. **Schema 资源与协议创建**：嵌套目录、Protocol Schema 创建和项目引用写回。✅
-10. **打开项目**：Windows 目录选择、Host Bridge、真实 Explorer、协议创建和关闭项目。
+10. **打开项目**：Windows 目录选择、Host Bridge、真实 Explorer、协议创建和关闭项目。✅
 11. **Protocol Designer**：Schema 源码与可视化字段编辑器双向同步。
 12. **Message Studio**：结构化表单组包、自动 Length/CRC 和报文模板。
 13. **Transport 抽象 + TCP Client**：建立第一条真实收发链路。
@@ -214,8 +213,8 @@ Windows 选择项目目录
 | 模块 | 当前状态 | 阶段 | 当前说明 |
 |---|---|---|---|
 | M00 工程与平台基础 | 🟡 部分完成 | M0 | 模块分层、格式化、统一 Result/Error 和 Windows 基线可运行；静态分析、安装发布和其他平台未完成 |
-| M01 Workspace 工作空间 | 🟡 部分完成 | MVP | Project Schema v0.1、Workspace 加载、嵌套 Protocol 创建/写回和 CLI 校验已完成；下一步打通 Windows GUI 打开、创建和关闭项目 |
-| M02 Protocol Designer / Schema | 🟡 部分完成 | MVP | Protocol Schema v0.1 YAML、固定 Primitive/string/bytes/Array、Field `length`/`offset` 和最小 `lengthOf` 已完成；可视化设计器与动态结构未实现 |
+| M01 Workspace 工作空间 | 🟡 部分完成 | MVP | Project Schema、Workspace Core、Windows GUI 打开/关闭、真实嵌套树和 Protocol 创建已完成；完整 Project 创建、最近项目、重命名/删除和文件监听未实现 |
+| M02 Protocol Designer / Schema | 🟡 部分完成 | MVP | Protocol Schema v0.1 YAML、固定 Primitive/string/bytes/Array、Field `length`/`offset` 和最小 `lengthOf` 已完成；下一步实现 YAML 编辑、校验和保存 |
 | M03 Codec 编解码 | 🟡 部分完成 | MVP | 统一 HEX/Binary 协议入口及固定 Primitive/string/bytes/Array、最小 Length Field、非连续布局、padding、字节序和 round-trip 已完成；自动 Message 匹配、动态 Array、Struct/Condition 和 Checksum 尚未实现 |
 | M04 HEX Studio | 🟡 部分完成 | MVP | 已完成基础 HEX 检查和三种校验计算 |
 | M05 Transport 通信层 | 🟡 API 已建立 | MVP/P2 | 统一字节、生命周期、状态、事件和统计接口已建立；没有真实连接实现 |
@@ -293,7 +292,7 @@ Windows 选择项目目录
 - [ ] 增加 Bridge 请求 ID、错误结构、取消和超时机制。
 - [ ] 增加 Host 日志和诊断文件。
 - [ ] 增加单实例、文件关联和启动参数处理。
-- [ ] 增加原生文件/目录选择器。
+- [x] 增加 Windows 原生项目目录选择器。
 - [ ] 增加安装包、卸载、签名和升级流程。
 - [ ] 明确 WebView2 Evergreen 或 Fixed Version 发布策略。
 
@@ -317,8 +316,8 @@ Windows 选择项目目录
 ### M01-F01 项目生命周期
 
 - [ ] 新建项目。
-- [ ] 🚧 打开项目。
-- [ ] 关闭项目。
+- [x] 打开项目。
+- [x] 关闭项目。
 - [ ] 最近项目列表。
 - [ ] 项目复制。
 - [ ] 项目搜索。
@@ -346,9 +345,9 @@ Windows 选择项目目录
 
 ### M01-F03 Explorer
 
-- [ ] 🟡 当前静态项目树布局。
-- [ ] 按项目内容动态生成树。
-- [ ] 🟡 新建/重命名/删除项目资源：Protocol 新建 Core API 已完成，GUI、重命名和删除尚未实现。
+- [x] 当前项目树布局。
+- [x] 按项目内容和 Protocol 相对路径动态生成嵌套树。
+- [ ] 🟡 新建/重命名/删除项目资源：Protocol 新建 Core API 和 GUI 已完成，重命名和删除尚未实现。
 - [ ] 双击打开编辑器。
 - [ ] 资源上下文菜单。
 - [ ] 文件变更状态和错误标记。
@@ -527,7 +526,7 @@ Windows 选择项目目录
 
 ### M02-F12 Visual + Code 双向编辑
 
-- [ ] YAML Schema 源码编辑器。
+- [ ] 🚧 YAML Schema 源码编辑、Core 校验和安全保存。
 - [ ] 可视化字段树。
 - [ ] 属性检查器。
 - [ ] 添加/删除/复制/移动字段。
@@ -1566,13 +1565,23 @@ CI/CD
 - C/C++ 与 Web UI 格式检查通过；Windows x86_64 Debug/Release 全量构建成功，两种配置均为 20/20 CTest 通过，包含真实 WebView2 UI 烟雾测试。
 - 本地提交：见包含本记录的 `feat: create nested protocol resources` 提交，未自动推送。
 
+### 2026-08-29：Windows 项目打开与真实嵌套 Protocol 树
+
+- Windows Host 使用系统目录选择器打开包含 `project.yaml` 的目录，并由 Workspace Core 完成项目和 Protocol Schema 校验。
+- Host Bridge 持有当前项目状态，提供打开、读取、创建 Protocol 和关闭项目四个边界；TypeScript 不重复解析 YAML。
+- Web UI 按 `ProjectProtocol::relative_path` 构建真实嵌套树，展示协议物理文件内容，并保留中英文界面切换。
+- GUI 创建协议直接调用 `create_protocol()`，创建成功后刷新项目、展开多层目录并选中新 Protocol；关闭项目恢复空状态。
+- 浏览器预览不再写入或伪造项目缓存；需要磁盘访问的操作明确要求 Windows Host。
+- Debug/Release 全量构建和两种配置 20/20 CTest 通过，真实桌面验收覆盖目录选择、项目加载、中文嵌套 Protocol 创建、树刷新和关闭项目。
+- 本地提交：见包含本记录的 `feat: open workspace projects in desktop` 提交，未自动推送。
+
 ---
 
 ## 9. 下一次更新入口
 
 下次开始开发时，直接从以下功能点继续：
 
-> **M01-F01 / M01-F03：打通 Windows 目录选择 → Host Bridge → Workspace Core → Web UI 真实嵌套 Protocol 树，并接入创建和关闭项目**
+> **M02-F12：实现 Protocol YAML 源码编辑 → Host Bridge → Schema Loader 校验 → 原子保存 → Workspace 回读刷新**
 
 完成一个功能点后：
 

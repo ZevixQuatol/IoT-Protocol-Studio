@@ -556,6 +556,236 @@ button {
   white-space: nowrap;
 }
 
+.project-actions,
+.project-title {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 0 8px 8px;
+}
+
+.project-actions button,
+.workspace-empty button,
+.language-options button,
+.protocol-dialog button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-height: 30px;
+  padding: 0 10px;
+  border: 1px solid #33414e;
+  border-radius: 5px;
+  background: #17222c;
+  color: #b9c5cf;
+  cursor: pointer;
+}
+
+.project-actions button:first-child {
+  flex: 1;
+}
+
+.project-actions button:hover:not(:disabled),
+.workspace-empty button:hover:not(:disabled),
+.language-options button:hover,
+.protocol-dialog button:hover:not(:disabled) {
+  border-color: #47725f;
+  color: var(--text);
+}
+
+.project-actions button:disabled,
+.workspace-empty button:disabled,
+.protocol-dialog button:disabled {
+  opacity: 0.55;
+}
+
+.project-title {
+  height: 32px;
+  padding-bottom: 0;
+  color: #c9d3dc;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.project-title > svg {
+  color: var(--accent);
+}
+
+.project-title > span:first-of-type {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.project-title > span:last-child {
+  margin-left: auto;
+  color: #667583;
+  font-family: "Cascadia Code", Consolas, monospace;
+  font-size: 10px;
+}
+
+.workspace-empty {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  padding: 24px;
+  color: var(--muted);
+  text-align: center;
+}
+
+.workspace-empty > svg {
+  color: var(--accent);
+}
+
+.workspace-empty h1,
+.workspace-empty p {
+  margin: 0;
+}
+
+.workspace-empty h1 {
+  color: var(--text);
+  font-size: 20px;
+}
+
+.workspace-empty p {
+  max-width: 520px;
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+.error-banner {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 36px;
+  padding: 6px 12px;
+  border-bottom: 1px solid #5b343a;
+  background: #301d22;
+  color: #efb1b7;
+  font-size: 11px;
+}
+
+.error-banner span {
+  flex: 1;
+}
+
+.error-banner button {
+  display: grid;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: 0;
+  place-items: center;
+  background: transparent;
+  color: inherit;
+}
+
+.language-options {
+  display: flex;
+  gap: 8px;
+}
+
+.language-options button.active,
+.protocol-dialog button.primary {
+  border-color: #4a8d73;
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+.modal-backdrop {
+  position: fixed;
+  z-index: 20;
+  inset: 0;
+  display: grid;
+  padding: 24px;
+  place-items: center;
+  background: rgb(3 8 12 / 72%);
+}
+
+.protocol-dialog {
+  display: flex;
+  width: min(520px, 100%);
+  max-height: 100%;
+  flex-direction: column;
+  gap: 14px;
+  padding: 20px;
+  overflow: auto;
+  border: 1px solid #354553;
+  border-radius: 10px;
+  background: #121c25;
+  box-shadow: 0 24px 80px rgb(0 0 0 / 42%);
+}
+
+.protocol-dialog header,
+.protocol-dialog footer,
+.form-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.protocol-dialog header {
+  justify-content: space-between;
+  margin-bottom: 2px;
+}
+
+.protocol-dialog header span {
+  color: var(--accent);
+  font-size: 9px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.protocol-dialog h2 {
+  margin: 3px 0 0;
+  font-size: 18px;
+}
+
+.protocol-dialog header > button {
+  width: 30px;
+  padding: 0;
+}
+
+.protocol-dialog label {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 6px;
+  color: #aebac5;
+  font-size: 11px;
+}
+
+.protocol-dialog input,
+.protocol-dialog select,
+.protocol-dialog textarea {
+  width: 100%;
+  padding: 8px 10px;
+  border: 1px solid #35434f;
+  border-radius: 5px;
+  outline: 0;
+  background: #0d151c;
+  color: var(--text);
+  font: inherit;
+}
+
+.protocol-dialog input:focus,
+.protocol-dialog select:focus,
+.protocol-dialog textarea:focus {
+  border-color: var(--accent);
+}
+
+.protocol-dialog small {
+  color: #71808e;
+}
+
+.protocol-dialog footer {
+  justify-content: flex-end;
+  margin-top: 4px;
+}
+
 .spin {
   animation: spin 1s linear infinite;
 }

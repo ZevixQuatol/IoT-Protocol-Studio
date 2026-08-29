@@ -10,25 +10,36 @@ import {
   Folder,
   FolderOpen,
   HardDrive,
+  Languages,
   LoaderCircle,
   Minus,
   PanelLeftClose,
   PanelLeftOpen,
+  Plus,
   Settings,
   Square,
   X,
 } from "lucide-react";
-import { useCallback, useEffect, useState, type PointerEvent } from "react";
+import { useEffect, useState, type FormEvent, type PointerEvent } from "react";
 import {
+  closeProject,
+  createProtocol,
   getCoreInfo,
-  getWorkspaceCatalog,
+  getCurrentProject,
+  openProject,
   performWindowAction,
   type CoreInfo,
-  type WorkspaceCatalog,
+  type WorkspaceProject,
   type WorkspaceProtocol,
-  type WorkspaceSchema,
+  type WorkspaceResult,
 } from "./bridge";
-import { detectInitialLocale, messages, storeLocale } from "./i18n";
+import {
+  detectInitialLocale,
+  messages,
+  storeLocale,
+  translateWorkspaceError,
+  type Locale,
+} from "./i18n";
 
 type Page = "schema" | "settings";
 
@@ -41,9 +52,9 @@ type TreeNode = {
   protocol?: WorkspaceProtocol;
 };
 
-function buildTree(schema: WorkspaceSchema): TreeNode[] {
+function buildTree(project: WorkspaceProject): TreeNode[] {
   const roots: TreeNode[] = [];
-  for (const protocol of schema.protocols) {
+  for (const protocol of project.protocols) {
     const parts = protocol.path.split("/").filter(Boolean);
     if (parts[0] === "protocols") {
       parts.shift();
@@ -59,20 +70,13 @@ function buildTree(schema: WorkspaceSchema): TreeNode[] {
       path += `/${part}`;
       let folder = children.find((node) => node.type === "folder" && node.path === path);
       if (!folder) {
-        folder = {
-          key: `${schema.id}:folder:${path}`,
-          name: part,
-          path,
-          type: "folder",
-          children: [],
-        };
+        folder = { key: `folder:${path}`, name: part, path, type: "folder", children: [] };
         children.push(folder);
       }
       children = folder.children ?? [];
     }
-
     children.push({
-      key: `${schema.id}:protocol:${protocol.path}`,
+      key: `protocol:${protocol.path}`,
       name: protocol.name || filename.replace(/\.protocol\.ya?ml$/i, ""),
       path: protocol.path,
       type: "protocol",
@@ -130,7 +134,6 @@ function TreeItems({ nodes, depth, expanded, selectedPath, onToggle, onSelect }:
         </div>
       );
     }
-
     return (
       <button
         aria-current={selectedPath === node.path ? "page" : undefined}
@@ -148,19 +151,49 @@ function TreeItems({ nodes, depth, expanded, selectedPath, onToggle, onSelect }:
 }
 
 export default function App() {
-  const [locale] = useState(detectInitialLocale);
+  const [locale, setLocale] = useState<Locale>(detectInitialLocale);
   const [navigation, setNavigation] = useState<{ entries: Page[]; index: number }>({
     entries: ["schema"],
     index: 0,
   });
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
-  const [catalog, setCatalog] = useState<WorkspaceCatalog | null>(null);
+  const [workspace, setWorkspace] = useState<WorkspaceResult | null>(null);
   const [coreInfo, setCoreInfo] = useState<CoreInfo | null>(null);
-  const [selectedSchemaId, setSelectedSchemaId] = useState<string>();
   const [selectedProtocolPath, setSelectedProtocolPath] = useState<string>();
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
+  const [busy, setBusy] = useState(false);
+  const [createOpen, setCreateOpen] = useState(false);
+  const [errorMessage, setErrorMessage] = useState<string>();
   const translation = messages[locale];
   const page = navigation.entries[navigation.index];
+  const project = workspace?.ok ? workspace.project : null;
+  const selectedProtocol = project?.protocols.find(
+    (protocol) => protocol.path === selectedProtocolPath,
+  );
+
+  const applyWorkspace = (result: WorkspaceResult, preferredPath?: string) => {
+    if (!result.ok) {
+      setErrorMessage(
+        `${translateWorkspaceError(locale, result.error.code, result.error.message)} [${result.error.code}]${result.error.path ? ` (${result.error.path})` : ""}`,
+      );
+      return false;
+    }
+    if (result.cancelled) {
+      return false;
+    }
+    setErrorMessage(undefined);
+    setWorkspace(result);
+    const path =
+      result.project?.protocols.find((protocol) => protocol.path === preferredPath)?.path ??
+      result.project?.protocols[0]?.path;
+    setSelectedProtocolPath(path);
+    const keys = new Set<string>();
+    if (result.project) {
+      collectExpandedKeys(buildTree(result.project), keys);
+    }
+    setExpanded(keys);
+    return true;
+  };
 
   useEffect(() => {
     document.documentElement.lang = locale;
@@ -171,32 +204,14 @@ export default function App() {
     void getCoreInfo()
       .then(setCoreInfo)
       .catch(() => undefined);
-    void getWorkspaceCatalog()
-      .then((nextCatalog) => {
-        setCatalog(nextCatalog);
-        if (!nextCatalog.ok || nextCatalog.schemas.length === 0) {
-          return;
-        }
-        const firstSchema = nextCatalog.schemas[0];
-        setSelectedSchemaId(firstSchema.id);
-        setSelectedProtocolPath(firstSchema.protocols[0]?.path);
-        const expandedKeys = new Set<string>();
-        for (const schema of nextCatalog.schemas) {
-          expandedKeys.add(`schema:${schema.id}`);
-          collectExpandedKeys(buildTree(schema), expandedKeys);
-        }
-        setExpanded(expandedKeys);
-      })
+    void getCurrentProject()
+      .then(applyWorkspace)
       .catch((error: unknown) => {
-        setCatalog({
-          ok: false,
-          source: "native-workspace",
-          error: { message: error instanceof Error ? error.message : String(error) },
-        });
+        setErrorMessage(error instanceof Error ? error.message : String(error));
       });
   }, []);
 
-  const navigate = useCallback((nextPage: Page) => {
+  const navigate = (nextPage: Page) => {
     setNavigation((current) => {
       if (current.entries[current.index] === nextPage) {
         return current;
@@ -206,48 +221,52 @@ export default function App() {
         index: current.index + 1,
       };
     });
-  }, []);
+  };
 
-  const goBack = () =>
-    setNavigation((current) => ({ ...current, index: Math.max(0, current.index - 1) }));
-  const goForward = () =>
-    setNavigation((current) => ({
-      ...current,
-      index: Math.min(current.entries.length - 1, current.index + 1),
-    }));
+  const run = async (action: () => Promise<WorkspaceResult>, preferredPath?: string) => {
+    setBusy(true);
+    try {
+      return applyWorkspace(await action(), preferredPath);
+    } catch (error) {
+      setErrorMessage(error instanceof Error ? error.message : String(error));
+      return false;
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const submitCreate = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    const form = event.currentTarget;
+    const data = new FormData(form);
+    const relativePath = String(data.get("relativePath") ?? "").trim();
+    void run(
+      () =>
+        createProtocol({
+          relativePath,
+          name: String(data.get("name") ?? "").trim(),
+          displayName: String(data.get("displayName") ?? "").trim(),
+          version: String(data.get("version") ?? "").trim(),
+          description: String(data.get("description") ?? "").trim(),
+          byteOrder: data.get("byteOrder") === "little" ? "little" : "big",
+        }),
+      `protocols/${relativePath}`,
+    ).then((created) => {
+      if (created) {
+        setCreateOpen(false);
+        form.reset();
+      }
+    });
+  };
 
   const toggleExpanded = (key: string) => {
     setExpanded((current) => {
       const next = new Set(current);
-      if (next.has(key)) {
-        next.delete(key);
-      } else {
-        next.add(key);
-      }
+      next.has(key) ? next.delete(key) : next.add(key);
       return next;
     });
   };
 
-  const selectSchema = (schema: WorkspaceSchema) => {
-    setSelectedSchemaId(schema.id);
-    setSelectedProtocolPath(schema.protocols[0]?.path);
-    setExpanded((current) => new Set(current).add(`schema:${schema.id}`));
-    navigate("schema");
-  };
-
-  const selectProtocol = (schema: WorkspaceSchema, protocol: WorkspaceProtocol) => {
-    setSelectedSchemaId(schema.id);
-    setSelectedProtocolPath(protocol.path);
-    navigate("schema");
-  };
-
-  const selectedSchema =
-    catalog?.ok && catalog.schemas.length > 0
-      ? (catalog.schemas.find((schema) => schema.id === selectedSchemaId) ?? catalog.schemas[0])
-      : undefined;
-  const selectedProtocol = selectedSchema?.protocols.find(
-    (protocol) => protocol.path === selectedProtocolPath,
-  );
   const startWindowDrag = (event: PointerEvent<HTMLElement>) => {
     if (event.button === 0 && event.target instanceof Element && !event.target.closest("button")) {
       void performWindowAction("drag");
@@ -262,7 +281,9 @@ export default function App() {
             aria-label={translation.navigation.back}
             className="nav-button history-back"
             disabled={navigation.index === 0}
-            onClick={goBack}
+            onClick={() =>
+              setNavigation((current) => ({ ...current, index: Math.max(0, current.index - 1) }))
+            }
             title={translation.navigation.back}
             type="button"
           >
@@ -272,7 +293,12 @@ export default function App() {
             aria-label={translation.navigation.forward}
             className="nav-button history-forward"
             disabled={navigation.index === navigation.entries.length - 1}
-            onClick={goForward}
+            onClick={() =>
+              setNavigation((current) => ({
+                ...current,
+                index: Math.min(current.entries.length - 1, current.index + 1),
+              }))
+            }
             title={translation.navigation.forward}
             type="button"
           >
@@ -305,8 +331,6 @@ export default function App() {
             aria-label={translation.window.minimize}
             className="window-control"
             onClick={() => void performWindowAction("minimize")}
-            title={translation.window.minimize}
-            type="button"
           >
             <Minus size={16} />
           </button>
@@ -314,8 +338,6 @@ export default function App() {
             aria-label={translation.window.maximize}
             className="window-control"
             onClick={() => void performWindowAction("maximize")}
-            title={translation.window.maximize}
-            type="button"
           >
             <Square size={12} />
           </button>
@@ -323,8 +345,6 @@ export default function App() {
             aria-label={translation.window.close}
             className="window-control close"
             onClick={() => void performWindowAction("close")}
-            title={translation.window.close}
-            type="button"
           >
             <X size={16} />
           </button>
@@ -334,7 +354,7 @@ export default function App() {
       <div className={`workspace-layout ${sidebarCollapsed ? "sidebar-collapsed" : ""}`}>
         <aside className="schema-sidebar">
           <div className="sidebar-header">
-            {!sidebarCollapsed && <span>{translation.workspace.schemas}</span>}
+            {!sidebarCollapsed && <span>{translation.workspace.project}</span>}
             <button
               aria-label={
                 sidebarCollapsed
@@ -343,11 +363,6 @@ export default function App() {
               }
               className="sidebar-toggle"
               onClick={() => setSidebarCollapsed((current) => !current)}
-              title={
-                sidebarCollapsed
-                  ? translation.workspace.expandSidebar
-                  : translation.workspace.collapseSidebar
-              }
               type="button"
             >
               {sidebarCollapsed ? <PanelLeftOpen size={16} /> : <PanelLeftClose size={16} />}
@@ -355,67 +370,62 @@ export default function App() {
           </div>
 
           {!sidebarCollapsed && (
-            <div className="schema-tree">
-              {!catalog && (
-                <div className="tree-state">
-                  <LoaderCircle className="spin" size={16} />
-                  {translation.workspace.loading}
-                </div>
-              )}
-              {catalog && !catalog.ok && (
-                <div className="tree-state error">
-                  <CircleAlert size={16} />
-                  {catalog.error.message}
-                </div>
-              )}
-              {catalog?.ok && catalog.schemas.length === 0 && (
-                <div className="tree-state">{translation.workspace.empty}</div>
-              )}
-              {catalog?.ok &&
-                catalog.schemas.map((schema) => {
-                  const schemaKey = `schema:${schema.id}`;
-                  const isOpen = expanded.has(schemaKey);
-                  const isSelected = selectedSchema?.id === schema.id;
-                  return (
-                    <div className="schema-tree-group" key={schema.id}>
-                      <div className={`schema-row-wrapper ${isSelected ? "selected" : ""}`}>
-                        <button
-                          aria-expanded={isOpen}
-                          aria-label={
-                            isOpen
-                              ? translation.workspace.collapseTree
-                              : translation.workspace.expandTree
-                          }
-                          className="schema-expander"
-                          onClick={() => toggleExpanded(schemaKey)}
-                          type="button"
-                        >
-                          {isOpen ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
-                        </button>
-                        <button
-                          className="schema-row"
-                          onClick={() => selectSchema(schema)}
-                          type="button"
-                        >
-                          <Braces size={15} />
-                          <span className="schema-name">{schema.name}</span>
-                          <span className="schema-count">{schema.protocols.length}</span>
-                        </button>
-                      </div>
-                      {isOpen && (
-                        <TreeItems
-                          depth={0}
-                          expanded={expanded}
-                          nodes={buildTree(schema)}
-                          onSelect={(protocol) => selectProtocol(schema, protocol)}
-                          onToggle={toggleExpanded}
-                          selectedPath={isSelected ? selectedProtocolPath : undefined}
-                        />
-                      )}
+            <>
+              <div className="project-actions">
+                <button disabled={busy} onClick={() => void run(openProject)} type="button">
+                  <FolderOpen size={15} />
+                  {translation.workspace.openProject}
+                </button>
+                {project && (
+                  <>
+                    <button disabled={busy} onClick={() => setCreateOpen(true)} type="button">
+                      <Plus size={15} />
+                      {translation.workspace.createProtocol}
+                    </button>
+                    <button
+                      aria-label={translation.workspace.closeProject}
+                      disabled={busy}
+                      onClick={() => void run(closeProject)}
+                      title={translation.workspace.closeProject}
+                      type="button"
+                    >
+                      <X size={15} />
+                    </button>
+                  </>
+                )}
+              </div>
+              <div className="schema-tree">
+                {busy && (
+                  <div className="tree-state">
+                    <LoaderCircle className="spin" size={16} />
+                    {translation.workspace.loading}
+                  </div>
+                )}
+                {!busy && project && (
+                  <>
+                    <div className="project-title">
+                      <FolderOpen size={15} />
+                      <span>{project.name}</span>
+                      <span>{project.protocols.length}</span>
                     </div>
-                  );
-                })}
-            </div>
+                    <TreeItems
+                      depth={0}
+                      expanded={expanded}
+                      nodes={buildTree(project)}
+                      onSelect={(protocol) => {
+                        setSelectedProtocolPath(protocol.path);
+                        navigate("schema");
+                      }}
+                      onToggle={toggleExpanded}
+                      selectedPath={selectedProtocolPath}
+                    />
+                  </>
+                )}
+                {!busy && !project && (
+                  <div className="tree-state">{translation.workspace.noProject}</div>
+                )}
+              </div>
+            </>
           )}
 
           {!sidebarCollapsed && (
@@ -429,6 +439,15 @@ export default function App() {
 
         <section className="content-stage">
           <main className={`content-card ${page === "settings" ? "settings-page" : "schema-page"}`}>
+            {errorMessage && (
+              <div className="error-banner">
+                <CircleAlert size={16} />
+                <span>{errorMessage}</span>
+                <button onClick={() => setErrorMessage(undefined)} type="button">
+                  <X size={14} />
+                </button>
+              </div>
+            )}
             {page === "settings" ? (
               <>
                 <header className="content-header">
@@ -438,16 +457,40 @@ export default function App() {
                   <div>
                     <span className="content-eyebrow">{translation.navigation.settings}</span>
                     <h1>{translation.settings.title}</h1>
-                    <p>{translation.settings.empty}</p>
+                    <p>{translation.settings.languageHint}</p>
                   </div>
                 </header>
                 <div className="settings-empty">
-                  <HardDrive size={24} />
-                  <strong>{translation.workspace.cacheRoot}</strong>
-                  <code>{catalog?.ok ? catalog.cacheRoot : translation.workspace.unavailable}</code>
-                  <span>{translation.settings.cacheHint}</span>
+                  <Languages size={24} />
+                  <strong>{translation.settings.language}</strong>
+                  <div className="language-options">
+                    <button
+                      className={locale === "zh-CN" ? "active" : ""}
+                      onClick={() => setLocale("zh-CN")}
+                      type="button"
+                    >
+                      中文
+                    </button>
+                    <button
+                      className={locale === "en-US" ? "active" : ""}
+                      onClick={() => setLocale("en-US")}
+                      type="button"
+                    >
+                      English
+                    </button>
+                  </div>
+                  <code>{project?.rootPath ?? translation.workspace.noProject}</code>
                 </div>
               </>
+            ) : !project ? (
+              <div className="workspace-empty">
+                <FolderOpen size={34} />
+                <h1>{translation.workspace.noProject}</h1>
+                <p>{translation.workspace.openHint}</p>
+                <button disabled={busy} onClick={() => void run(openProject)} type="button">
+                  {translation.workspace.openProject}
+                </button>
+              </div>
             ) : (
               <>
                 <header className="content-header">
@@ -455,44 +498,24 @@ export default function App() {
                     {selectedProtocol ? <FileCode2 size={20} /> : <Braces size={20} />}
                   </div>
                   <div className="content-heading-copy">
-                    <span className="content-eyebrow">
-                      {selectedSchema?.name ?? translation.navigation.schema}
-                    </span>
-                    <h1>
-                      {selectedProtocol?.name ??
-                        selectedSchema?.name ??
-                        translation.workspace.noSelection}
-                    </h1>
-                    <p>{selectedProtocol?.path ?? selectedSchema?.description}</p>
+                    <span className="content-eyebrow">{project.name}</span>
+                    <h1>{selectedProtocol?.name ?? translation.workspace.selectProtocol}</h1>
+                    <p>{selectedProtocol?.path ?? project.description}</p>
                   </div>
-                  <div className="cache-location" title={catalog?.ok ? catalog.cacheRoot : ""}>
+                  <div className="cache-location" title={project.rootPath}>
                     <HardDrive size={14} />
-                    <span>{translation.workspace.cacheRoot}</span>
-                    <code>{catalog?.ok ? catalog.cacheRoot : "--"}</code>
+                    <span>{translation.workspace.projectRoot}</span>
+                    <code>{project.rootPath}</code>
                   </div>
                 </header>
-
                 <div className="content-body">
-                  {!catalog && (
-                    <div className="content-state">
-                      <LoaderCircle className="spin" size={20} />
-                      {translation.workspace.loading}
-                    </div>
-                  )}
-                  {catalog && !catalog.ok && (
-                    <div className="content-state error">
-                      <CircleAlert size={20} />
-                      <span>{catalog.error.message}</span>
-                    </div>
-                  )}
-                  {catalog?.ok && !selectedProtocol && (
+                  {!selectedProtocol ? (
                     <div className="content-state">
                       <Braces size={26} />
                       <strong>{translation.workspace.selectProtocol}</strong>
                       <span>{translation.workspace.selectProtocolHint}</span>
                     </div>
-                  )}
-                  {selectedProtocol && (
+                  ) : (
                     <section className="protocol-source">
                       <div className="source-toolbar">
                         <div>
@@ -510,6 +533,65 @@ export default function App() {
           </main>
         </section>
       </div>
+
+      {createOpen && (
+        <div className="modal-backdrop">
+          <form aria-modal="true" className="protocol-dialog" onSubmit={submitCreate} role="dialog">
+            <header>
+              <div>
+                <span>{translation.workspace.project}</span>
+                <h2>{translation.create.title}</h2>
+              </div>
+              <button onClick={() => setCreateOpen(false)} type="button">
+                <X size={16} />
+              </button>
+            </header>
+            <label>
+              {translation.create.relativePath}
+              <input
+                name="relativePath"
+                pattern=".+\.protocol\.ya?ml"
+                placeholder="vendors/acme/telemetry.protocol.yaml"
+                required
+              />
+              <small>{translation.create.relativePathHint}</small>
+            </label>
+            <label>
+              {translation.create.name}
+              <input name="name" placeholder="acme-telemetry" required />
+            </label>
+            <label>
+              {translation.create.displayName}
+              <input name="displayName" />
+            </label>
+            <div className="form-row">
+              <label>
+                {translation.create.version}
+                <input defaultValue="1.0" name="version" required />
+              </label>
+              <label>
+                {translation.create.byteOrder}
+                <select defaultValue="big" name="byteOrder">
+                  <option value="big">Big Endian</option>
+                  <option value="little">Little Endian</option>
+                </select>
+              </label>
+            </div>
+            <label>
+              {translation.create.description}
+              <textarea name="description" rows={3} />
+            </label>
+            <footer>
+              <button onClick={() => setCreateOpen(false)} type="button">
+                {translation.create.cancel}
+              </button>
+              <button className="primary" disabled={busy} type="submit">
+                {translation.create.submit}
+              </button>
+            </footer>
+          </form>
+        </div>
+      )}
     </div>
   );
 }

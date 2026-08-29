@@ -1,38 +1,36 @@
 export type Locale = "zh-CN" | "en-US";
 
 export type TranslationMessages = {
-  navigation: {
-    title: string;
-    back: string;
-    forward: string;
-    schema: string;
-    settings: string;
-  };
-  window: {
-    minimize: string;
-    maximize: string;
-    close: string;
-  };
+  navigation: { title: string; back: string; forward: string; schema: string; settings: string };
+  window: { minimize: string; maximize: string; close: string };
   workspace: {
-    schemas: string;
+    project: string;
     collapseSidebar: string;
     expandSidebar: string;
-    collapseTree: string;
-    expandTree: string;
     loading: string;
-    empty: string;
-    unavailable: string;
-    cacheRoot: string;
-    noSelection: string;
+    noProject: string;
+    openProject: string;
+    openHint: string;
+    closeProject: string;
+    createProtocol: string;
+    projectRoot: string;
     selectProtocol: string;
     selectProtocolHint: string;
     physicalFile: string;
   };
-  settings: {
+  create: {
     title: string;
-    empty: string;
-    cacheHint: string;
+    relativePath: string;
+    relativePathHint: string;
+    name: string;
+    displayName: string;
+    version: string;
+    byteOrder: string;
+    description: string;
+    cancel: string;
+    submit: string;
   };
+  settings: { title: string; language: string; languageHint: string };
 };
 
 const STORAGE_KEY = "iotps.locale";
@@ -46,30 +44,38 @@ export const messages: Record<Locale, TranslationMessages> = {
       schema: "Schema",
       settings: "设置",
     },
-    window: {
-      minimize: "最小化",
-      maximize: "最大化或还原",
-      close: "关闭",
-    },
+    window: { minimize: "最小化", maximize: "最大化或还原", close: "关闭" },
     workspace: {
-      schemas: "SCHEMAS",
-      collapseSidebar: "收起 Schema 列表",
-      expandSidebar: "展开 Schema 列表",
-      collapseTree: "收起 Schema",
-      expandTree: "展开 Schema",
-      loading: "正在加载磁盘结构",
-      empty: "尚无 Schema",
-      unavailable: "不可用",
-      cacheRoot: "缓存目录",
-      noSelection: "Schema",
+      project: "项目",
+      collapseSidebar: "收起项目列表",
+      expandSidebar: "展开项目列表",
+      loading: "正在读取项目",
+      noProject: "尚未打开项目",
+      openProject: "打开项目",
+      openHint: "选择包含 project.yaml 的目录。协议文件会由 C++ Workspace Core 校验。",
+      closeProject: "关闭项目",
+      createProtocol: "创建协议",
+      projectRoot: "项目目录",
       selectProtocol: "请选择协议",
-      selectProtocolHint: "从左侧磁盘树中选择一个协议文件查看内容。",
+      selectProtocolHint: "从左侧真实目录树中选择一个协议文件。",
       physicalFile: "物理文件",
+    },
+    create: {
+      title: "创建协议",
+      relativePath: "协议相对路径",
+      relativePathHint: "相对于 protocols/，可包含多级文件夹。",
+      name: "协议名称",
+      displayName: "显示名称",
+      version: "版本",
+      byteOrder: "默认字节序",
+      description: "描述",
+      cancel: "取消",
+      submit: "创建",
     },
     settings: {
       title: "设置",
-      empty: "设置内容将在后续补充。",
-      cacheHint: "后续将在此管理 Schema 缓存文件的存放位置。",
+      language: "界面语言",
+      languageHint: "切换 Web UI 的中英文显示。",
     },
   },
   "en-US": {
@@ -80,30 +86,39 @@ export const messages: Record<Locale, TranslationMessages> = {
       schema: "Schema",
       settings: "Settings",
     },
-    window: {
-      minimize: "Minimize",
-      maximize: "Maximize or restore",
-      close: "Close",
-    },
+    window: { minimize: "Minimize", maximize: "Maximize or restore", close: "Close" },
     workspace: {
-      schemas: "SCHEMAS",
-      collapseSidebar: "Collapse Schema list",
-      expandSidebar: "Expand Schema list",
-      collapseTree: "Collapse Schema",
-      expandTree: "Expand Schema",
-      loading: "Loading physical workspace",
-      empty: "No schemas yet",
-      unavailable: "Unavailable",
-      cacheRoot: "Cache root",
-      noSelection: "Schema",
+      project: "PROJECT",
+      collapseSidebar: "Collapse project list",
+      expandSidebar: "Expand project list",
+      loading: "Loading project",
+      noProject: "No project is open",
+      openProject: "Open project",
+      openHint:
+        "Choose a directory containing project.yaml. Protocol files are validated by the C++ Workspace Core.",
+      closeProject: "Close project",
+      createProtocol: "Create protocol",
+      projectRoot: "Project root",
       selectProtocol: "Select a protocol",
       selectProtocolHint: "Choose a protocol file from the physical tree on the left.",
       physicalFile: "Physical file",
     },
+    create: {
+      title: "Create protocol",
+      relativePath: "Protocol relative path",
+      relativePathHint: "Relative to protocols/; nested folders are supported.",
+      name: "Protocol name",
+      displayName: "Display name",
+      version: "Version",
+      byteOrder: "Default byte order",
+      description: "Description",
+      cancel: "Cancel",
+      submit: "Create",
+    },
     settings: {
       title: "Settings",
-      empty: "Settings will be added in a future update.",
-      cacheHint: "The Schema cache location will be managed here later.",
+      language: "Interface language",
+      languageHint: "Switch the Web UI between Chinese and English.",
     },
   },
 };
@@ -115,9 +130,8 @@ export function detectInitialLocale(): Locale {
       return stored;
     }
   } catch {
-    // Storage can be disabled; system locale remains enough for this session.
+    // Storage can be disabled; the system locale is enough for this session.
   }
-
   return window.navigator.language.toLowerCase().startsWith("zh") ? "zh-CN" : "en-US";
 }
 
@@ -125,6 +139,41 @@ export function storeLocale(locale: Locale): void {
   try {
     window.localStorage.setItem(STORAGE_KEY, locale);
   } catch {
-    // The selected locale remains valid for this session.
+    // The selected locale remains active for this session.
   }
+}
+
+const chineseWorkspaceErrors: Record<string, string> = {
+  native_host_required: "此操作需要 Windows 桌面客户端",
+  project_not_open: "请先打开项目",
+  invalid_request: "请求参数无效",
+  invalid_byte_order: "默认字节序无效",
+  directory_picker_failed: "无法打开项目目录选择器",
+  project_directory_not_found: "项目目录不存在",
+  project_manifest_open_failed: "无法打开 project.yaml",
+  project_manifest_read_failed: "无法读取 project.yaml",
+  yaml_parse_error: "YAML 语法错误",
+  yaml_root_mapping_required: "YAML 根节点必须是映射",
+  yaml_required_node_missing: "缺少必填 YAML 节点",
+  yaml_node_type_mismatch: "YAML 节点类型不正确",
+  schema_version_required: "缺少 Schema 版本",
+  unsupported_schema_version: "不支持此 Schema 版本",
+  project_name_required: "缺少项目名称",
+  protocol_path_empty: "协议路径不能为空",
+  protocol_path_not_portable: "协议路径不是跨平台路径",
+  protocol_path_outside_project: "协议路径超出项目目录",
+  duplicate_protocol_path: "协议路径已存在",
+  protocol_file_load_failed: "无法加载协议文件",
+  protocol_schema_invalid: "协议 Schema 无效",
+  protocol_file_already_exists: "协议文件已经存在",
+  protocol_directory_create_failed: "无法创建协议目录",
+  protocol_file_write_failed: "无法写入协议文件",
+  project_manifest_write_failed: "无法写回 project.yaml",
+  protocol_file_read_failed: "无法读取协议文件",
+};
+
+export function translateWorkspaceError(locale: Locale, code: string, fallback: string): string {
+  return locale === "zh-CN"
+    ? (chineseWorkspaceErrors[code] ?? `项目操作失败：${fallback}`)
+    : fallback;
 }

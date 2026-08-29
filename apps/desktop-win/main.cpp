@@ -221,96 +221,6 @@ string_arguments(const std::string_view request) {
     return {reinterpret_cast<const char*>(value.data()), value.size()};
 }
 
-[[nodiscard]] std::filesystem::path schema_cache_root() {
-    PWSTR local_app_data = nullptr;
-    if (FAILED(SHGetKnownFolderPath(FOLDERID_LocalAppData, KF_FLAG_DEFAULT, nullptr,
-                                    &local_app_data))) {
-        throw std::runtime_error("Resolving the local application data directory failed");
-    }
-    const auto root = std::filesystem::path{local_app_data} / L"IoT Protocol Studio" / L"schemas";
-    CoTaskMemFree(local_app_data);
-    return root;
-}
-
-void write_file_if_missing(const std::filesystem::path& path, const std::string_view contents) {
-    if (std::filesystem::exists(path)) {
-        return;
-    }
-    std::filesystem::create_directories(path.parent_path());
-    std::ofstream output{path, std::ios::binary};
-    if (!output.is_open()) {
-        throw std::runtime_error("Creating workspace file failed: " + path_utf8(path));
-    }
-    output.write(contents.data(), static_cast<std::streamsize>(contents.size()));
-    if (!output) {
-        throw std::runtime_error("Writing workspace file failed: " + path_utf8(path));
-    }
-}
-
-void seed_default_schema(const std::filesystem::path& root) {
-    const auto schema_directory = root / L"smart-sensor";
-    write_file_if_missing(schema_directory / L"project.yaml", R"yaml(schemaVersion: "0.1"
-project:
-  name: smart-sensor
-  displayName: 智能传感器
-  version: "1.0"
-  description: 环境传感器与 Modbus 网关协议
-protocols:
-  - protocols/sensors/environment/environment-sensor.protocol.yaml
-  - protocols/gateways/modbus/modbus-gateway.protocol.yaml
-)yaml");
-    write_file_if_missing(schema_directory / L"protocols" / L"sensors" / L"environment" /
-                              L"environment-sensor.protocol.yaml",
-                          R"yaml(schemaVersion: "0.1"
-protocol:
-  name: environment-sensor
-  displayName: 环境传感器
-  version: "1.0"
-  defaultByteOrder: little
-messages:
-  telemetry:
-    typeId: 1
-    fields:
-      - name: temperature
-        type: int16
-      - name: humidity
-        type: uint16
-)yaml");
-    write_file_if_missing(schema_directory / L"protocols" / L"gateways" / L"modbus" /
-                              L"modbus-gateway.protocol.yaml",
-                          R"yaml(schemaVersion: "0.1"
-protocol:
-  name: modbus-gateway
-  displayName: Modbus 网关
-  version: "1.0"
-  defaultByteOrder: big
-messages:
-  status:
-    typeId: 2
-    fields:
-      - name: address
-        type: uint8
-      - name: online
-        type: bool
-)yaml");
-}
-
-[[nodiscard]] std::vector<std::filesystem::path>
-find_schema_directories(const std::filesystem::path& root) {
-    std::filesystem::create_directories(root);
-    std::vector<std::filesystem::path> directories;
-    for (const auto& entry : std::filesystem::directory_iterator{root}) {
-        if (entry.is_directory() &&
-            std::filesystem::is_regular_file(entry.path() / L"project.yaml")) {
-            directories.push_back(entry.path());
-        }
-    }
-    std::ranges::sort(directories, [](const auto& left, const auto& right) {
-        return path_utf8(left.filename()) < path_utf8(right.filename());
-    });
-    return directories;
-}
-
 [[nodiscard]] std::string read_text_file(const std::filesystem::path& path) {
     std::ifstream input{path, std::ios::binary};
     if (!input.is_open()) {
@@ -324,65 +234,149 @@ find_schema_directories(const std::filesystem::path& root) {
     return contents.str();
 }
 
-[[nodiscard]] std::string workspace_catalog() {
-    try {
-        const auto root = schema_cache_root();
-        auto schema_directories = find_schema_directories(root);
-        if (schema_directories.empty()) {
-            seed_default_schema(root);
-            schema_directories = find_schema_directories(root);
-        }
+[[nodiscard]] std::string workspace_error_response(const std::string_view code,
+                                                   const std::string_view message,
+                                                   const std::string_view path = {}) {
+    return "{\"ok\":false,\"source\":\"native-workspace\",\"error\":{\"code\":" +
+           json_string(code) + ",\"message\":" + json_string(message) +
+           ",\"path\":" + json_string(path) + "}}";
+}
 
-        std::ostringstream response;
-        response << "{\"ok\":true,\"source\":\"native-workspace\",\"cacheRoot\":"
-                 << json_string(path_utf8(root)) << ",\"schemas\":[";
-        bool first_schema = true;
-        for (const auto& directory : schema_directories) {
-            const auto loaded = iotps::core::workspace::load_project(directory);
-            if (const auto* error = loaded.error_if()) {
-                throw std::runtime_error(
-                    "Workspace error[" +
-                    std::string{iotps::core::workspace::to_string(error->code)} + "] " +
-                    error->path + ": " + error->detail);
-            }
-            const auto& project = loaded.value();
-            if (!first_schema) {
-                response << ',';
-            }
-            first_schema = false;
-            const auto& metadata = project.manifest.metadata;
-            const auto schema_name =
-                metadata.display_name.empty() ? metadata.name : metadata.display_name;
-            response << "{\"id\":" << json_string(path_utf8(directory.filename()))
-                     << ",\"name\":" << json_string(schema_name)
-                     << ",\"description\":" << json_string(metadata.description)
-                     << ",\"protocols\":[";
-
-            bool first_protocol = true;
-            for (const auto& protocol : project.protocols) {
-                if (!first_protocol) {
-                    response << ',';
-                }
-                first_protocol = false;
-                const auto& protocol_metadata = protocol.schema.protocol;
-                const auto protocol_name = protocol_metadata.display_name.empty()
-                                               ? protocol_metadata.name
-                                               : protocol_metadata.display_name;
-                response << "{\"name\":" << json_string(protocol_name)
-                         << ",\"path\":" << json_string(path_utf8(protocol.relative_path))
-                         << ",\"content\":"
-                         << json_string(
-                                read_text_file(project.root_directory / protocol.relative_path))
-                         << '}';
-            }
-            response << "]}";
+[[nodiscard]] std::string workspace_project_response(const iotps::core::workspace::Project& project,
+                                                     const bool cancelled = false) {
+    const auto& metadata = project.manifest.metadata;
+    const auto project_name = metadata.display_name.empty() ? metadata.name : metadata.display_name;
+    std::ostringstream response;
+    response << "{\"ok\":true,\"source\":\"native-workspace\",\"cancelled\":"
+             << (cancelled ? "true" : "false")
+             << ",\"project\":{\"name\":" << json_string(project_name)
+             << ",\"description\":" << json_string(metadata.description)
+             << ",\"rootPath\":" << json_string(path_utf8(project.root_directory))
+             << ",\"protocols\":[";
+    for (std::size_t index = 0; index < project.protocols.size(); ++index) {
+        const auto& protocol = project.protocols[index];
+        const auto& protocol_metadata = protocol.schema.protocol;
+        if (index != 0) {
+            response << ',';
         }
-        response << "]}";
-        return response.str();
-    } catch (const std::exception& error) {
-        return "{\"ok\":false,\"source\":\"native-workspace\",\"error\":{\"message\":" +
-               json_string(error.what()) + "}}";
+        response << "{\"name\":"
+                 << json_string(protocol_metadata.display_name.empty()
+                                    ? protocol_metadata.name
+                                    : protocol_metadata.display_name)
+                 << ",\"path\":" << json_string(path_utf8(protocol.relative_path))
+                 << ",\"content\":"
+                 << json_string(read_text_file(project.root_directory / protocol.relative_path))
+                 << '}';
     }
+    response << "]}}";
+    return response.str();
+}
+
+[[nodiscard]] std::string empty_workspace_response(const bool cancelled = false) {
+    return "{\"ok\":true,\"source\":\"native-workspace\",\"cancelled\":" +
+           std::string{cancelled ? "true" : "false"} + ",\"project\":null}";
+}
+
+[[nodiscard]] std::string
+workspace_result_response(const iotps::core::workspace::ProjectLoadResult& result) {
+    if (const auto* error = result.error_if()) {
+        return workspace_error_response(iotps::core::workspace::to_string(error->code),
+                                        error->detail, error->path);
+    }
+    try {
+        return workspace_project_response(result.value());
+    } catch (const std::exception& error) {
+        return workspace_error_response("protocol_file_read_failed", error.what());
+    }
+}
+
+[[nodiscard]] std::optional<std::filesystem::path> select_project_directory(const HWND owner) {
+    Microsoft::WRL::ComPtr<IFileOpenDialog> dialog;
+    if (FAILED(CoCreateInstance(CLSID_FileOpenDialog, nullptr, CLSCTX_INPROC_SERVER,
+                                IID_PPV_ARGS(&dialog)))) {
+        throw std::runtime_error("Creating the project directory picker failed");
+    }
+    FILEOPENDIALOGOPTIONS options{};
+    if (FAILED(dialog->GetOptions(&options)) ||
+        FAILED(dialog->SetOptions(options | FOS_PICKFOLDERS | FOS_FORCEFILESYSTEM))) {
+        throw std::runtime_error("Configuring the project directory picker failed");
+    }
+    dialog->SetTitle(L"Open IoT Protocol Studio project");
+    const auto shown = dialog->Show(owner);
+    if (shown == HRESULT_FROM_WIN32(ERROR_CANCELLED)) {
+        return std::nullopt;
+    }
+    if (FAILED(shown)) {
+        throw std::runtime_error("Showing the project directory picker failed");
+    }
+
+    Microsoft::WRL::ComPtr<IShellItem> selection;
+    PWSTR selected_path = nullptr;
+    if (FAILED(dialog->GetResult(&selection)) ||
+        FAILED(selection->GetDisplayName(SIGDN_FILESYSPATH, &selected_path))) {
+        throw std::runtime_error("Reading the selected project directory failed");
+    }
+    std::filesystem::path result{selected_path};
+    CoTaskMemFree(selected_path);
+    return result;
+}
+
+[[nodiscard]] std::string open_workspace(const HWND owner,
+                                         std::optional<std::filesystem::path>& current_project) {
+    try {
+        const auto selected = select_project_directory(owner);
+        if (!selected.has_value()) {
+            return empty_workspace_response(true);
+        }
+        auto loaded = iotps::core::workspace::load_project(*selected);
+        if (loaded.has_value()) {
+            current_project = loaded.value().root_directory;
+        }
+        return workspace_result_response(loaded);
+    } catch (const std::exception& error) {
+        return workspace_error_response("directory_picker_failed", error.what());
+    }
+}
+
+[[nodiscard]] std::string
+current_workspace(const std::optional<std::filesystem::path>& current_project) {
+    return current_project.has_value()
+               ? workspace_result_response(iotps::core::workspace::load_project(*current_project))
+               : empty_workspace_response();
+}
+
+[[nodiscard]] std::string
+create_workspace_protocol(const std::string_view request,
+                          const std::optional<std::filesystem::path>& current_project) {
+    const auto arguments = string_arguments(request);
+    if (!arguments.has_value() || arguments->size() != 6) {
+        return workspace_error_response("invalid_request", "createProtocol expects six strings");
+    }
+    if (!current_project.has_value()) {
+        return workspace_error_response("project_not_open",
+                                        "Open a project before creating a protocol");
+    }
+    const auto& byte_order = (*arguments)[5];
+    if (byte_order != "big" && byte_order != "little") {
+        return workspace_error_response("invalid_byte_order",
+                                        "byteOrder must be 'big' or 'little'");
+    }
+
+    return workspace_result_response(iotps::core::workspace::create_protocol(
+        *current_project,
+        {
+            .relative_path = (*arguments)[0],
+            .protocol =
+                {
+                    .name = (*arguments)[1],
+                    .display_name = (*arguments)[2],
+                    .version = (*arguments)[3],
+                    .description = (*arguments)[4],
+                    .default_byte_order = byte_order == "little"
+                                              ? iotps::core::schema::ByteOrder::little_endian
+                                              : iotps::core::schema::ByteOrder::big_endian,
+                },
+        }));
 }
 
 [[nodiscard]] std::string inspect_hex(const std::string& request,
@@ -447,17 +441,21 @@ window.addEventListener("DOMContentLoaded", () => {
     if (shell && titlebar && schemaButton && settings && sidebar && contentCard &&
         windowControls.length === 3) {
       Promise.all([
-        window.iotpsWorkspaceCatalog(),
+        window.iotpsWorkspaceCurrent(),
+        window.iotpsWorkspaceCreateProtocol(
+          "smoke.protocol.yaml", "smoke", "", "1.0", "", "big"),
+        window.iotpsWorkspaceClose(),
         Promise.resolve(window.iotpsWindowAction("maximize"))
           .then((result) => result?.ok && window.iotpsWindowAction("maximize")),
       ])
-        .then(([catalog, windowResult]) => {
+        .then(([current, createResult, closed, windowResult]) => {
           if (!windowResult?.ok) {
             report("window-controls-failed");
             return;
           }
-          if (!catalog?.ok || catalog.schemas.length === 0 ||
-              catalog.schemas[0].protocols.length === 0) {
+          if (!current?.ok || current.project !== null || !closed?.ok ||
+              closed.project !== null || createResult?.ok ||
+              createResult?.error?.code !== "project_not_open") {
             report("workspace-bridge-failed");
             return;
           }
@@ -690,12 +688,24 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR command_line, int) {
         window.set_size(1280, 800, WEBVIEW_HINT_NONE);
         window.set_size(960, 640, WEBVIEW_HINT_MIN);
         const auto smoke_test_frame_ready = !smoke_test || custom_resize_frame_ready(window_handle);
+        std::optional<std::filesystem::path> current_project;
 
         window.bind("iotpsCoreInfo", [](const std::string&) { return core_info(); });
         window.bind("iotpsInspectHex",
                     [&engine](const std::string& request) { return inspect_hex(request, engine); });
-        window.bind("iotpsWorkspaceCatalog",
-                    [](const std::string&) { return workspace_catalog(); });
+        window.bind("iotpsWorkspaceCurrent", [&current_project](const std::string&) {
+            return current_workspace(current_project);
+        });
+        window.bind("iotpsWorkspaceOpen", [window_handle, &current_project](const std::string&) {
+            return open_workspace(window_handle, current_project);
+        });
+        window.bind("iotpsWorkspaceCreateProtocol", [&current_project](const std::string& request) {
+            return create_workspace_protocol(request, current_project);
+        });
+        window.bind("iotpsWorkspaceClose", [&current_project](const std::string&) {
+            current_project.reset();
+            return empty_workspace_response();
+        });
         window.bind("iotpsWindowAction", [window_handle](const std::string& request) {
             return handle_window_action(window_handle, request);
         });
