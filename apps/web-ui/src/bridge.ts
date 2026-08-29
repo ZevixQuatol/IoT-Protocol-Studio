@@ -32,13 +32,93 @@ export type InspectionResult = InspectionSuccess | InspectionFailure;
 
 export type WindowAction = "drag" | "minimize" | "maximize" | "close";
 
+export type WorkspaceProtocol = {
+  name: string;
+  path: string;
+  content: string;
+};
+
+export type WorkspaceSchema = {
+  id: string;
+  name: string;
+  description: string;
+  protocols: WorkspaceProtocol[];
+};
+
+export type WorkspaceCatalog =
+  | {
+      ok: true;
+      source: "native-workspace" | "browser-preview";
+      cacheRoot: string;
+      schemas: WorkspaceSchema[];
+    }
+  | {
+      ok: false;
+      source: "native-workspace";
+      error: { message: string };
+    };
+
 declare global {
   interface Window {
     iotpsCoreInfo?: () => Promise<CoreInfo>;
     iotpsInspectHex?: (input: string) => Promise<InspectionResult>;
     iotpsWindowAction?: (action: WindowAction) => Promise<{ ok: boolean }>;
+    iotpsWorkspaceCatalog?: () => Promise<WorkspaceCatalog>;
   }
 }
+
+const browserWorkspace: WorkspaceCatalog = {
+  ok: true,
+  source: "browser-preview",
+  cacheRoot: "Browser preview / schemas",
+  schemas: [
+    {
+      id: "smart-sensor",
+      name: "智能传感器",
+      description: "环境传感器与 Modbus 网关协议",
+      protocols: [
+        {
+          name: "环境传感器",
+          path: "protocols/sensors/environment/environment-sensor.protocol.yaml",
+          content: `schemaVersion: "0.1"
+protocol:
+  name: environment-sensor
+  displayName: 环境传感器
+  version: "1.0"
+  defaultByteOrder: little
+messages:
+  telemetry:
+    typeId: 1
+    fields:
+      - name: temperature
+        type: int16
+      - name: humidity
+        type: uint16
+`,
+        },
+        {
+          name: "Modbus 网关",
+          path: "protocols/gateways/modbus/modbus-gateway.protocol.yaml",
+          content: `schemaVersion: "0.1"
+protocol:
+  name: modbus-gateway
+  displayName: Modbus 网关
+  version: "1.0"
+  defaultByteOrder: big
+messages:
+  status:
+    typeId: 2
+    fields:
+      - name: address
+        type: uint8
+      - name: online
+        type: bool
+`,
+        },
+      ],
+    },
+  ],
+};
 
 const separators = /[\s,:_-]/g;
 
@@ -128,4 +208,8 @@ export async function inspectHex(input: string): Promise<InspectionResult> {
 
 export async function performWindowAction(action: WindowAction): Promise<void> {
   await window.iotpsWindowAction?.(action);
+}
+
+export async function getWorkspaceCatalog(): Promise<WorkspaceCatalog> {
+  return window.iotpsWorkspaceCatalog ? window.iotpsWorkspaceCatalog() : browserWorkspace;
 }

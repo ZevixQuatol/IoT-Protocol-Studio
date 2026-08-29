@@ -25,7 +25,10 @@ target_link_libraries(
   iotps_desktop
   PRIVATE
     iotps::core
-    webview::core)
+    webview::core
+    dwmapi
+    shell32
+    ole32)
 
 target_compile_features(iotps_desktop PRIVATE cxx_std_20)
 target_compile_definitions(iotps_desktop PRIVATE NOMINMAX UNICODE _UNICODE)
