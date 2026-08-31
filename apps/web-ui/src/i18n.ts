@@ -51,6 +51,13 @@ export type TranslationMessages = {
     byteOrder: string;
     inherited: string;
     lengthOf: string;
+    properties: string;
+    selectHint: string;
+    name: string;
+    displayName: string;
+    type: string;
+    elementType: string;
+    count: string;
     empty: string;
     unsavedHint: string;
   };
@@ -117,6 +124,13 @@ export const messages: Record<Locale, TranslationMessages> = {
       byteOrder: "字节序",
       inherited: "继承默认值",
       lengthOf: "长度目标",
+      properties: "属性",
+      selectHint: "选择 Message 或 Field 查看 Core 已解析的属性。",
+      name: "名称",
+      displayName: "显示名称",
+      type: "类型",
+      elementType: "元素类型",
+      count: "数量",
       empty: "当前协议还没有 Message 定义。",
       unsavedHint: "结构视图显示最后一次成功保存并通过 Core 校验的 Schema。",
     },
@@ -185,6 +199,13 @@ export const messages: Record<Locale, TranslationMessages> = {
       byteOrder: "Byte order",
       inherited: "Inherited default",
       lengthOf: "Length target",
+      properties: "Properties",
+      selectHint: "Select a Message or Field to inspect Core-parsed properties.",
+      name: "Name",
+      displayName: "Display name",
+      type: "Type",
+      elementType: "Element type",
+      count: "Count",
       empty: "This protocol has no Message definitions yet.",
       unsavedHint: "Structure shows the last successfully saved and Core-validated Schema.",
     },

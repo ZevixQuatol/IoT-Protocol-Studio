@@ -1,7 +1,7 @@
 # IoT Protocol Studio 功能清单与开发进度
 
 > 清单版本：1.0  
-> 更新日期：2026-08-29
+> 更新日期：2026-08-30
 > 功能基线：`IoT Protocol Studio 功能设计文档.md` v0.1  
 > 当前程序版本：0.1.0  
 > 当前目标平台：Windows x86_64  
@@ -64,8 +64,9 @@ flowchart LR
     L --> M["✅ Windows 打开项目 + 真实嵌套协议树"]
     M --> N["✅ Protocol YAML 源码编辑 + Core 校验保存"]
     N --> O["✅ 只读可视化字段树"]
-    O --> P["🚧 下一步：只读属性检查器"]
-    P --> S["⬜ Message Studio + Transport + Debugger"]
+    O --> P["✅ Message / Field 只读属性检查器"]
+    P --> T["🚧 下一步：Core 驱动的 Field 属性写回"]
+    T --> S["⬜ Message Studio + Transport + Debugger"]
     S --> Q["⬜ 完整 Simulator + Test Runner"]
     Q --> R["⬜ MVP 验收"]
 ```
@@ -109,7 +110,7 @@ ProtocolSchema + Message 名称 + HEX / ByteBuffer
   → Transport API 测试边界
 ```
 
-Schema、固定布局协议解析和 Workspace 纵向链路已经打通：Protocol YAML 和项目目录可以映射为领域模型，Core 可以按明确的 Message 名称解析 HEX/Binary 或反向编码，也可以在嵌套目录创建和安全更新 Protocol Schema。Windows GUI 已能打开、显示、创建、编辑保存和关闭真实项目，并以只读结构树展示 Core 解析后的 Message / Field；自动 Message 匹配、可视化编辑和真实 Transport 仍未完成。
+Schema、固定布局协议解析和 Workspace 纵向链路已经打通：Protocol YAML 和项目目录可以映射为领域模型，Core 可以按明确的 Message 名称解析 HEX/Binary 或反向编码，也可以在嵌套目录创建和安全更新 Protocol Schema。Windows GUI 已能打开、显示、创建、编辑保存和关闭真实项目，并通过只读结构树与属性检查器展示 Core 解析后的 Message / Field；自动 Message 匹配、可视化写回和真实 Transport 仍未完成。
 
 ### 2.3 已经可以使用的能力
 
@@ -159,33 +160,34 @@ Schema、固定布局协议解析和 Workspace 纵向链路已经打通：Protoc
 - [x] 从 GUI 创建嵌套 Protocol、刷新并选中新资源；支持关闭项目恢复空状态。
 - [x] 在 Web UI 编辑 Protocol YAML，经 Schema Loader 校验后原子保存并由 Workspace 回读刷新；失败不覆盖原文件。
 - [x] 在 Code / Structure 之间切换当前 Protocol，直接展示 Core 输出的 Message、Field、布局、字节序和固定 Array 元数据。
+- [x] 在 Structure 树中选择 Message / Field，并在右侧只读检查器显示 Core 已解析的属性。
 
 ### 2.4 当前界面中尚未实现的占位功能
 
-- [ ] 当前没有属性检查器、可视化修改或 Structure + Code 双向写回。
+- [ ] 当前没有可视化修改或 Structure + Code 双向写回。
 - [ ] 当前 GUI 没有连接、发送、接收、模拟器或测试执行能力。
 
 ---
 
 ## 3. 接下来应该做什么
 
-### 3.1 当前唯一首要任务：只读属性检查器
+### 3.1 当前唯一首要任务：Core 驱动的 Field 属性写回
 
-Protocol YAML 源码编辑和只读结构树已经完成。下一步只补当前 Structure 视图的选择与详情链路：
+Protocol YAML 源码编辑、只读结构树和属性检查器已经完成。下一步只打通一个现有 Field 属性的最小可视化写回链路：
 
-- 允许在结构树中选择一个 Message 或 Field。
-- 右侧只读属性检查器展示 Core 已提供的名称、类型、offset/length、字节序和 Array 元数据。
-- Code / Structure 继续共享当前 Protocol；不增加第二套 YAML 解析或写回逻辑。
+- 属性检查器编辑一个现有 Field 的受支持属性。
+- Windows Bridge 将结构化修改命令交给 Core，由 Core 更新、校验并原子保存 Protocol YAML。
+- 保存成功后 Workspace 回读并刷新 Code / Structure；失败保留原文件和原界面数据。
 
-暂不实现可视化修改、双向写回、拖放、语法高亮、自动补全、Protocol 重命名/删除和外部文件监听。
+TypeScript 不解析、拼接或直接写入 YAML。暂不实现字段增删/移动、拖放、语法高亮、自动补全、Protocol 重命名/删除和外部文件监听。
 
 本阶段完成标准：
 
 ```text
-Structure 字段树选择
-  → 当前 Message / Field 标识
-  → 只读属性检查器
-  → Code / Structure 共享当前 Protocol
+Field 属性修改命令
+  → Core 更新领域模型并生成 YAML
+  → Schema 校验 + 原子保存 + Workspace 回读
+  → Code / Structure 显示同一份已保存结果
 ```
 
 ### 3.2 Schema 之后的执行顺序
@@ -201,7 +203,7 @@ Structure 字段树选择
 9. **Schema 资源与协议创建**：嵌套目录、Protocol Schema 创建和项目引用写回。✅
 10. **打开项目**：Windows 目录选择、Host Bridge、真实 Explorer、协议创建和关闭项目。✅
 11. **Protocol Designer 源码编辑**：YAML 编辑、Core 校验、原子保存和回读刷新。✅
-12. **Protocol Designer 可视化**：Schema 只读字段树已完成；下一步补只读属性检查器，再推进可视化写回。✅
+12. **Protocol Designer 可视化**：Schema 只读字段树和属性检查器已完成；下一步由 Core 打通最小 Field 属性写回。✅
 13. **Message Studio**：结构化表单组包、自动 Length/CRC 和报文模板。
 14. **Transport 抽象 + TCP Client**：建立第一条真实收发链路。
 15. **Debugger + Timeline**：统一展示 TX/RX、Raw HEX 和解析字段。
@@ -217,7 +219,7 @@ Structure 字段树选择
 |---|---|---|---|
 | M00 工程与平台基础 | 🟡 部分完成 | M0 | 模块分层、格式化、统一 Result/Error 和 Windows 基线可运行；静态分析、安装发布和其他平台未完成 |
 | M01 Workspace 工作空间 | 🟡 部分完成 | MVP | Project Schema、Workspace Core、Windows GUI 打开/关闭、真实嵌套树和 Protocol 创建已完成；完整 Project 创建、最近项目、重命名/删除和文件监听未实现 |
-| M02 Protocol Designer / Schema | 🟡 部分完成 | MVP | Protocol Schema v0.1、YAML 安全编辑和只读 Message / Field 结构树已完成；下一步实现只读属性检查器 |
+| M02 Protocol Designer / Schema | 🟡 部分完成 | MVP | Protocol Schema v0.1、YAML 安全编辑、只读 Message / Field 结构树和属性检查器已完成；下一步实现 Core 驱动的 Field 属性写回 |
 | M03 Codec 编解码 | 🟡 部分完成 | MVP | 统一 HEX/Binary 协议入口及固定 Primitive/string/bytes/Array、最小 Length Field、非连续布局、padding、字节序和 round-trip 已完成；自动 Message 匹配、动态 Array、Struct/Condition 和 Checksum 尚未实现 |
 | M04 HEX Studio | 🟡 部分完成 | MVP | 已完成基础 HEX 检查和三种校验计算 |
 | M05 Transport 通信层 | 🟡 API 已建立 | MVP/P2 | 统一字节、生命周期、状态、事件和统计接口已建立；没有真实连接实现 |
@@ -531,10 +533,10 @@ Structure 字段树选择
 
 - [x] YAML Schema 源码编辑、Core 校验和安全保存。
 - [x] 可视化字段树。
-- [ ] 🚧 属性检查器。
+- [x] 属性检查器。
 - [ ] 添加/删除/复制/移动字段。
 - [ ] 拖放排序。
-- [ ] GUI 修改实时更新 Schema。
+- [ ] 🚧 GUI 修改经 Core 校验后更新 Schema。
 - [ ] Schema 修改实时更新 GUI。
 - [ ] 语法高亮和自动补全。
 - [ ] 跳转到错误位置。
@@ -1595,13 +1597,20 @@ CI/CD
 - Debug/Release 均为 20/20 CTest 通过；真实 WebView2 验收覆盖 1 个 Message、3 个 Field、固定 Array、显式字段字节序、中英文 Code / Structure 往返切换、未保存提示以及保存回读后的结构刷新。
 - 本地提交：见包含本记录的 `feat: visualize protocol schema structure` 提交，未自动推送。
 
+### 2026-08-30：Protocol Designer 只读属性检查器
+
+- Structure 树中的 Message / Field 支持选择和选中高亮，右侧检查器展示 Core 已输出的名称、类型 ID、字段数、类型、offset/length、字节序、继承状态、Length 目标和固定 Array 元数据。
+- 属性检查器与 Code / Structure 共用当前 Protocol；切换或回读 Protocol 时清除过期选择，TypeScript 不解析或写入 YAML。
+- Web UI 构建、Windows x86_64 Debug/Release 构建和两种配置 20/20 CTest 均通过；真实 WebView2 已验收 Message 与 Field 属性切换。
+- 本地提交：见包含本记录的 `feat: inspect protocol schema properties` 提交，未自动推送。
+
 ---
 
 ## 9. 下一次更新入口
 
 下次开始开发时，直接从以下功能点继续：
 
-> **M02-F12：在 Structure 字段树中选择 Message / Field，并用只读属性检查器显示 Core 已提供的结构元数据**
+> **M02-F12：定义结构化 Field 修改命令，由 Core 更新、校验并原子保存 Protocol YAML，完成一个现有 Field 属性的最小可视化写回闭环**
 
 完成一个功能点后：
 

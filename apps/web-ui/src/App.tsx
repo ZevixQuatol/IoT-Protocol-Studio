@@ -169,6 +169,10 @@ export default function App() {
   const [createOpen, setCreateOpen] = useState(false);
   const [draftContent, setDraftContent] = useState("");
   const [designerView, setDesignerView] = useState<DesignerView>("code");
+  const [structureSelection, setStructureSelection] = useState<{
+    messageName: string;
+    fieldName?: string;
+  }>();
   const [errorMessage, setErrorMessage] = useState<string>();
   const translation = messages[locale];
   const page = navigation.entries[navigation.index];
@@ -176,6 +180,39 @@ export default function App() {
   const selectedProtocol = project?.protocols.find(
     (protocol) => protocol.path === selectedProtocolPath,
   );
+  const selectedStructureMessage = selectedProtocol?.schema.messages.find(
+    (message) => message.name === structureSelection?.messageName,
+  );
+  const selectedStructureField = structureSelection?.fieldName
+    ? selectedStructureMessage?.fields.find((field) => field.name === structureSelection.fieldName)
+    : undefined;
+  const structureProperties = selectedStructureField
+    ? [
+        [translation.structure.name, selectedStructureField.name],
+        [translation.structure.displayName, selectedStructureField.displayName || "—"],
+        [translation.structure.type, selectedStructureField.type],
+        [translation.structure.offset, selectedStructureField.offset],
+        [translation.structure.length, selectedStructureField.length ?? "—"],
+        [
+          translation.structure.byteOrder,
+          `${selectedStructureField.byteOrder}${selectedStructureField.byteOrderInherited ? ` · ${translation.structure.inherited}` : ""}`,
+        ],
+        [translation.structure.lengthOf, selectedStructureField.lengthOf ?? "—"],
+        ...(selectedStructureField.type === "array"
+          ? [
+              [translation.structure.elementType, selectedStructureField.elementType ?? "—"],
+              [translation.structure.count, selectedStructureField.count ?? "—"],
+            ]
+          : []),
+      ]
+    : selectedStructureMessage
+      ? [
+          [translation.structure.name, selectedStructureMessage.name],
+          [translation.structure.displayName, selectedStructureMessage.displayName || "—"],
+          [translation.structure.typeId, selectedStructureMessage.typeId ?? "—"],
+          [translation.structure.fields, String(selectedStructureMessage.fields.length)],
+        ]
+      : [];
   const isDirty = selectedProtocol ? draftContent !== selectedProtocol.content : false;
 
   const applyWorkspace = (result: WorkspaceResult, preferredPath?: string) => {
@@ -212,6 +249,7 @@ export default function App() {
 
   useEffect(() => {
     setDraftContent(selectedProtocol?.content ?? "");
+    setStructureSelection(undefined);
   }, [selectedProtocol?.content, selectedProtocol?.path]);
 
   useEffect(() => {
@@ -595,97 +633,166 @@ export default function App() {
                         />
                       ) : (
                         <div className="protocol-structure" role="tabpanel">
-                          <div className="structure-summary">
-                            <span>
-                              <small>{translation.structure.schemaVersion}</small>
-                              <strong>{selectedProtocol.schema.version}</strong>
-                            </span>
-                            <span>
-                              <small>{translation.structure.protocolVersion}</small>
-                              <strong>{selectedProtocol.schema.protocolVersion}</strong>
-                            </span>
-                            <span>
-                              <small>{translation.structure.defaultByteOrder}</small>
-                              <strong>{selectedProtocol.schema.defaultByteOrder}</strong>
-                            </span>
-                            <span>
-                              <small>{translation.structure.messages}</small>
-                              <strong>{selectedProtocol.schema.messages.length}</strong>
-                            </span>
-                          </div>
-                          {isDirty && (
-                            <div className="structure-notice">
-                              <CircleAlert size={14} />
-                              {translation.structure.unsavedHint}
+                          <div className="structure-main">
+                            <div className="structure-summary">
+                              <span>
+                                <small>{translation.structure.schemaVersion}</small>
+                                <strong>{selectedProtocol.schema.version}</strong>
+                              </span>
+                              <span>
+                                <small>{translation.structure.protocolVersion}</small>
+                                <strong>{selectedProtocol.schema.protocolVersion}</strong>
+                              </span>
+                              <span>
+                                <small>{translation.structure.defaultByteOrder}</small>
+                                <strong>{selectedProtocol.schema.defaultByteOrder}</strong>
+                              </span>
+                              <span>
+                                <small>{translation.structure.messages}</small>
+                                <strong>{selectedProtocol.schema.messages.length}</strong>
+                              </span>
                             </div>
-                          )}
-                          {selectedProtocol.schema.messages.length === 0 ? (
-                            <div className="structure-empty">
-                              <ListTree size={24} />
-                              <span>{translation.structure.empty}</span>
-                            </div>
-                          ) : (
-                            <ul className="message-tree" role="tree">
-                              {selectedProtocol.schema.messages.map((message) => (
-                                <li aria-expanded="true" key={message.name} role="treeitem">
-                                  <div className="message-node">
-                                    <ChevronDown size={15} />
-                                    <div>
-                                      <strong>{message.displayName || message.name}</strong>
-                                      {message.displayName && <code>{message.name}</code>}
-                                    </div>
-                                    <span>
-                                      {message.fields.length} {translation.structure.fields}
-                                    </span>
-                                    {message.typeId && (
-                                      <span>
-                                        {translation.structure.typeId} {message.typeId}
-                                      </span>
-                                    )}
-                                  </div>
-                                  <ul role="group">
-                                    {message.fields.map((field, fieldIndex) => (
-                                      <li
-                                        aria-label={`${field.name}: ${field.type}`}
-                                        className="field-node"
-                                        key={field.name}
-                                        role="treeitem"
+                            {isDirty && (
+                              <div className="structure-notice">
+                                <CircleAlert size={14} />
+                                {translation.structure.unsavedHint}
+                              </div>
+                            )}
+                            {selectedProtocol.schema.messages.length === 0 ? (
+                              <div className="structure-empty">
+                                <ListTree size={24} />
+                                <span>{translation.structure.empty}</span>
+                              </div>
+                            ) : (
+                              <ul className="message-tree" role="tree">
+                                {selectedProtocol.schema.messages.map((message) => {
+                                  const messageSelected =
+                                    selectedStructureMessage?.name === message.name &&
+                                    !structureSelection?.fieldName;
+                                  return (
+                                    <li
+                                      aria-expanded="true"
+                                      aria-selected={messageSelected}
+                                      key={message.name}
+                                      role="treeitem"
+                                    >
+                                      <button
+                                        className={`message-node ${messageSelected ? "selected" : ""}`}
+                                        onClick={() =>
+                                          setStructureSelection({ messageName: message.name })
+                                        }
+                                        type="button"
                                       >
-                                        <span className="field-index">{fieldIndex + 1}</span>
-                                        <div className="field-name">
-                                          <strong>{field.displayName || field.name}</strong>
-                                          {field.displayName && <code>{field.name}</code>}
+                                        <ChevronDown size={15} />
+                                        <div>
+                                          <strong>{message.displayName || message.name}</strong>
+                                          {message.displayName && <code>{message.name}</code>}
                                         </div>
-                                        <code className="field-type">
-                                          {field.type === "array"
-                                            ? `${field.elementType ?? "?"}[${field.count ?? "?"}]`
-                                            : field.type}
-                                        </code>
-                                        <div className="field-metadata">
-                                          <span title={translation.structure.offset}>
-                                            @{field.offset}
+                                        <span>
+                                          {message.fields.length} {translation.structure.fields}
+                                        </span>
+                                        {message.typeId && (
+                                          <span>
+                                            {translation.structure.typeId} {message.typeId}
                                           </span>
-                                          <span title={translation.structure.length}>
-                                            {field.length ?? "—"} B
-                                          </span>
-                                          <span
-                                            title={`${translation.structure.byteOrder}${field.byteOrderInherited ? ` · ${translation.structure.inherited}` : ""}`}
-                                          >
-                                            {field.byteOrder === "little" ? "LE" : "BE"}
-                                          </span>
-                                          {field.lengthOf && (
-                                            <span title={translation.structure.lengthOf}>
-                                              → {field.lengthOf}
-                                            </span>
-                                          )}
-                                        </div>
-                                      </li>
-                                    ))}
-                                  </ul>
-                                </li>
-                              ))}
-                            </ul>
-                          )}
+                                        )}
+                                      </button>
+                                      <ul role="group">
+                                        {message.fields.map((field, fieldIndex) => {
+                                          const fieldSelected =
+                                            selectedStructureMessage?.name === message.name &&
+                                            selectedStructureField?.name === field.name;
+                                          return (
+                                            <li
+                                              aria-label={`${field.name}: ${field.type}`}
+                                              aria-selected={fieldSelected}
+                                              className="field-node-item"
+                                              key={field.name}
+                                              role="treeitem"
+                                            >
+                                              <button
+                                                className={`field-node ${fieldSelected ? "selected" : ""}`}
+                                                onClick={() =>
+                                                  setStructureSelection({
+                                                    messageName: message.name,
+                                                    fieldName: field.name,
+                                                  })
+                                                }
+                                                type="button"
+                                              >
+                                                <span className="field-index">
+                                                  {fieldIndex + 1}
+                                                </span>
+                                                <div className="field-name">
+                                                  <strong>{field.displayName || field.name}</strong>
+                                                  {field.displayName && <code>{field.name}</code>}
+                                                </div>
+                                                <code className="field-type">
+                                                  {field.type === "array"
+                                                    ? `${field.elementType ?? "?"}[${field.count ?? "?"}]`
+                                                    : field.type}
+                                                </code>
+                                                <div className="field-metadata">
+                                                  <span title={translation.structure.offset}>
+                                                    @{field.offset}
+                                                  </span>
+                                                  <span title={translation.structure.length}>
+                                                    {field.length ?? "—"} B
+                                                  </span>
+                                                  <span
+                                                    title={`${translation.structure.byteOrder}${field.byteOrderInherited ? ` · ${translation.structure.inherited}` : ""}`}
+                                                  >
+                                                    {field.byteOrder === "little" ? "LE" : "BE"}
+                                                  </span>
+                                                  {field.lengthOf && (
+                                                    <span title={translation.structure.lengthOf}>
+                                                      → {field.lengthOf}
+                                                    </span>
+                                                  )}
+                                                </div>
+                                              </button>
+                                            </li>
+                                          );
+                                        })}
+                                      </ul>
+                                    </li>
+                                  );
+                                })}
+                              </ul>
+                            )}
+                          </div>
+                          <aside
+                            aria-label={translation.structure.properties}
+                            className="property-inspector"
+                          >
+                            <div className="property-inspector-title">
+                              <small>{translation.structure.properties}</small>
+                              <strong>
+                                {selectedStructureField?.displayName ||
+                                  selectedStructureField?.name ||
+                                  selectedStructureMessage?.displayName ||
+                                  selectedStructureMessage?.name ||
+                                  "—"}
+                              </strong>
+                            </div>
+                            {!selectedStructureMessage ? (
+                              <div className="property-inspector-empty">
+                                <ListTree size={22} />
+                                <span>{translation.structure.selectHint}</span>
+                              </div>
+                            ) : (
+                              <dl className="property-list">
+                                {structureProperties.map(([label, value]) => (
+                                  <div key={label}>
+                                    <dt>{label}</dt>
+                                    <dd>
+                                      <code>{value}</code>
+                                    </dd>
+                                  </div>
+                                ))}
+                              </dl>
+                            )}
+                          </aside>
                         </div>
                       )}
                     </section>

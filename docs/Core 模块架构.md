@@ -144,7 +144,7 @@ core/
 - 创建时拒绝目录逃逸、非便携路径、重复引用和覆盖已有文件；写回失败时恢复原清单。
 - `iotps project validate <directory>` CLI 验证入口。
 
-Windows Host 已通过系统目录选择器和 WebView Bridge 复用以上 Core API，实现项目打开/关闭、真实嵌套 Explorer、Protocol 创建、YAML 校验后原子保存，以及从 `ProtocolSchema` 输出只读 Message / Field 结构。Core 当前没有提供完整 Project 创建、Protocol 重命名/删除、最近项目、外部文件监听或未保存修改处理。完整契约见 [Project Workspace v0.1](<./Project Workspace v0.1.md>)。
+Windows Host 已通过系统目录选择器和 WebView Bridge 复用以上 Core API，实现项目打开/关闭、真实嵌套 Explorer、Protocol 创建、YAML 校验后原子保存，以及从 `ProtocolSchema` 输出只读 Message / Field 结构；Web UI 可选择结构节点并查看这些 Core 属性。Core 当前没有提供结构化 Field 修改、完整 Project 创建、Protocol 重命名/删除、最近项目、外部文件监听或未保存修改处理。完整契约见 [Project Workspace v0.1](<./Project Workspace v0.1.md>)。
 
 ### 5.3 Codec
 
@@ -274,13 +274,13 @@ Simulator 集成测试只替换 Transport，因为 Transport 是操作系统和�
 
 ## 8. 下一步
 
-固定布局 Codec、协议级 HEX/Binary 解析入口、Workspace 加载、Protocol 源码安全保存和只读结构树已经完成。下一入口进入 Protocol Designer 的只读属性检查器：
+固定布局 Codec、协议级 HEX/Binary 解析入口、Workspace 加载、Protocol 源码安全保存、只读结构树和属性检查器已经完成。下一入口进入 Core 驱动的最小 Field 属性写回：
 
 ```text
-Structure 字段树选择
-  → 当前 Message / Field 标识
-  → 只读属性检查器
-  → Code / Structure 继续共享当前 Protocol
+Field 属性修改命令
+  → Core 更新领域模型并生成 YAML
+  → Schema 校验 + 原子保存 + Workspace 回读
+  → Code / Structure 显示同一份已保存结果
 ```
 
-下一入口只选择并展示现有 Core 已解析的 Message / Field 属性，不增加可视化修改、双向写回、拖放、语法高亮、自动补全、Protocol 重命名/删除、真实 TCP/Serial、Simulator 行为 DSL 或完整 Test Runner。自动 Message 匹配需要先定义 wire 匹配规则；Count/Length 驱动 Array 与 Struct/Condition 保留在后续动态 Schema 阶段。
+下一入口只支持一个现有 Field 的受控属性修改，不增加字段增删/移动、拖放、TypeScript YAML 拼接、语法高亮、自动补全、Protocol 重命名/删除、真实 TCP/Serial、Simulator 行为 DSL 或完整 Test Runner。自动 Message 匹配需要先定义 wire 匹配规则；Count/Length 驱动 Array 与 Struct/Condition 保留在后续动态 Schema 阶段。
