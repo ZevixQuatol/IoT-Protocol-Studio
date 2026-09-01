@@ -113,6 +113,42 @@ normalize_protocol_path(const std::string_view value, std::string error_path) {
     return relative_path;
 }
 
+Result<std::string, WorkspaceDiagnostic>
+field_display_name_yaml(const std::string_view yaml, const std::string& source_name,
+                        const std::string_view message_name, const std::string_view field_name,
+                        const std::string_view display_name) {
+    try {
+        ryml::EventHandlerTree event_handler{loader_callbacks()};
+        ryml::Parser parser(&event_handler);
+        auto tree = ryml::parse_in_arena(&parser, {source_name.data(), source_name.size()},
+                                         {yaml.data(), yaml.size()});
+        auto messages = tree.rootref()["messages"];
+        for (auto message : messages.children()) {
+            if (to_string(message.key()) != message_name) {
+                continue;
+            }
+            for (auto field : message["fields"].children()) {
+                if (field.has_child("name") && scalar(field["name"]) == field_name) {
+                    auto display_name_node = field["displayName"];
+                    display_name_node.save(std::string{display_name});
+                    display_name_node.set_val_style(ryml::VAL_DQUO);
+                    std::string output;
+                    ryml::emitrs_yaml(tree, &output);
+                    return output;
+                }
+            }
+            return make_error(WorkspaceErrorCode::protocol_field_not_found, "$request.fieldName",
+                              "field was not found in message '" + std::string{message_name} +
+                                  "': '" + std::string{field_name} + "'");
+        }
+        return make_error(WorkspaceErrorCode::protocol_message_not_found, "$request.messageName",
+                          "message was not found: '" + std::string{message_name} + "'");
+    } catch (const std::exception& error) {
+        return make_error(WorkspaceErrorCode::protocol_schema_invalid, "$protocol",
+                          "cannot update protocol YAML: " + std::string{error.what()});
+    }
+}
+
 std::optional<WorkspaceDiagnostic> require_mapping(const ryml::ConstNodeRef node,
                                                    const std::string_view path,
                                                    const ryml::Parser& parser) {
@@ -700,6 +736,65 @@ ProjectLoadResult update_protocol(const std::filesystem::path& project_directory
     return reloaded;
 }
 
+ProjectLoadResult update_field_display_name(const std::filesystem::path& project_directory,
+                                            const FieldDisplayNameUpdateRequest& request) {
+    auto loaded = load_project(project_directory);
+    if (const auto* error = loaded.error_if()) {
+        return *error;
+    }
+    const auto& project = loaded.value();
+    auto relative_path = normalize_protocol_path(request.relative_path, "$request.relativePath");
+    if (const auto* error = relative_path.error_if()) {
+        return *error;
+    }
+    const auto portable_path = relative_path.value().generic_string();
+    const auto protocol = std::ranges::find_if(project.protocols, [&](const auto& candidate) {
+        return candidate.relative_path.generic_string() == portable_path;
+    });
+    if (protocol == project.protocols.end()) {
+        return make_error(WorkspaceErrorCode::protocol_not_referenced, "$request.relativePath",
+                          "protocol is not referenced by project.yaml: '" + portable_path + "'");
+    }
+
+    const auto message =
+        std::ranges::find_if(protocol->schema.messages, [&](const auto& candidate) {
+            return candidate.name == request.message_name;
+        });
+    if (message == protocol->schema.messages.end()) {
+        return make_error(WorkspaceErrorCode::protocol_message_not_found, "$request.messageName",
+                          "message was not found: '" + request.message_name + "'");
+    }
+    if (std::ranges::none_of(message->fields, [&](const auto& candidate) {
+            return candidate.name == request.field_name;
+        })) {
+        return make_error(WorkspaceErrorCode::protocol_field_not_found, "$request.fieldName",
+                          "field was not found in message '" + request.message_name + "': '" +
+                              request.field_name + "'");
+    }
+
+    const auto source_path = project.root_directory / relative_path.value();
+    std::ifstream input{source_path, std::ios::binary};
+    if (!input.is_open()) {
+        return make_error(WorkspaceErrorCode::protocol_file_load_failed, "$request.relativePath",
+                          "cannot open protocol file '" + source_path.string() + "'");
+    }
+    std::ostringstream contents;
+    contents << input.rdbuf();
+    if (input.bad()) {
+        return make_error(WorkspaceErrorCode::protocol_file_load_failed, "$request.relativePath",
+                          "cannot read protocol file '" + source_path.string() + "'");
+    }
+    input.close();
+
+    auto updated_yaml =
+        field_display_name_yaml(contents.str(), source_path.string(), request.message_name,
+                                request.field_name, request.display_name);
+    if (const auto* error = updated_yaml.error_if()) {
+        return *error;
+    }
+    return update_protocol(project.root_directory, portable_path, updated_yaml.value());
+}
+
 std::string_view to_string(const WorkspaceErrorCode code) noexcept {
     switch (code) {
     case WorkspaceErrorCode::project_directory_not_found:
@@ -736,6 +831,10 @@ std::string_view to_string(const WorkspaceErrorCode code) noexcept {
         return "protocol_schema_invalid";
     case WorkspaceErrorCode::protocol_not_referenced:
         return "protocol_not_referenced";
+    case WorkspaceErrorCode::protocol_message_not_found:
+        return "protocol_message_not_found";
+    case WorkspaceErrorCode::protocol_field_not_found:
+        return "protocol_field_not_found";
     case WorkspaceErrorCode::protocol_file_already_exists:
         return "protocol_file_already_exists";
     case WorkspaceErrorCode::protocol_directory_create_failed:

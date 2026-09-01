@@ -286,7 +286,14 @@ protocol:
   displayName: Updated Telemetry
   version: "2.0"
   defaultByteOrder: big
-messages: {}
+messages:
+  telemetry:
+    displayName: Telemetry
+    fields:
+      - name: temperature
+        displayName: Temperature
+        type: int16
+        customSetting: preserved
 )yaml");
     CHECK(updated.has_value());
     if (const auto* project = updated.value_if()) {
@@ -296,6 +303,64 @@ messages: {}
     CHECK(read_file(protocol_path).find("updated-telemetry") != std::string::npos);
     CHECK(!std::filesystem::exists(protocol_path.string() + ".iotps.tmp"));
     CHECK(!std::filesystem::exists(protocol_path.string() + ".iotps.bak"));
+
+    const auto field_updated = update_field_display_name(
+        temporary, {
+                       .relative_path = "protocols/vendors/acme/telemetry.protocol.yaml",
+                       .message_name = "telemetry",
+                       .field_name = "temperature",
+                       .display_name = "Ambient: \"Temperature\"",
+                   });
+    CHECK(field_updated.has_value());
+    if (const auto* project = field_updated.value_if()) {
+        CHECK(project->protocols[0].schema.messages[0].fields[0].display_name ==
+              "Ambient: \"Temperature\"");
+    }
+    const auto field_updated_yaml = read_file(protocol_path);
+    CHECK(field_updated_yaml.find("customSetting: preserved") != std::string::npos);
+    CHECK(field_updated_yaml.find("Ambient: ") != std::string::npos);
+
+    const auto before_missing_updates = read_file(protocol_path);
+    const auto missing_message = update_field_display_name(
+        temporary, {
+                       .relative_path = "protocols/vendors/acme/telemetry.protocol.yaml",
+                       .message_name = "missing",
+                       .field_name = "temperature",
+                       .display_name = "Ignored",
+                   });
+    CHECK(!missing_message.has_value());
+    if (const auto* error = missing_message.error_if()) {
+        CHECK(error->code == WorkspaceErrorCode::protocol_message_not_found);
+        CHECK(error->path == "$request.messageName");
+    }
+    const auto missing_field = update_field_display_name(
+        temporary, {
+                       .relative_path = "protocols/vendors/acme/telemetry.protocol.yaml",
+                       .message_name = "telemetry",
+                       .field_name = "missing",
+                       .display_name = "Ignored",
+                   });
+    CHECK(!missing_field.has_value());
+    if (const auto* error = missing_field.error_if()) {
+        CHECK(error->code == WorkspaceErrorCode::protocol_field_not_found);
+        CHECK(error->path == "$request.fieldName");
+    }
+    CHECK(read_file(protocol_path) == before_missing_updates);
+
+    write_file(protocol_path.string() + ".iotps.tmp", "occupied");
+    const auto blocked_update = update_field_display_name(
+        temporary, {
+                       .relative_path = "protocols/vendors/acme/telemetry.protocol.yaml",
+                       .message_name = "telemetry",
+                       .field_name = "temperature",
+                       .display_name = "Blocked",
+                   });
+    CHECK(!blocked_update.has_value());
+    if (const auto* error = blocked_update.error_if()) {
+        CHECK(error->code == WorkspaceErrorCode::protocol_file_write_failed);
+    }
+    CHECK(read_file(protocol_path) == before_missing_updates);
+    std::filesystem::remove(protocol_path.string() + ".iotps.tmp");
 
     const auto unreferenced_update =
         update_protocol(temporary, "protocols/orphan.protocol.yaml", original_protocol);
@@ -328,6 +393,9 @@ messages: {}
     CHECK(to_string(WorkspaceErrorCode::protocol_file_already_exists) ==
           "protocol_file_already_exists");
     CHECK(to_string(WorkspaceErrorCode::protocol_not_referenced) == "protocol_not_referenced");
+    CHECK(to_string(WorkspaceErrorCode::protocol_message_not_found) ==
+          "protocol_message_not_found");
+    CHECK(to_string(WorkspaceErrorCode::protocol_field_not_found) == "protocol_field_not_found");
 
     return failures == 0 ? 0 : 1;
 }

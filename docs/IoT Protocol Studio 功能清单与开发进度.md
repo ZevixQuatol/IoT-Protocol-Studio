@@ -1,7 +1,7 @@
 # IoT Protocol Studio 功能清单与开发进度
 
 > 清单版本：1.0  
-> 更新日期：2026-08-30
+> 更新日期：2026-08-31
 > 功能基线：`IoT Protocol Studio 功能设计文档.md` v0.1  
 > 当前程序版本：0.1.0  
 > 当前目标平台：Windows x86_64  
@@ -65,7 +65,7 @@ flowchart LR
     M --> N["✅ Protocol YAML 源码编辑 + Core 校验保存"]
     N --> O["✅ 只读可视化字段树"]
     O --> P["✅ Message / Field 只读属性检查器"]
-    P --> T["🚧 下一步：Core 驱动的 Field 属性写回"]
+    P --> T["✅ Core 驱动的 Field displayName 写回"]
     T --> S["⬜ Message Studio + Transport + Debugger"]
     S --> Q["⬜ 完整 Simulator + Test Runner"]
     Q --> R["⬜ MVP 验收"]
@@ -110,7 +110,7 @@ ProtocolSchema + Message 名称 + HEX / ByteBuffer
   → Transport API 测试边界
 ```
 
-Schema、固定布局协议解析和 Workspace 纵向链路已经打通：Protocol YAML 和项目目录可以映射为领域模型，Core 可以按明确的 Message 名称解析 HEX/Binary 或反向编码，也可以在嵌套目录创建和安全更新 Protocol Schema。Windows GUI 已能打开、显示、创建、编辑保存和关闭真实项目，并通过只读结构树与属性检查器展示 Core 解析后的 Message / Field；自动 Message 匹配、可视化写回和真实 Transport 仍未完成。
+Schema、固定布局协议解析和 Workspace 纵向链路已经打通：Protocol YAML 和项目目录可以映射为领域模型，Core 可以按明确的 Message 名称解析 HEX/Binary 或反向编码，也可以在嵌套目录创建和安全更新 Protocol Schema。Windows GUI 已能打开、显示、创建、编辑保存和关闭真实项目，并通过结构树与属性检查器展示 Core 解析后的 Message / Field；现有 Field 的 `displayName` 已可经 Core 结构化写回并刷新 Code / Structure。自动 Message 匹配、其他可视化属性写回和真实 Transport 仍未完成。
 
 ### 2.3 已经可以使用的能力
 
@@ -164,30 +164,31 @@ Schema、固定布局协议解析和 Workspace 纵向链路已经打通：Protoc
 
 ### 2.4 当前界面中尚未实现的占位功能
 
-- [ ] 当前没有可视化修改或 Structure + Code 双向写回。
+- [x] 当前支持通过属性检查器修改现有 Field 的 `displayName`，经 Core 校验、原子保存和 Workspace 回读后刷新 Code / Structure。
+- [ ] 当前没有完整的可视化修改或 Structure + Code 双向写回。
 - [ ] 当前 GUI 没有连接、发送、接收、模拟器或测试执行能力。
 
 ---
 
 ## 3. 接下来应该做什么
 
-### 3.1 当前唯一首要任务：Core 驱动的 Field 属性写回
+### 3.1 当前唯一首要任务：Message Studio
 
-Protocol YAML 源码编辑、只读结构树和属性检查器已经完成。下一步只打通一个现有 Field 属性的最小可视化写回链路：
+Protocol YAML 源码编辑、结构树、属性检查器和现有 Field `displayName` 的最小写回链路已经完成。下一步进入 Message Studio，先建立按 Message 选择和结构化字段组包的可验证入口：
 
-- 属性检查器编辑一个现有 Field 的受支持属性。
-- Windows Bridge 将结构化修改命令交给 Core，由 Core 更新、校验并原子保存 Protocol YAML。
-- 保存成功后 Workspace 回读并刷新 Code / Structure；失败保留原文件和原界面数据。
+- 选择已保存的 Message 和字段值。
+- 调用 Protocol Codec 完成 Encode，并展示规范化报文和字段范围。
+- 为后续自动 Length / CRC 与 Transport 发送保留清晰的 Bridge 边界。
 
 TypeScript 不解析、拼接或直接写入 YAML。暂不实现字段增删/移动、拖放、语法高亮、自动补全、Protocol 重命名/删除和外部文件监听。
 
 本阶段完成标准：
 
 ```text
-Field 属性修改命令
-  → Core 更新领域模型并生成 YAML
-  → Schema 校验 + 原子保存 + Workspace 回读
-  → Code / Structure 显示同一份已保存结果
+Message Studio 字段表单
+  → Protocol Codec Encode
+  → Message 报文预览
+  → Transport 发送
 ```
 
 ### 3.2 Schema 之后的执行顺序
@@ -203,7 +204,7 @@ Field 属性修改命令
 9. **Schema 资源与协议创建**：嵌套目录、Protocol Schema 创建和项目引用写回。✅
 10. **打开项目**：Windows 目录选择、Host Bridge、真实 Explorer、协议创建和关闭项目。✅
 11. **Protocol Designer 源码编辑**：YAML 编辑、Core 校验、原子保存和回读刷新。✅
-12. **Protocol Designer 可视化**：Schema 只读字段树和属性检查器已完成；下一步由 Core 打通最小 Field 属性写回。✅
+12. **Protocol Designer 可视化**：Schema 结构树、属性检查器和现有 Field `displayName` 的 Core 驱动写回已完成；完整双向编辑仍待实现。✅
 13. **Message Studio**：结构化表单组包、自动 Length/CRC 和报文模板。
 14. **Transport 抽象 + TCP Client**：建立第一条真实收发链路。
 15. **Debugger + Timeline**：统一展示 TX/RX、Raw HEX 和解析字段。
@@ -219,7 +220,7 @@ Field 属性修改命令
 |---|---|---|---|
 | M00 工程与平台基础 | 🟡 部分完成 | M0 | 模块分层、格式化、统一 Result/Error 和 Windows 基线可运行；静态分析、安装发布和其他平台未完成 |
 | M01 Workspace 工作空间 | 🟡 部分完成 | MVP | Project Schema、Workspace Core、Windows GUI 打开/关闭、真实嵌套树和 Protocol 创建已完成；完整 Project 创建、最近项目、重命名/删除和文件监听未实现 |
-| M02 Protocol Designer / Schema | 🟡 部分完成 | MVP | Protocol Schema v0.1、YAML 安全编辑、只读 Message / Field 结构树和属性检查器已完成；下一步实现 Core 驱动的 Field 属性写回 |
+| M02 Protocol Designer / Schema | 🟡 部分完成 | MVP | Protocol Schema v0.1、YAML 安全编辑、Message / Field 结构树、属性检查器和 Field `displayName` Core 写回已完成；完整双向编辑仍未实现 |
 | M03 Codec 编解码 | 🟡 部分完成 | MVP | 统一 HEX/Binary 协议入口及固定 Primitive/string/bytes/Array、最小 Length Field、非连续布局、padding、字节序和 round-trip 已完成；自动 Message 匹配、动态 Array、Struct/Condition 和 Checksum 尚未实现 |
 | M04 HEX Studio | 🟡 部分完成 | MVP | 已完成基础 HEX 检查和三种校验计算 |
 | M05 Transport 通信层 | 🟡 API 已建立 | MVP/P2 | 统一字节、生命周期、状态、事件和统计接口已建立；没有真实连接实现 |
@@ -1604,13 +1605,21 @@ CI/CD
 - Web UI 构建、Windows x86_64 Debug/Release 构建和两种配置 20/20 CTest 均通过；真实 WebView2 已验收 Message 与 Field 属性切换。
 - 本地提交：见包含本记录的 `feat: inspect protocol schema properties` 提交，未自动推送。
 
+### 2026-08-31：Protocol Designer Field displayName 结构化写回
+
+- Core 新增 `FieldDisplayNameUpdateRequest` 和 `update_field_display_name()`，按 Protocol、Message、Field 名称精确定位现有字段；仅通过 Rapid YAML 更新目标 `displayName`，不由 TypeScript 解析或拼接 YAML。
+- Windows Host 新增 `iotpsWorkspaceUpdateFieldDisplayName` Bridge；Web UI 在 Field 属性检查器中提供受控编辑和保存按钮，保存成功后由 Workspace 回读并同步 Code / Structure。
+- 显示名称包含冒号、引号等特殊字符时由 YAML 双引号样式正确转义；未知 Message / Field、Schema 校验失败和临时文件占用均保持原文件不变并返回稳定错误码。
+- Web UI 类型检查、格式检查和生产构建通过；Windows Debug 定向重编译和 `iotps_workspace_unit_test` 通过。完整 Debug/Release 构建、全量 CTest 和真实 WebView2 字段编辑验收待本轮收尾验证。
+- 本地提交：待本轮验证完成后记录，未自动推送。
+
 ---
 
 ## 9. 下一次更新入口
 
 下次开始开发时，直接从以下功能点继续：
 
-> **M02-F12：定义结构化 Field 修改命令，由 Core 更新、校验并原子保存 Protocol YAML，完成一个现有 Field 属性的最小可视化写回闭环**
+> **M07-F01：建立 Message Studio 的 Message 选择、结构化字段输入和 Protocol Codec Encode 预览闭环**
 
 完成一个功能点后：
 

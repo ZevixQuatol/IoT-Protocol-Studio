@@ -128,7 +128,7 @@ core/
 当前没有提供：
 
 - Schema 文件自动迁移和无损写回。
-- 完整 Field 属性和动态结构校验。
+- 完整 Field 属性编辑和动态结构校验。
 
 ### 5.2 Workspace
 
@@ -141,10 +141,11 @@ core/
 - 使用 `/` 的跨平台协议相对路径、规范化、重复和目录逃逸校验。
 - 加载 `protocols/` 下引用的 Protocol Schema，并保留下层 Schema 诊断。
 - `create_protocol()` 按相对路径创建嵌套目录和最小 Protocol Schema，安全写回 `project.yaml` 并回读校验。
+- `update_field_display_name()` 按 Protocol、Message、Field 名称精确定位现有字段，使用 Rapid YAML 更新 `displayName`，经 Schema 校验后原子保存并回读整个项目。
 - 创建时拒绝目录逃逸、非便携路径、重复引用和覆盖已有文件；写回失败时恢复原清单。
 - `iotps project validate <directory>` CLI 验证入口。
 
-Windows Host 已通过系统目录选择器和 WebView Bridge 复用以上 Core API，实现项目打开/关闭、真实嵌套 Explorer、Protocol 创建、YAML 校验后原子保存，以及从 `ProtocolSchema` 输出只读 Message / Field 结构；Web UI 可选择结构节点并查看这些 Core 属性。Core 当前没有提供结构化 Field 修改、完整 Project 创建、Protocol 重命名/删除、最近项目、外部文件监听或未保存修改处理。完整契约见 [Project Workspace v0.1](<./Project Workspace v0.1.md>)。
+Windows Host 已通过系统目录选择器和 WebView Bridge 复用以上 Core API，实现项目打开/关闭、真实嵌套 Explorer、Protocol 创建、YAML 校验后原子保存、Field `displayName` 结构化写回，以及从 `ProtocolSchema` 输出只读 Message / Field 结构；Web UI 可选择结构节点并查看或编辑受支持的 Field 属性。Core 当前没有提供完整 Field 属性编辑、完整 Project 创建、Protocol 重命名/删除、最近项目、外部文件监听或未保存修改处理。完整契约见 [Project Workspace v0.1](<./Project Workspace v0.1.md>)。
 
 ### 5.3 Codec
 
@@ -274,13 +275,13 @@ Simulator 集成测试只替换 Transport，因为 Transport 是操作系统和�
 
 ## 8. 下一步
 
-固定布局 Codec、协议级 HEX/Binary 解析入口、Workspace 加载、Protocol 源码安全保存、只读结构树和属性检查器已经完成。下一入口进入 Core 驱动的最小 Field 属性写回：
+固定布局 Codec、协议级 HEX/Binary 解析入口、Workspace 加载、Protocol 源码安全保存、只读结构树、属性检查器和一个 Field 属性写回入口已经完成。下一入口进入 Message Studio：
 
 ```text
-Field 属性修改命令
-  → Core 更新领域模型并生成 YAML
-  → Schema 校验 + 原子保存 + Workspace 回读
-  → Code / Structure 显示同一份已保存结果
+Message Studio 结构化字段表单
+  → Protocol Codec Encode
+  → 自动 Length / CRC
+  → Message 报文预览与发送
 ```
 
-下一入口只支持一个现有 Field 的受控属性修改，不增加字段增删/移动、拖放、TypeScript YAML 拼接、语法高亮、自动补全、Protocol 重命名/删除、真实 TCP/Serial、Simulator 行为 DSL 或完整 Test Runner。自动 Message 匹配需要先定义 wire 匹配规则；Count/Length 驱动 Array 与 Struct/Condition 保留在后续动态 Schema 阶段。
+当前 Field 写回入口只支持现有 Field 的 `displayName` 受控修改，不增加字段增删/移动、拖放、TypeScript YAML 拼接、语法高亮、自动补全、Protocol 重命名/删除、真实 TCP/Serial、Simulator 行为 DSL 或完整 Test Runner。自动 Message 匹配需要先定义 wire 匹配规则；Count/Length 驱动 Array 与 Struct/Condition 保留在后续动态 Schema 阶段。

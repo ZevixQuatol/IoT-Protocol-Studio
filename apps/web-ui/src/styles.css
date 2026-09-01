@@ -800,6 +800,58 @@ button {
   text-align: center;
 }
 
+.field-property-editor {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 10px 14px 12px;
+  border-bottom: 1px solid var(--border);
+}
+
+.field-property-editor label {
+  color: #71808e;
+  font-size: 9px;
+}
+
+.field-property-editor > div {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 6px;
+}
+
+.field-property-editor input {
+  min-width: 0;
+  height: 28px;
+  padding: 0 7px;
+  border: 1px solid #33414e;
+  border-radius: 4px;
+  outline: 0;
+  background: #111b23;
+  color: #c3cdd6;
+  font-size: 10px;
+}
+
+.field-property-editor input:focus {
+  border-color: var(--accent);
+}
+
+.field-property-editor button {
+  display: inline-flex;
+  height: 28px;
+  align-items: center;
+  gap: 4px;
+  padding: 0 7px;
+  border: 1px solid #33414e;
+  border-radius: 4px;
+  background: #17222c;
+  color: #b9c5cf;
+  font-size: 10px;
+}
+
+.field-property-editor button:disabled {
+  opacity: 0.45;
+}
+
 .property-list {
   margin: 0;
   padding: 6px 14px;

@@ -41,6 +41,13 @@ struct ProtocolCreateRequest {
     schema::ProtocolMetadata protocol;
 };
 
+struct FieldDisplayNameUpdateRequest {
+    std::string relative_path;
+    std::string message_name;
+    std::string field_name;
+    std::string display_name;
+};
+
 enum class WorkspaceErrorCode {
     project_directory_not_found,
     project_manifest_open_failed,
@@ -59,6 +66,8 @@ enum class WorkspaceErrorCode {
     protocol_file_load_failed,
     protocol_schema_invalid,
     protocol_not_referenced,
+    protocol_message_not_found,
+    protocol_field_not_found,
     protocol_file_already_exists,
     protocol_directory_create_failed,
     protocol_file_write_failed,
@@ -74,6 +83,9 @@ using ProjectLoadResult = Result<Project, WorkspaceDiagnostic>;
 [[nodiscard]] ProjectLoadResult update_protocol(const std::filesystem::path& project_directory,
                                                 std::string_view relative_path,
                                                 std::string_view yaml);
+[[nodiscard]] ProjectLoadResult
+update_field_display_name(const std::filesystem::path& project_directory,
+                          const FieldDisplayNameUpdateRequest& request);
 [[nodiscard]] std::string_view to_string(WorkspaceErrorCode code) noexcept;
 
 } // namespace iotps::core::workspace

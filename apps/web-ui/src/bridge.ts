@@ -93,6 +93,13 @@ export type ProtocolCreateRequest = {
   byteOrder: "big" | "little";
 };
 
+export type FieldDisplayNameUpdateRequest = {
+  relativePath: string;
+  messageName: string;
+  fieldName: string;
+  displayName: string;
+};
+
 declare global {
   interface Window {
     iotpsCoreInfo?: () => Promise<CoreInfo>;
@@ -111,6 +118,12 @@ declare global {
     iotpsWorkspaceSaveProtocol?: (
       relativePath: string,
       content: string,
+    ) => Promise<WorkspaceResult>;
+    iotpsWorkspaceUpdateFieldDisplayName?: (
+      relativePath: string,
+      messageName: string,
+      fieldName: string,
+      displayName: string,
     ) => Promise<WorkspaceResult>;
     iotpsWorkspaceClose?: () => Promise<WorkspaceResult>;
   }
@@ -250,6 +263,19 @@ export async function saveProtocol(
 ): Promise<WorkspaceResult> {
   return window.iotpsWorkspaceSaveProtocol
     ? window.iotpsWorkspaceSaveProtocol(relativePath, content)
+    : nativeRequired();
+}
+
+export async function updateFieldDisplayName(
+  request: FieldDisplayNameUpdateRequest,
+): Promise<WorkspaceResult> {
+  return window.iotpsWorkspaceUpdateFieldDisplayName
+    ? window.iotpsWorkspaceUpdateFieldDisplayName(
+        request.relativePath,
+        request.messageName,
+        request.fieldName,
+        request.displayName,
+      )
     : nativeRequired();
 }
 

@@ -60,6 +60,7 @@ export type TranslationMessages = {
     count: string;
     empty: string;
     unsavedHint: string;
+    saveBlocked: string;
   };
   settings: { title: string; language: string; languageHint: string };
 };
@@ -133,6 +134,7 @@ export const messages: Record<Locale, TranslationMessages> = {
       count: "数量",
       empty: "当前协议还没有 Message 定义。",
       unsavedHint: "结构视图显示最后一次成功保存并通过 Core 校验的 Schema。",
+      saveBlocked: "请先保存或放弃 Code 视图中的修改。",
     },
     settings: {
       title: "设置",
@@ -208,6 +210,7 @@ export const messages: Record<Locale, TranslationMessages> = {
       count: "Count",
       empty: "This protocol has no Message definitions yet.",
       unsavedHint: "Structure shows the last successfully saved and Core-validated Schema.",
+      saveBlocked: "Save or discard the Code view changes first.",
     },
     settings: {
       title: "Settings",
@@ -260,6 +263,8 @@ const chineseWorkspaceErrors: Record<string, string> = {
   protocol_file_load_failed: "无法加载协议文件",
   protocol_schema_invalid: "协议 Schema 无效",
   protocol_not_referenced: "协议未被 project.yaml 引用",
+  protocol_message_not_found: "目标 Message 不存在",
+  protocol_field_not_found: "目标 Field 不存在",
   protocol_file_already_exists: "协议文件已经存在",
   protocol_directory_create_failed: "无法创建协议目录",
   protocol_file_write_failed: "无法写入协议文件",

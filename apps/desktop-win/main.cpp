@@ -469,6 +469,27 @@ save_workspace_protocol(const std::string_view request,
         *current_project, (*arguments)[0], (*arguments)[1]));
 }
 
+[[nodiscard]] std::string
+update_workspace_field_display_name(const std::string_view request,
+                                    const std::optional<std::filesystem::path>& current_project) {
+    const auto arguments = string_arguments(request);
+    if (!arguments.has_value() || arguments->size() != 4) {
+        return workspace_error_response("invalid_request",
+                                        "updateFieldDisplayName expects four strings");
+    }
+    if (!current_project.has_value()) {
+        return workspace_error_response("project_not_open",
+                                        "Open a project before updating a field");
+    }
+    return workspace_result_response(iotps::core::workspace::update_field_display_name(
+        *current_project, {
+                              .relative_path = (*arguments)[0],
+                              .message_name = (*arguments)[1],
+                              .field_name = (*arguments)[2],
+                              .display_name = (*arguments)[3],
+                          }));
+}
+
 [[nodiscard]] std::string inspect_hex(const std::string& request,
                                       const iotps::core::Engine& engine) {
     try {
@@ -535,11 +556,13 @@ window.addEventListener("DOMContentLoaded", () => {
         window.iotpsWorkspaceCreateProtocol(
           "smoke.protocol.yaml", "smoke", "", "1.0", "", "big"),
         window.iotpsWorkspaceSaveProtocol("protocols/smoke.protocol.yaml", "messages: {}"),
+        window.iotpsWorkspaceUpdateFieldDisplayName(
+          "protocols/smoke.protocol.yaml", "message", "field", "Display name"),
         window.iotpsWorkspaceClose(),
         Promise.resolve(window.iotpsWindowAction("maximize"))
           .then((result) => result?.ok && window.iotpsWindowAction("maximize")),
       ])
-        .then(([current, createResult, saveResult, closed, windowResult]) => {
+        .then(([current, createResult, saveResult, fieldResult, closed, windowResult]) => {
           if (!windowResult?.ok) {
             report("window-controls-failed");
             return;
@@ -547,7 +570,8 @@ window.addEventListener("DOMContentLoaded", () => {
           if (!current?.ok || current.project !== null || !closed?.ok ||
               closed.project !== null || createResult?.ok ||
               createResult?.error?.code !== "project_not_open" || saveResult?.ok ||
-              saveResult?.error?.code !== "project_not_open") {
+              saveResult?.error?.code !== "project_not_open" || fieldResult?.ok ||
+              fieldResult?.error?.code !== "project_not_open") {
             report("workspace-bridge-failed");
             return;
           }
@@ -797,6 +821,10 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR command_line, int) {
         window.bind("iotpsWorkspaceSaveProtocol", [&current_project](const std::string& request) {
             return save_workspace_protocol(request, current_project);
         });
+        window.bind("iotpsWorkspaceUpdateFieldDisplayName",
+                    [&current_project](const std::string& request) {
+                        return update_workspace_field_display_name(request, current_project);
+                    });
         window.bind("iotpsWorkspaceClose", [&current_project](const std::string&) {
             current_project.reset();
             return empty_workspace_response();

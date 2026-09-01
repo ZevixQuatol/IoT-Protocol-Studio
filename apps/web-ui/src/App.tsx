@@ -31,6 +31,7 @@ import {
   openProject,
   performWindowAction,
   saveProtocol,
+  updateFieldDisplayName,
   type CoreInfo,
   type WorkspaceProject,
   type WorkspaceProtocol,
@@ -173,6 +174,7 @@ export default function App() {
     messageName: string;
     fieldName?: string;
   }>();
+  const [fieldDisplayNameDraft, setFieldDisplayNameDraft] = useState("");
   const [errorMessage, setErrorMessage] = useState<string>();
   const translation = messages[locale];
   const page = navigation.entries[navigation.index];
@@ -189,7 +191,6 @@ export default function App() {
   const structureProperties = selectedStructureField
     ? [
         [translation.structure.name, selectedStructureField.name],
-        [translation.structure.displayName, selectedStructureField.displayName || "—"],
         [translation.structure.type, selectedStructureField.type],
         [translation.structure.offset, selectedStructureField.offset],
         [translation.structure.length, selectedStructureField.length ?? "—"],
@@ -249,8 +250,33 @@ export default function App() {
 
   useEffect(() => {
     setDraftContent(selectedProtocol?.content ?? "");
-    setStructureSelection(undefined);
   }, [selectedProtocol?.content, selectedProtocol?.path]);
+
+  useEffect(() => {
+    setStructureSelection(undefined);
+  }, [selectedProtocol?.path]);
+
+  useEffect(() => {
+    setStructureSelection((current) => {
+      if (!current) {
+        return current;
+      }
+      const message = selectedProtocol?.schema.messages.find(
+        (candidate) => candidate.name === current.messageName,
+      );
+      if (!message) {
+        return undefined;
+      }
+      return current.fieldName &&
+        !message.fields.some((candidate) => candidate.name === current.fieldName)
+        ? { messageName: current.messageName }
+        : current;
+    });
+  }, [selectedProtocol?.schema]);
+
+  useEffect(() => {
+    setFieldDisplayNameDraft(selectedStructureField?.displayName ?? "");
+  }, [selectedStructureField?.displayName, selectedStructureField?.name]);
 
   useEffect(() => {
     void getCoreInfo()
@@ -315,6 +341,23 @@ export default function App() {
     if (selectedProtocol) {
       void run(() => saveProtocol(selectedProtocol.path, draftContent), selectedProtocol.path);
     }
+  };
+
+  const submitFieldDisplayName = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (!selectedProtocol || !selectedStructureMessage || !selectedStructureField || isDirty) {
+      return;
+    }
+    void run(
+      () =>
+        updateFieldDisplayName({
+          relativePath: selectedProtocol.path,
+          messageName: selectedStructureMessage.name,
+          fieldName: selectedStructureField.name,
+          displayName: fieldDisplayNameDraft.trim(),
+        }),
+      selectedProtocol.path,
+    );
   };
 
   const toggleExpanded = (key: string) => {
@@ -781,16 +824,54 @@ export default function App() {
                                 <span>{translation.structure.selectHint}</span>
                               </div>
                             ) : (
-                              <dl className="property-list">
-                                {structureProperties.map(([label, value]) => (
-                                  <div key={label}>
-                                    <dt>{label}</dt>
-                                    <dd>
-                                      <code>{value}</code>
-                                    </dd>
-                                  </div>
-                                ))}
-                              </dl>
+                              <>
+                                {selectedStructureField && (
+                                  <form
+                                    className="field-property-editor"
+                                    onSubmit={submitFieldDisplayName}
+                                  >
+                                    <label htmlFor="field-display-name">
+                                      {translation.structure.displayName}
+                                    </label>
+                                    <div>
+                                      <input
+                                        id="field-display-name"
+                                        onChange={(event) =>
+                                          setFieldDisplayNameDraft(event.target.value)
+                                        }
+                                        value={fieldDisplayNameDraft}
+                                      />
+                                      <button
+                                        disabled={
+                                          busy ||
+                                          isDirty ||
+                                          fieldDisplayNameDraft.trim() ===
+                                            selectedStructureField.displayName
+                                        }
+                                        title={
+                                          isDirty
+                                            ? translation.structure.saveBlocked
+                                            : translation.editor.save
+                                        }
+                                        type="submit"
+                                      >
+                                        <Save size={13} />
+                                        {translation.editor.save}
+                                      </button>
+                                    </div>
+                                  </form>
+                                )}
+                                <dl className="property-list">
+                                  {structureProperties.map(([label, value]) => (
+                                    <div key={label}>
+                                      <dt>{label}</dt>
+                                      <dd>
+                                        <code>{value}</code>
+                                      </dd>
+                                    </div>
+                                  ))}
+                                </dl>
+                              </>
                             )}
                           </aside>
                         </div>
