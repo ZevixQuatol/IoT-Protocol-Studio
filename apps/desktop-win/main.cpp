@@ -775,11 +775,12 @@ window.addEventListener("DOMContentLoaded", () => {
     const shell = document.querySelector(".app-shell");
     const titlebar = document.querySelector(".titlebar");
     const schemaButton = document.querySelector(".schema-button.active");
+    const debug = document.querySelector(".debug-button");
     const settings = document.querySelector(".settings-button");
     const sidebar = document.querySelector(".schema-sidebar");
     const contentCard = document.querySelector(".content-card");
     const windowControls = document.querySelectorAll(".window-control");
-    if (shell && titlebar && schemaButton && settings && sidebar && contentCard &&
+    if (shell && titlebar && schemaButton && debug && settings && sidebar && contentCard &&
         windowControls.length === 3) {
       Promise.all([
         window.iotpsWorkspaceCurrent(),
@@ -805,24 +806,40 @@ window.addEventListener("DOMContentLoaded", () => {
             report("workspace-bridge-failed");
             return;
           }
-          settings.click();
+          debug.click();
           window.setTimeout(() => {
+            if (!document.querySelector(".debug-page") ||
+                !document.querySelector("#debug-hex-input")) {
+              report("debug-navigation-failed");
+              return;
+            }
+            settings.click();
+            window.setTimeout(() => {
             if (!document.querySelector(".settings-page")) {
               report("settings-navigation-failed");
               return;
             }
             document.querySelector(".history-back")?.click();
             window.setTimeout(() => {
-              if (!document.querySelector(".schema-page") ||
-                  !document.querySelector(".schema-button.active")) {
-                report("history-navigation-failed");
+              if (!document.querySelector(".debug-page") ||
+                  !document.querySelector(".debug-button.active")) {
+                report("debug-history-failed");
                 return;
               }
-              Promise.resolve(window.iotpsCoreInfo())
-                .then((info) =>
-                  report(info?.source === "native-core" ? "pass" : "core-bridge-failed"),
-                )
-                .catch(() => report("core-bridge-failed"));
+              document.querySelector(".history-back")?.click();
+              window.setTimeout(() => {
+                if (!document.querySelector(".schema-page") ||
+                    !document.querySelector(".schema-button.active")) {
+                  report("history-navigation-failed");
+                  return;
+                }
+                Promise.resolve(window.iotpsCoreInfo())
+                  .then((info) =>
+                    report(info?.source === "native-core" ? "pass" : "core-bridge-failed"),
+                  )
+                  .catch(() => report("core-bridge-failed"));
+              }, 0);
+            }, 0);
             }, 0);
           }, 0);
         })

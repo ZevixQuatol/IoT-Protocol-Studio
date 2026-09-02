@@ -1,7 +1,14 @@
 export type Locale = "zh-CN" | "en-US";
 
 export type TranslationMessages = {
-  navigation: { title: string; back: string; forward: string; schema: string; settings: string };
+  navigation: {
+    title: string;
+    back: string;
+    forward: string;
+    schema: string;
+    debug: string;
+    settings: string;
+  };
   window: { minimize: string; maximize: string; close: string };
   workspace: {
     project: string;
@@ -81,6 +88,33 @@ export type TranslationMessages = {
     unsavedHint: string;
     emptyPreview: string;
   };
+  debug: {
+    title: string;
+    hint: string;
+    inputLabel: string;
+    inputPlaceholder: string;
+    inputHint: string;
+    shortcutHint: string;
+    parse: string;
+    parsing: string;
+    result: string;
+    resultHint: string;
+    emptyResult: string;
+    normalizedHex: string;
+    byteCount: string;
+    ascii: string;
+    sum8: string;
+    xor8: string;
+    crc16Modbus: string;
+    bytes: string;
+    byteOffset: string;
+    characters: string;
+    emptyInput: string;
+    parseError: string;
+    position: string;
+    nativeCore: string;
+    browserPreview: string;
+  };
   settings: { title: string; language: string; languageHint: string };
 };
 
@@ -93,6 +127,7 @@ export const messages: Record<Locale, TranslationMessages> = {
       back: "后退",
       forward: "前进",
       schema: "Schema",
+      debug: "调试",
       settings: "设置",
     },
     window: { minimize: "最小化", maximize: "最大化或还原", close: "关闭" },
@@ -174,6 +209,33 @@ export const messages: Record<Locale, TranslationMessages> = {
       unsavedHint: "请先保存 Code 视图中的修改，再使用当前已校验的 Schema 编码。",
       emptyPreview: "填写字段值后生成规范化 HEX 报文。",
     },
+    debug: {
+      title: "HEX 调试",
+      hint: "粘贴原始 HEX 数据，解析并查看规范化结果与校验值。",
+      inputLabel: "原始 HEX",
+      inputPlaceholder: "例如：AA 01 0F 7E",
+      inputHint: "支持空格、换行、逗号、冒号、连字符、下划线和 0x 前缀。",
+      shortcutHint: "按 Ctrl/Cmd + Enter 解析",
+      parse: "解析 HEX",
+      parsing: "正在解析",
+      result: "解析结果",
+      resultHint: "解析结果会显示在这里",
+      emptyResult: "粘贴 HEX 后点击解析，结果会显示在这里。",
+      normalizedHex: "规范化 HEX",
+      byteCount: "字节数",
+      ascii: "ASCII 预览",
+      sum8: "SUM8",
+      xor8: "XOR8",
+      crc16Modbus: "CRC16/MODBUS",
+      bytes: "字节明细",
+      byteOffset: "偏移",
+      characters: "字符",
+      emptyInput: "等待输入 HEX",
+      parseError: "HEX 解析失败",
+      position: "位置",
+      nativeCore: "C++ Core",
+      browserPreview: "浏览器预览",
+    },
     settings: {
       title: "设置",
       language: "界面语言",
@@ -186,6 +248,7 @@ export const messages: Record<Locale, TranslationMessages> = {
       back: "Back",
       forward: "Forward",
       schema: "Schema",
+      debug: "Debug",
       settings: "Settings",
     },
     window: { minimize: "Minimize", maximize: "Maximize or restore", close: "Close" },
@@ -268,6 +331,34 @@ export const messages: Record<Locale, TranslationMessages> = {
       noMessage: "This protocol has no Message that can be encoded yet.",
       unsavedHint: "Save the Code view changes before encoding with the last validated Schema.",
       emptyPreview: "Enter field values and generate a normalized HEX frame.",
+    },
+    debug: {
+      title: "HEX Debug",
+      hint: "Paste raw HEX data to inspect its normalized form and checksums.",
+      inputLabel: "Raw HEX",
+      inputPlaceholder: "Example: AA 01 0F 7E",
+      inputHint:
+        "Spaces, newlines, commas, colons, dashes, underscores, and 0x prefixes are supported.",
+      shortcutHint: "Press Ctrl/Cmd + Enter to inspect",
+      parse: "Inspect HEX",
+      parsing: "Inspecting",
+      result: "Inspection result",
+      resultHint: "The parsed result will appear here",
+      emptyResult: "Paste HEX and inspect it to see the parsed result here.",
+      normalizedHex: "Normalized HEX",
+      byteCount: "Bytes",
+      ascii: "ASCII preview",
+      sum8: "SUM8",
+      xor8: "XOR8",
+      crc16Modbus: "CRC16/MODBUS",
+      bytes: "Byte details",
+      byteOffset: "Offset",
+      characters: "characters",
+      emptyInput: "Waiting for HEX input",
+      parseError: "HEX inspection failed",
+      position: "Position",
+      nativeCore: "C++ Core",
+      browserPreview: "Browser preview",
     },
     settings: {
       title: "Settings",

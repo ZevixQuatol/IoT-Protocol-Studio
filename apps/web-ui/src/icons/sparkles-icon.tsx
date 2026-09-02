@@ -47,7 +47,8 @@ const SparklesIcon = forwardRef<AnimatedIconHandle, AnimatedIconProps>(
         strokeLinecap="round"
         strokeLinejoin="round"
         className={`cursor-pointer ${className}`}
-        style={{ overflow: "visible" }}
+        style={{ display: "block", flexShrink: 0, overflow: "visible" }}
+        focusable="false"
         aria-hidden="true"
       >
         <motion.path

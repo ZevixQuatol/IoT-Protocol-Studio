@@ -20,6 +20,7 @@ import {
 } from "lucide-react";
 import { useEffect, useRef, useState, type FormEvent, type PointerEvent } from "react";
 import DotsHorizontalIcon from "./icons/dots-horizontal-icon";
+import BugIcon from "./icons/bug-icon";
 import KeyframesIcon from "./icons/keyframes-icon";
 import SparklesIcon from "./icons/sparkles-icon";
 import {
@@ -28,11 +29,13 @@ import {
   encodeProtocolMessage,
   getCoreInfo,
   getCurrentProject,
+  inspectHex,
   openProject,
   performWindowAction,
   saveProtocol,
   updateFieldDisplayName,
   type CoreInfo,
+  type InspectionResult,
   type MessageEncodeResult,
   type WorkspaceProject,
   type WorkspaceProtocol,
@@ -46,7 +49,7 @@ import {
   type Locale,
 } from "./i18n";
 
-type Page = "schema" | "settings";
+type Page = "schema" | "debug" | "settings";
 type DesignerView = "code" | "visual" | "message";
 
 type TreeNode = {
@@ -203,6 +206,9 @@ export default function App() {
   const [messageName, setMessageName] = useState("");
   const [messageFieldValues, setMessageFieldValues] = useState<Record<string, string>>({});
   const [messageEncodeResult, setMessageEncodeResult] = useState<MessageEncodeResult>();
+  const [debugInput, setDebugInput] = useState("");
+  const [debugResult, setDebugResult] = useState<InspectionResult>();
+  const [debugBusy, setDebugBusy] = useState(false);
   const [structureSelection, setStructureSelection] = useState<{
     messageName: string;
     fieldName?: string;
@@ -490,6 +496,26 @@ export default function App() {
     }
   };
 
+  const inspectDebugHex = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    setDebugBusy(true);
+    try {
+      setDebugResult(await inspectHex(debugInput));
+    } catch (error) {
+      setDebugResult({
+        ok: false,
+        source: "browser-preview",
+        error: {
+          code: "bridge_error",
+          message: error instanceof Error ? error.message : String(error),
+          position: 0,
+        },
+      });
+    } finally {
+      setDebugBusy(false);
+    }
+  };
+
   const selectMessage = (nextName: string) => {
     setMessageName(nextName);
     const nextMessage = selectedProtocol?.schema.messages.find(
@@ -636,6 +662,16 @@ export default function App() {
             <KeyframesIcon size={17} />
           </button>
           <button
+            aria-current={page === "debug" ? "page" : undefined}
+            aria-label={translation.navigation.debug}
+            className={`nav-button debug-button ${page === "debug" ? "active" : ""}`}
+            onClick={() => navigate("debug")}
+            title={translation.navigation.debug}
+            type="button"
+          >
+            <BugIcon size={17} />
+          </button>
+          <button
             aria-current={page === "settings" ? "page" : undefined}
             aria-label={translation.navigation.settings}
             className={`nav-button settings-button ${page === "settings" ? "active" : ""}`}
@@ -779,7 +815,15 @@ export default function App() {
         />
 
         <section className="content-stage">
-          <main className={`content-card ${page === "settings" ? "settings-page" : "schema-page"}`}>
+          <main
+            className={`content-card ${
+              page === "settings"
+                ? "settings-page"
+                : page === "debug"
+                  ? "debug-page"
+                  : "schema-page"
+            }`}
+          >
             {errorMessage && (
               <div className="error-banner">
                 <CircleAlert size={16} />
@@ -823,16 +867,163 @@ export default function App() {
                   <code>{project?.rootPath ?? translation.workspace.noProject}</code>
                 </div>
               </>
-            ) : !project ? (
-              <div className="workspace-empty">
-                <FolderOpen size={34} />
-                <h1>{translation.workspace.noProject}</h1>
-                <p>{translation.workspace.openHint}</p>
-                <button disabled={busy} onClick={() => void run(openProject)} type="button">
-                  {translation.workspace.openProject}
-                </button>
-              </div>
-            ) : (
+            ) : page === "debug" ? (
+              <>
+                <header className="content-header">
+                  <div className="content-heading-icon">
+                    <BugIcon size={20} />
+                  </div>
+                  <div>
+                    <span className="content-eyebrow">{translation.navigation.debug}</span>
+                    <h1>{translation.debug.title}</h1>
+                    <p>{translation.debug.hint}</p>
+                  </div>
+                </header>
+                <div className="debug-body">
+                  <form className="debug-input-panel" onSubmit={inspectDebugHex}>
+                    <div className="debug-panel-heading">
+                      <div>
+                        <label htmlFor="debug-hex-input">{translation.debug.inputLabel}</label>
+                        <p>{translation.debug.inputHint}</p>
+                      </div>
+                      <span>RAW HEX</span>
+                    </div>
+                    <textarea
+                      aria-describedby="debug-hex-hint"
+                      id="debug-hex-input"
+                      onChange={(event) => {
+                        setDebugInput(event.target.value);
+                        setDebugResult(undefined);
+                      }}
+                      onKeyDown={(event) => {
+                        if ((event.ctrlKey || event.metaKey) && event.key === "Enter") {
+                          event.preventDefault();
+                          event.currentTarget.form?.requestSubmit();
+                        }
+                      }}
+                      placeholder={translation.debug.inputPlaceholder}
+                      spellCheck={false}
+                      value={debugInput}
+                    />
+                    <p className="debug-input-hint" id="debug-hex-hint">
+                      {translation.debug.shortcutHint}
+                    </p>
+                    <footer>
+                      <span>
+                        {debugInput.trim().length > 0
+                          ? `${debugInput.trim().length} ${translation.debug.characters}`
+                          : translation.debug.emptyInput}
+                      </span>
+                      <button className="primary" disabled={debugBusy} type="submit">
+                        <BugIcon size={14} />
+                        {debugBusy ? translation.debug.parsing : translation.debug.parse}
+                      </button>
+                    </footer>
+                  </form>
+
+                  <section
+                    aria-live="polite"
+                    className={`debug-result-panel ${
+                      debugResult ? (debugResult.ok ? "success" : "error") : ""
+                    }`}
+                  >
+                    <header className="debug-panel-heading">
+                      <div>
+                        <span>{translation.debug.result}</span>
+                        <p>
+                          {debugResult?.ok
+                            ? debugResult.source === "native-core"
+                              ? translation.debug.nativeCore
+                              : translation.debug.browserPreview
+                            : translation.debug.resultHint}
+                        </p>
+                      </div>
+                      {debugResult?.ok && (
+                        <span className="debug-source-badge">
+                          {debugResult.source === "native-core"
+                            ? translation.debug.nativeCore
+                            : translation.debug.browserPreview}
+                        </span>
+                      )}
+                    </header>
+                    {!debugResult ? (
+                      <div className="debug-result-empty">
+                        <BugIcon size={28} />
+                        <strong>{translation.debug.emptyResult}</strong>
+                      </div>
+                    ) : debugResult.ok ? (
+                      <div className="debug-result-content">
+                        <div className="debug-normalized">
+                          <span>{translation.debug.normalizedHex}</span>
+                          <code>{debugResult.normalizedHex || "—"}</code>
+                        </div>
+                        <div className="debug-stats">
+                          <div>
+                            <span>{translation.debug.byteCount}</span>
+                            <strong>{debugResult.byteCount}</strong>
+                          </div>
+                          <div>
+                            <span>{translation.debug.sum8}</span>
+                            <strong>
+                              0x{debugResult.sum8.toString(16).padStart(2, "0").toUpperCase()}
+                            </strong>
+                          </div>
+                          <div>
+                            <span>{translation.debug.xor8}</span>
+                            <strong>
+                              0x{debugResult.xor8.toString(16).padStart(2, "0").toUpperCase()}
+                            </strong>
+                          </div>
+                          <div>
+                            <span>{translation.debug.crc16Modbus}</span>
+                            <strong>
+                              0x
+                              {debugResult.crc16Modbus.toString(16).padStart(4, "0").toUpperCase()}
+                            </strong>
+                          </div>
+                        </div>
+                        <div className="debug-ascii">
+                          <span>{translation.debug.ascii}</span>
+                          <code>{debugResult.ascii || "—"}</code>
+                        </div>
+                        <div className="debug-bytes-section">
+                          <div className="debug-subheading">
+                            <span>{translation.debug.bytes}</span>
+                            <small>{translation.debug.byteOffset}</small>
+                          </div>
+                          <div className="debug-byte-grid">
+                            {debugResult.bytes.map((byte, index) => (
+                              <div
+                                aria-label={`${translation.debug.byteOffset} ${index}: ${byte}`}
+                                className="debug-byte-cell"
+                                key={`${index}-${byte}`}
+                              >
+                                <span>{index.toString(16).padStart(4, "0")}</span>
+                                <code>{byte.toString(16).padStart(2, "0").toUpperCase()}</code>
+                                <small>{byte}</small>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="debug-result-error" role="alert">
+                        <CircleAlert size={20} />
+                        <div>
+                          <strong>
+                            [{debugResult.error.code}] {translation.debug.parseError}
+                          </strong>
+                          <p>{debugResult.error.message}</p>
+                          <small>
+                            {translation.debug.position}: {debugResult.error.position + 1}
+                          </small>
+                        </div>
+                      </div>
+                    )}
+                  </section>
+                </div>
+              </>
+            ) : !project ? null : (
               <>
                 <header className="content-header">
                   <div className="content-heading-icon">

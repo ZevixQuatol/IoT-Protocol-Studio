@@ -218,8 +218,11 @@ button {
   width: 30px;
   height: 30px;
   padding: 0;
+  border: 0;
   place-items: center;
   border-radius: 5px;
+  appearance: none;
+  background: transparent;
   color: #7f8d9c;
   cursor: pointer;
 }
@@ -980,6 +983,398 @@ button {
   font-family: inherit;
 }
 
+.debug-page .content-header p {
+  font-family: inherit;
+}
+
+.debug-body {
+  display: grid;
+  flex: 1;
+  min-height: 0;
+  grid-template-columns: minmax(0, 0.8fr) minmax(0, 1.2fr);
+  gap: 14px;
+  padding: 18px;
+  overflow: auto;
+}
+
+.debug-input-panel,
+.debug-result-panel {
+  display: flex;
+  min-width: 0;
+  min-height: 0;
+  flex-direction: column;
+  overflow: hidden;
+  border: 1px solid #2a3742;
+  border-radius: 7px;
+  background: var(--surface-deep);
+}
+
+.debug-input-panel {
+  min-height: 320px;
+}
+
+.debug-panel-heading {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 13px 14px 11px;
+  border-bottom: 1px solid #25313c;
+  background: #111a22;
+}
+
+.debug-panel-heading > div {
+  min-width: 0;
+}
+
+.debug-panel-heading label,
+.debug-panel-heading > div > span {
+  display: block;
+  color: #c4ced7;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.debug-panel-heading p {
+  margin: 4px 0 0;
+  color: #71808e;
+  font-size: 10px;
+  line-height: 1.5;
+}
+
+.debug-panel-heading > span:last-child {
+  flex: 0 0 auto;
+  padding: 3px 6px;
+  border: 1px solid #30404c;
+  border-radius: 3px;
+  color: #789286;
+  font-family: "Cascadia Code", Consolas, monospace;
+  font-size: 9px;
+  letter-spacing: 0.04em;
+}
+
+.debug-input-panel > textarea {
+  flex: 1;
+  width: 100%;
+  min-height: 150px;
+  padding: 14px;
+  resize: none;
+  border: 0;
+  outline: 0;
+  background: #0b151d;
+  color: #c6d3de;
+  font-family: "Cascadia Code", Consolas, monospace;
+  font-size: 13px;
+  line-height: 1.7;
+  tab-size: 2;
+}
+
+.debug-input-panel > textarea::placeholder {
+  color: #52616e;
+}
+
+.debug-input-panel > textarea:focus {
+  box-shadow: inset 0 0 0 1px var(--accent);
+}
+
+.debug-input-hint {
+  margin: 0;
+  padding: 8px 14px;
+  border-top: 1px solid #202b34;
+  color: #667785;
+  font-size: 9px;
+}
+
+.debug-input-panel > footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  min-height: 48px;
+  padding: 8px 12px;
+  border-top: 1px solid #25313c;
+  background: #111a22;
+}
+
+.debug-input-panel > footer > span {
+  overflow: hidden;
+  color: #71808e;
+  font-family: "Cascadia Code", Consolas, monospace;
+  font-size: 9px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.debug-input-panel button {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 6px;
+  min-height: 31px;
+  padding: 0 11px;
+  border: 1px solid #47725f;
+  border-radius: 5px;
+  background: var(--accent-soft);
+  color: var(--accent);
+  cursor: pointer;
+}
+
+.debug-input-panel button:hover:not(:disabled) {
+  border-color: #68d5ac;
+  background: #234638;
+}
+
+.debug-input-panel button:disabled {
+  opacity: 0.5;
+  cursor: wait;
+}
+
+.debug-input-panel button:focus-visible,
+.debug-input-panel > textarea:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+
+.debug-result-panel.success {
+  border-color: #2c4a3e;
+}
+
+.debug-result-panel.error {
+  border-color: #5b343a;
+}
+
+.debug-result-panel > .debug-panel-heading {
+  align-items: center;
+}
+
+.debug-source-badge {
+  color: #8ed6b7 !important;
+  border-color: #2c4a3e !important;
+  background: #101d1b;
+}
+
+.debug-result-empty {
+  display: flex;
+  flex: 1;
+  min-height: 260px;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 9px;
+  padding: 24px;
+  color: #71808e;
+  font-size: 11px;
+  text-align: center;
+}
+
+.debug-result-empty > svg {
+  color: #4f8a77;
+}
+
+.debug-result-empty strong {
+  max-width: 260px;
+  color: #aebbc5;
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 1.5;
+}
+
+.debug-result-content {
+  display: flex;
+  min-height: 0;
+  flex: 1;
+  flex-direction: column;
+  gap: 12px;
+  padding: 14px;
+  overflow: auto;
+}
+
+.debug-normalized,
+.debug-ascii {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.debug-normalized > span,
+.debug-ascii > span,
+.debug-subheading > span {
+  color: #71808e;
+  font-size: 9px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.debug-normalized > code,
+.debug-ascii > code {
+  display: block;
+  min-width: 0;
+  overflow: auto;
+  padding: 10px;
+  border: 1px solid #2a443a;
+  border-radius: 4px;
+  background: #0b1513;
+  color: #8ed6b7;
+  font-family: "Cascadia Code", Consolas, monospace;
+  font-size: 12px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.debug-ascii > code {
+  border-color: #2a3742;
+  background: #111a22;
+  color: #a5b9b0;
+}
+
+.debug-stats {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 7px;
+}
+
+.debug-stats > div {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 4px;
+  padding: 8px;
+  border: 1px solid #293641;
+  border-radius: 5px;
+  background: #111a22;
+}
+
+.debug-stats span {
+  overflow: hidden;
+  color: #6f7f8e;
+  font-size: 9px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.debug-stats strong {
+  overflow: hidden;
+  color: #c1ccd5;
+  font-family: "Cascadia Code", Consolas, monospace;
+  font-size: 11px;
+  font-weight: 500;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.debug-bytes-section {
+  display: flex;
+  min-height: 0;
+  flex-direction: column;
+  gap: 7px;
+}
+
+.debug-subheading {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.debug-subheading small {
+  color: #667785;
+  font-family: "Cascadia Code", Consolas, monospace;
+  font-size: 9px;
+}
+
+.debug-byte-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(62px, 1fr));
+  gap: 5px;
+  max-height: 220px;
+  padding: 8px;
+  overflow: auto;
+  border: 1px solid #2a3742;
+  border-radius: 5px;
+  background: #0d151c;
+}
+
+.debug-byte-cell {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  grid-template-rows: auto auto;
+  align-items: center;
+  gap: 2px 5px;
+  padding: 6px;
+  border: 1px solid #24333e;
+  border-radius: 4px;
+  background: #111c24;
+}
+
+.debug-byte-cell > span {
+  grid-column: 1 / -1;
+  color: #5e7180;
+  font-family: "Cascadia Code", Consolas, monospace;
+  font-size: 8px;
+}
+
+.debug-byte-cell > code {
+  color: #8ed6b7;
+  font-family: "Cascadia Code", Consolas, monospace;
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.debug-byte-cell > small {
+  color: #81919f;
+  font-family: "Cascadia Code", Consolas, monospace;
+  font-size: 9px;
+  text-align: right;
+}
+
+.debug-result-error {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  margin: 14px;
+  padding: 12px;
+  border: 1px solid #6a3b42;
+  border-radius: 6px;
+  background: #24191d;
+  color: #efb1b7;
+}
+
+.debug-result-error > svg {
+  flex: 0 0 auto;
+  color: #e18790;
+}
+
+.debug-result-error > div {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.debug-result-error strong {
+  color: #f0b1b9;
+  font-family: "Cascadia Code", Consolas, monospace;
+  font-size: 10px;
+}
+
+.debug-result-error p,
+.debug-result-error small {
+  margin: 0;
+  color: #d49aa2;
+  font-size: 10px;
+  line-height: 1.5;
+}
+
+.debug-result-error small {
+  color: #b77d86;
+  font-family: "Cascadia Code", Consolas, monospace;
+  font-size: 9px;
+}
+
 .message-studio {
   display: flex;
   flex: 1;
@@ -1543,6 +1938,24 @@ button {
 @media (max-width: 1000px) {
   .cache-location {
     max-width: 240px;
+  }
+
+  .debug-body {
+    grid-template-columns: minmax(0, 0.8fr) minmax(0, 1.2fr);
+  }
+
+  .debug-stats {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 840px) {
+  .debug-body {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .debug-input-panel {
+    min-height: 280px;
   }
 }
 
