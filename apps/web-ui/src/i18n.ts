@@ -5,8 +5,8 @@ export type TranslationMessages = {
   window: { minimize: string; maximize: string; close: string };
   workspace: {
     project: string;
-    collapseSidebar: string;
-    expandSidebar: string;
+    projectActions: string;
+    resizeSidebar: string;
     loading: string;
     noProject: string;
     openProject: string;
@@ -98,8 +98,8 @@ export const messages: Record<Locale, TranslationMessages> = {
     window: { minimize: "最小化", maximize: "最大化或还原", close: "关闭" },
     workspace: {
       project: "项目",
-      collapseSidebar: "收起项目列表",
-      expandSidebar: "展开项目列表",
+      projectActions: "项目操作",
+      resizeSidebar: "调整项目栏宽度",
       loading: "正在读取项目",
       noProject: "尚未打开项目",
       openProject: "打开项目",
@@ -191,8 +191,8 @@ export const messages: Record<Locale, TranslationMessages> = {
     window: { minimize: "Minimize", maximize: "Maximize or restore", close: "Close" },
     workspace: {
       project: "PROJECT",
-      collapseSidebar: "Collapse project list",
-      expandSidebar: "Expand project list",
+      projectActions: "Project actions",
+      resizeSidebar: "Resize project sidebar",
       loading: "Loading project",
       noProject: "No project is open",
       openProject: "Open project",

@@ -13,17 +13,15 @@ import {
   ListTree,
   LoaderCircle,
   Minus,
-  PanelLeftClose,
-  PanelLeftOpen,
-  Plus,
   Send,
   Save,
   Square,
   X,
 } from "lucide-react";
-import { useEffect, useState, type FormEvent, type PointerEvent } from "react";
+import { useEffect, useRef, useState, type FormEvent, type PointerEvent } from "react";
 import DotsHorizontalIcon from "./icons/dots-horizontal-icon";
 import KeyframesIcon from "./icons/keyframes-icon";
+import SparklesIcon from "./icons/sparkles-icon";
 import {
   closeProject,
   createProtocol,
@@ -59,6 +57,12 @@ type TreeNode = {
   children?: TreeNode[];
   protocol?: WorkspaceProtocol;
 };
+
+const SIDEBAR_MIN_WIDTH = 210;
+
+function getSidebarMaxWidth() {
+  return Math.max(SIDEBAR_MIN_WIDTH, Math.floor(window.innerWidth / 5));
+}
 
 function buildTree(project: WorkspaceProject): TreeNode[] {
   const roots: TreeNode[] = [];
@@ -185,7 +189,9 @@ export default function App() {
     entries: ["schema"],
     index: 0,
   });
-  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const [sidebarWidth, setSidebarWidth] = useState(SIDEBAR_MIN_WIDTH);
+  const [sidebarResizing, setSidebarResizing] = useState(false);
+  const sidebarResizeRef = useRef<{ startX: number; startWidth: number } | null>(null);
   const [workspace, setWorkspace] = useState<WorkspaceResult | null>(null);
   const [coreInfo, setCoreInfo] = useState<CoreInfo | null>(null);
   const [selectedProtocolPath, setSelectedProtocolPath] = useState<string>();
@@ -203,6 +209,8 @@ export default function App() {
   }>();
   const [fieldDisplayNameDraft, setFieldDisplayNameDraft] = useState("");
   const [errorMessage, setErrorMessage] = useState<string>();
+  const [projectMenuOpen, setProjectMenuOpen] = useState(false);
+  const projectMenuRef = useRef<HTMLDivElement>(null);
   const translation = messages[locale];
   const page = navigation.entries[navigation.index];
   const project = workspace?.ok ? workspace.project : null;
@@ -277,6 +285,36 @@ export default function App() {
     document.documentElement.lang = locale;
     storeLocale(locale);
   }, [locale]);
+
+  useEffect(() => {
+    if (!projectMenuOpen) {
+      return;
+    }
+    const handlePointerDown = (event: globalThis.PointerEvent) => {
+      if (!(event.target instanceof Node) || !projectMenuRef.current?.contains(event.target)) {
+        setProjectMenuOpen(false);
+      }
+    };
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        setProjectMenuOpen(false);
+      }
+    };
+    document.addEventListener("pointerdown", handlePointerDown);
+    document.addEventListener("keydown", handleKeyDown);
+    return () => {
+      document.removeEventListener("pointerdown", handlePointerDown);
+      document.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [projectMenuOpen]);
+
+  useEffect(() => {
+    const handleResize = () => {
+      setSidebarWidth((current) => Math.min(current, getSidebarMaxWidth()));
+    };
+    window.addEventListener("resize", handleResize);
+    return () => window.removeEventListener("resize", handleResize);
+  }, []);
 
   useEffect(() => {
     setDraftContent(selectedProtocol?.content ?? "");
@@ -473,6 +511,54 @@ export default function App() {
     });
   };
 
+  const startSidebarResize = (event: PointerEvent<HTMLDivElement>) => {
+    if (event.button !== 0) {
+      return;
+    }
+    event.currentTarget.setPointerCapture(event.pointerId);
+    sidebarResizeRef.current = { startX: event.clientX, startWidth: sidebarWidth };
+    setSidebarResizing(true);
+  };
+
+  const updateSidebarResize = (event: PointerEvent<HTMLDivElement>) => {
+    const start = sidebarResizeRef.current;
+    if (!start) {
+      return;
+    }
+    const nextWidth = start.startWidth + event.clientX - start.startX;
+    setSidebarWidth(Math.min(getSidebarMaxWidth(), Math.max(SIDEBAR_MIN_WIDTH, nextWidth)));
+  };
+
+  const stopSidebarResize = (event: PointerEvent<HTMLDivElement>) => {
+    sidebarResizeRef.current = null;
+    setSidebarResizing(false);
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+      event.currentTarget.releasePointerCapture(event.pointerId);
+    }
+  };
+
+  const adjustSidebarWidth = (delta: number) => {
+    setSidebarWidth((current) =>
+      Math.min(getSidebarMaxWidth(), Math.max(SIDEBAR_MIN_WIDTH, current + delta)),
+    );
+  };
+
+  const handleSidebarResizeKeyDown = (event: React.KeyboardEvent<HTMLDivElement>) => {
+    if (event.key === "ArrowLeft") {
+      event.preventDefault();
+      adjustSidebarWidth(-16);
+    } else if (event.key === "ArrowRight") {
+      event.preventDefault();
+      adjustSidebarWidth(16);
+    } else if (event.key === "Home") {
+      event.preventDefault();
+      setSidebarWidth(SIDEBAR_MIN_WIDTH);
+    } else if (event.key === "End") {
+      event.preventDefault();
+      setSidebarWidth(getSidebarMaxWidth());
+    }
+  };
+
   const startWindowDrag = (event: PointerEvent<HTMLElement>) => {
     if (event.button === 0 && event.target instanceof Element && !event.target.closest("button")) {
       void performWindowAction("drag");
@@ -537,7 +623,7 @@ export default function App() {
         </div>
       </header>
 
-      <div className={`workspace-layout ${sidebarCollapsed ? "sidebar-collapsed" : ""}`}>
+      <div className="workspace-layout">
         <aside aria-label={translation.navigation.title} className="navigation-rail">
           <button
             aria-current={page === "schema" ? "page" : undefined}
@@ -561,100 +647,136 @@ export default function App() {
           </button>
         </aside>
 
-        <aside className="schema-sidebar">
+        <aside className="schema-sidebar" style={{ width: `${sidebarWidth}px` }}>
           <div className="sidebar-header">
-            {!sidebarCollapsed && <span>{translation.workspace.project}</span>}
-            <button
-              aria-label={
-                sidebarCollapsed
-                  ? translation.workspace.expandSidebar
-                  : translation.workspace.collapseSidebar
-              }
-              className="sidebar-toggle"
-              onClick={() => setSidebarCollapsed((current) => !current)}
-              type="button"
-            >
-              {sidebarCollapsed ? <PanelLeftOpen size={16} /> : <PanelLeftClose size={16} />}
-            </button>
+            <span>{translation.workspace.project}</span>
+            <div className="project-menu" ref={projectMenuRef}>
+              <button
+                aria-expanded={projectMenuOpen}
+                aria-haspopup="menu"
+                aria-label={translation.workspace.projectActions}
+                className="sidebar-menu-trigger"
+                onClick={() => setProjectMenuOpen((current) => !current)}
+                title={translation.workspace.projectActions}
+                type="button"
+              >
+                <SparklesIcon size={17} />
+              </button>
+              {projectMenuOpen && (
+                <div
+                  aria-label={translation.workspace.projectActions}
+                  className="project-menu-popover"
+                  role="menu"
+                >
+                  <button
+                    disabled={busy}
+                    onClick={() => {
+                      setProjectMenuOpen(false);
+                      void run(openProject);
+                    }}
+                    role="menuitem"
+                    type="button"
+                  >
+                    <FolderOpen size={15} />
+                    {translation.workspace.openProject}
+                  </button>
+                  <button
+                    aria-disabled="true"
+                    className="planned-action"
+                    disabled
+                    role="menuitem"
+                    title={translation.workspace.newProjectHint}
+                    type="button"
+                  >
+                    <SparklesIcon size={15} />
+                    {translation.workspace.newProject}
+                  </button>
+                  {project && (
+                    <>
+                      <button
+                        disabled={busy}
+                        onClick={() => {
+                          setProjectMenuOpen(false);
+                          setCreateOpen(true);
+                        }}
+                        role="menuitem"
+                        type="button"
+                      >
+                        <SparklesIcon size={15} />
+                        {translation.workspace.createProtocol}
+                      </button>
+                      <button
+                        disabled={busy}
+                        onClick={() => {
+                          setProjectMenuOpen(false);
+                          void run(closeProject);
+                        }}
+                        role="menuitem"
+                        type="button"
+                      >
+                        <X size={15} />
+                        {translation.workspace.closeProject}
+                      </button>
+                    </>
+                  )}
+                </div>
+              )}
+            </div>
           </div>
 
-          {!sidebarCollapsed && (
-            <>
-              <div className="project-actions">
-                <button disabled={busy} onClick={() => void run(openProject)} type="button">
+          <div className="schema-tree">
+            {busy && (
+              <div className="tree-state">
+                <LoaderCircle className="spin" size={16} />
+                {translation.workspace.loading}
+              </div>
+            )}
+            {!busy && project && (
+              <>
+                <div className="project-title">
                   <FolderOpen size={15} />
-                  {translation.workspace.openProject}
-                </button>
-                <button
-                  aria-disabled="true"
-                  className="planned-action"
-                  disabled
-                  title={translation.workspace.newProjectHint}
-                  type="button"
-                >
-                  <Plus size={15} />
-                  {translation.workspace.newProject}
-                </button>
-                {project && (
-                  <>
-                    <button disabled={busy} onClick={() => setCreateOpen(true)} type="button">
-                      <Plus size={15} />
-                      {translation.workspace.createProtocol}
-                    </button>
-                    <button
-                      aria-label={translation.workspace.closeProject}
-                      disabled={busy}
-                      onClick={() => void run(closeProject)}
-                      title={translation.workspace.closeProject}
-                      type="button"
-                    >
-                      <X size={15} />
-                    </button>
-                  </>
-                )}
-              </div>
-              <div className="schema-tree">
-                {busy && (
-                  <div className="tree-state">
-                    <LoaderCircle className="spin" size={16} />
-                    {translation.workspace.loading}
-                  </div>
-                )}
-                {!busy && project && (
-                  <>
-                    <div className="project-title">
-                      <FolderOpen size={15} />
-                      <span>{project.name}</span>
-                      <span>{project.protocols.length}</span>
-                    </div>
-                    <TreeItems
-                      depth={0}
-                      expanded={expanded}
-                      nodes={buildTree(project)}
-                      onSelect={(protocol) => {
-                        setSelectedProtocolPath(protocol.path);
-                        navigate("schema");
-                      }}
-                      onToggle={toggleExpanded}
-                      selectedPath={selectedProtocolPath}
-                    />
-                  </>
-                )}
-                {!busy && !project && (
-                  <div className="tree-state">{translation.workspace.noProject}</div>
-                )}
-              </div>
-            </>
-          )}
+                  <span>{project.name}</span>
+                  <span>{project.protocols.length}</span>
+                </div>
+                <TreeItems
+                  depth={0}
+                  expanded={expanded}
+                  nodes={buildTree(project)}
+                  onSelect={(protocol) => {
+                    setSelectedProtocolPath(protocol.path);
+                    navigate("schema");
+                  }}
+                  onToggle={toggleExpanded}
+                  selectedPath={selectedProtocolPath}
+                />
+              </>
+            )}
+            {!busy && !project && (
+              <div className="tree-state">{translation.workspace.noProject}</div>
+            )}
+          </div>
 
-          {!sidebarCollapsed && (
-            <div className="sidebar-footer">
-              <Cpu size={14} />
-              <span>Core {coreInfo?.version ?? "..."}</span>
-              <span className={`core-dot ${coreInfo?.source === "native-core" ? "native" : ""}`} />
-            </div>
-          )}
+          <div className="sidebar-footer">
+            <Cpu size={14} />
+            <span>Core {coreInfo?.version ?? "..."}</span>
+            <span className={`core-dot ${coreInfo?.source === "native-core" ? "native" : ""}`} />
+          </div>
         </aside>
+
+        <div
+          aria-label={translation.workspace.resizeSidebar}
+          aria-valuemax={getSidebarMaxWidth()}
+          aria-valuemin={SIDEBAR_MIN_WIDTH}
+          aria-valuenow={sidebarWidth}
+          className={`sidebar-resize-handle ${sidebarResizing ? "active" : ""}`}
+          onKeyDown={handleSidebarResizeKeyDown}
+          onPointerCancel={stopSidebarResize}
+          onPointerDown={startSidebarResize}
+          onPointerMove={updateSidebarResize}
+          onPointerUp={stopSidebarResize}
+          role="separator"
+          tabIndex={0}
+        />
 
         <section className="content-stage">
           <main className={`content-card ${page === "settings" ? "settings-page" : "schema-page"}`}>

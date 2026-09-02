@@ -79,7 +79,6 @@ button {
 
 .nav-button,
 .window-control,
-.sidebar-toggle,
 .schema-expander,
 .schema-row,
 .tree-item {
@@ -100,7 +99,7 @@ button {
 
 .nav-button:hover:not(:disabled),
 .window-control:hover,
-.sidebar-toggle:hover,
+.sidebar-menu-trigger:hover,
 .schema-expander:hover,
 .schema-row:hover,
 .tree-item:hover {
@@ -129,7 +128,8 @@ button {
 
 .nav-button:focus-visible,
 .window-control:focus-visible,
-.sidebar-toggle:focus-visible,
+.sidebar-menu-trigger:focus-visible,
+.project-menu-popover button:focus-visible,
 .schema-expander:focus-visible,
 .schema-row:focus-visible,
 .tree-item:focus-visible {
@@ -166,18 +166,31 @@ button {
 
 .schema-sidebar {
   display: flex;
-  flex: 0 0 210px;
+  flex: 0 0 auto;
   flex-direction: column;
   width: 210px;
-  min-width: 0;
+  min-width: 210px;
+  max-width: max(210px, 20vw);
   min-height: 0;
   overflow: hidden;
   background: var(--chrome);
 }
 
-.sidebar-collapsed .schema-sidebar {
-  flex-basis: 42px;
-  width: 42px;
+.sidebar-resize-handle {
+  flex: 0 0 5px;
+  width: 5px;
+  min-height: 0;
+  border: 0;
+  background: transparent;
+  cursor: col-resize;
+  outline: 0;
+  touch-action: none;
+}
+
+.sidebar-resize-handle:hover,
+.sidebar-resize-handle.active,
+.sidebar-resize-handle:focus-visible {
+  background: rgb(88 201 158 / 58%);
 }
 
 .sidebar-header {
@@ -185,6 +198,7 @@ button {
   flex: 0 0 42px;
   align-items: center;
   justify-content: space-between;
+  position: relative;
   padding: 0 8px 0 14px;
 }
 
@@ -195,7 +209,11 @@ button {
   letter-spacing: 0.08em;
 }
 
-.sidebar-toggle {
+.project-menu {
+  position: relative;
+}
+
+.sidebar-menu-trigger {
   display: grid;
   width: 30px;
   height: 30px;
@@ -206,9 +224,44 @@ button {
   cursor: pointer;
 }
 
-.sidebar-collapsed .sidebar-header {
-  justify-content: center;
-  padding: 0;
+.project-menu-popover {
+  position: absolute;
+  top: 34px;
+  right: 0;
+  z-index: 30;
+  display: grid;
+  min-width: 174px;
+  padding: 4px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: var(--surface);
+  box-shadow: 0 12px 28px rgb(0 0 0 / 30%);
+}
+
+.project-menu-popover button {
+  display: flex;
+  align-items: center;
+  width: 100%;
+  min-height: 34px;
+  gap: 8px;
+  padding: 0 9px;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: #b9c5cf;
+  cursor: pointer;
+  font-size: 11px;
+  text-align: left;
+}
+
+.project-menu-popover button:hover:not(:disabled) {
+  background: #1b2a35;
+  color: var(--text);
+}
+
+.project-menu-popover button:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
 }
 
 .schema-tree {
@@ -1255,15 +1308,13 @@ button {
   white-space: nowrap;
 }
 
-.project-actions,
 .project-title {
   display: flex;
   align-items: center;
-  gap: 5px;
+  gap: 6px;
   padding: 0 8px 8px;
 }
 
-.project-actions button,
 .workspace-empty button,
 .language-options button,
 .protocol-dialog button {
@@ -1280,11 +1331,6 @@ button {
   cursor: pointer;
 }
 
-.project-actions button:first-child {
-  flex: 1;
-}
-
-.project-actions button:hover:not(:disabled),
 .workspace-empty button:hover:not(:disabled),
 .language-options button:hover,
 .protocol-dialog button:hover:not(:disabled) {
@@ -1292,7 +1338,6 @@ button {
   color: var(--text);
 }
 
-.project-actions button:disabled,
 .workspace-empty button:disabled,
 .protocol-dialog button:disabled {
   opacity: 0.55;
@@ -1496,11 +1541,6 @@ button {
 }
 
 @media (max-width: 1000px) {
-  .schema-sidebar {
-    flex-basis: 200px;
-    width: 200px;
-  }
-
   .cache-location {
     max-width: 240px;
   }
