@@ -12,6 +12,8 @@ export type TranslationMessages = {
     openProject: string;
     openHint: string;
     closeProject: string;
+    newProject: string;
+    newProjectHint: string;
     createProtocol: string;
     projectRoot: string;
     selectProtocol: string;
@@ -34,6 +36,7 @@ export type TranslationMessages = {
     view: string;
     code: string;
     visual: string;
+    message: string;
     save: string;
     saved: string;
     unsaved: string;
@@ -62,6 +65,22 @@ export type TranslationMessages = {
     unsavedHint: string;
     saveBlocked: string;
   };
+  messageStudio: {
+    title: string;
+    selectMessage: string;
+    fieldValue: string;
+    encode: string;
+    encodedPreview: string;
+    byteCount: string;
+    ascii: string;
+    derived: string;
+    automatic: string;
+    bytesHint: string;
+    arrayHint: string;
+    noMessage: string;
+    unsavedHint: string;
+    emptyPreview: string;
+  };
   settings: { title: string; language: string; languageHint: string };
 };
 
@@ -86,6 +105,8 @@ export const messages: Record<Locale, TranslationMessages> = {
       openProject: "打开项目",
       openHint: "选择包含 project.yaml 的目录。协议文件会由 C++ Workspace Core 校验。",
       closeProject: "关闭项目",
+      newProject: "新建项目",
+      newProjectHint: "项目创建向导尚未接入 Core。",
       createProtocol: "创建协议",
       projectRoot: "项目目录",
       selectProtocol: "请选择协议",
@@ -108,6 +129,7 @@ export const messages: Record<Locale, TranslationMessages> = {
       view: "设计器视图",
       code: "代码",
       visual: "结构",
+      message: "Message",
       save: "保存",
       saved: "已保存",
       unsaved: "未保存",
@@ -136,6 +158,22 @@ export const messages: Record<Locale, TranslationMessages> = {
       unsavedHint: "结构视图显示最后一次成功保存并通过 Core 校验的 Schema。",
       saveBlocked: "请先保存或放弃 Code 视图中的修改。",
     },
+    messageStudio: {
+      title: "Message Studio",
+      selectMessage: "选择 Message",
+      fieldValue: "字段值",
+      encode: "生成报文",
+      encodedPreview: "Encode 预览",
+      byteCount: "字节数",
+      ascii: "ASCII",
+      derived: "自动计算",
+      automatic: "由 Core 根据 Schema 派生",
+      bytesHint: "HEX 字节，以空格分隔",
+      arrayHint: "数组元素，以逗号分隔",
+      noMessage: "当前协议还没有可编码的 Message。",
+      unsavedHint: "请先保存 Code 视图中的修改，再使用当前已校验的 Schema 编码。",
+      emptyPreview: "填写字段值后生成规范化 HEX 报文。",
+    },
     settings: {
       title: "设置",
       language: "界面语言",
@@ -161,6 +199,8 @@ export const messages: Record<Locale, TranslationMessages> = {
       openHint:
         "Choose a directory containing project.yaml. Protocol files are validated by the C++ Workspace Core.",
       closeProject: "Close project",
+      newProject: "New project",
+      newProjectHint: "The project creation wizard is not connected to Core yet.",
       createProtocol: "Create protocol",
       projectRoot: "Project root",
       selectProtocol: "Select a protocol",
@@ -183,6 +223,7 @@ export const messages: Record<Locale, TranslationMessages> = {
       view: "Designer view",
       code: "Code",
       visual: "Structure",
+      message: "Message",
       save: "Save",
       saved: "Saved",
       unsaved: "Unsaved",
@@ -211,6 +252,22 @@ export const messages: Record<Locale, TranslationMessages> = {
       empty: "This protocol has no Message definitions yet.",
       unsavedHint: "Structure shows the last successfully saved and Core-validated Schema.",
       saveBlocked: "Save or discard the Code view changes first.",
+    },
+    messageStudio: {
+      title: "Message Studio",
+      selectMessage: "Select Message",
+      fieldValue: "Field value",
+      encode: "Encode message",
+      encodedPreview: "Encode preview",
+      byteCount: "Bytes",
+      ascii: "ASCII",
+      derived: "Derived",
+      automatic: "Derived by Core from the Schema",
+      bytesHint: "HEX bytes separated by spaces",
+      arrayHint: "Array elements separated by commas",
+      noMessage: "This protocol has no Message that can be encoded yet.",
+      unsavedHint: "Save the Code view changes before encoding with the last validated Schema.",
+      emptyPreview: "Enter field values and generate a normalized HEX frame.",
     },
     settings: {
       title: "Settings",

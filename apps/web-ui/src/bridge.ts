@@ -100,6 +100,36 @@ export type FieldDisplayNameUpdateRequest = {
   displayName: string;
 };
 
+export type MessageEncodeField = {
+  name: string;
+  value: string;
+};
+
+export type MessageEncodeRequest = {
+  relativePath: string;
+  messageName: string;
+  fields: MessageEncodeField[];
+};
+
+export type MessageEncodeResult =
+  | {
+      ok: true;
+      source: "native-core" | "browser-preview";
+      normalizedHex: string;
+      ascii: string;
+      byteCount: number;
+    }
+  | {
+      ok: false;
+      source: "native-core" | "browser-preview";
+      error: {
+        code: string;
+        message: string;
+        path: string;
+        offset?: number;
+      };
+    };
+
 declare global {
   interface Window {
     iotpsCoreInfo?: () => Promise<CoreInfo>;
@@ -125,6 +155,11 @@ declare global {
       fieldName: string,
       displayName: string,
     ) => Promise<WorkspaceResult>;
+    iotpsEncodeProtocolMessage?: (
+      relativePath: string,
+      messageName: string,
+      ...fieldArguments: string[]
+    ) => Promise<MessageEncodeResult>;
     iotpsWorkspaceClose?: () => Promise<WorkspaceResult>;
   }
 }
@@ -277,6 +312,28 @@ export async function updateFieldDisplayName(
         request.displayName,
       )
     : nativeRequired();
+}
+
+export async function encodeProtocolMessage(
+  request: MessageEncodeRequest,
+): Promise<MessageEncodeResult> {
+  if (!window.iotpsEncodeProtocolMessage) {
+    return {
+      ok: false,
+      source: "browser-preview",
+      error: {
+        code: "native_host_required",
+        message: "Message encoding requires the Windows desktop host",
+        path: request.messageName,
+      },
+    };
+  }
+  const fieldArguments = request.fields.flatMap((field) => [field.name, field.value]);
+  return window.iotpsEncodeProtocolMessage(
+    request.relativePath,
+    request.messageName,
+    ...fieldArguments,
+  );
 }
 
 export async function closeProject(): Promise<WorkspaceResult> {

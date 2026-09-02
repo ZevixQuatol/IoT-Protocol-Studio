@@ -17,6 +17,7 @@ import {
   PanelLeftClose,
   PanelLeftOpen,
   Plus,
+  Send,
   Settings,
   Save,
   Square,
@@ -26,6 +27,7 @@ import { useEffect, useState, type FormEvent, type PointerEvent } from "react";
 import {
   closeProject,
   createProtocol,
+  encodeProtocolMessage,
   getCoreInfo,
   getCurrentProject,
   openProject,
@@ -33,6 +35,7 @@ import {
   saveProtocol,
   updateFieldDisplayName,
   type CoreInfo,
+  type MessageEncodeResult,
   type WorkspaceProject,
   type WorkspaceProtocol,
   type WorkspaceResult,
@@ -46,7 +49,7 @@ import {
 } from "./i18n";
 
 type Page = "schema" | "settings";
-type DesignerView = "code" | "visual";
+type DesignerView = "code" | "visual" | "message";
 
 type TreeNode = {
   key: string;
@@ -98,6 +101,27 @@ function collectExpandedKeys(nodes: TreeNode[], keys: Set<string>) {
       collectExpandedKeys(node.children ?? [], keys);
     }
   }
+}
+
+function defaultMessageFieldValue(
+  field: WorkspaceProtocol["schema"]["messages"][number]["fields"][number],
+) {
+  if (field.lengthOf) {
+    return "";
+  }
+  if (field.type === "boolean") {
+    return "false";
+  }
+  if (field.type === "string") {
+    return "";
+  }
+  if (field.type === "bytes") {
+    return Array.from({ length: Number(field.length ?? 1) }, () => "00").join(" ");
+  }
+  if (field.type === "array") {
+    return Array.from({ length: Number(field.count ?? 1) }, () => "0").join(", ");
+  }
+  return "0";
 }
 
 type TreeItemsProps = {
@@ -170,6 +194,9 @@ export default function App() {
   const [createOpen, setCreateOpen] = useState(false);
   const [draftContent, setDraftContent] = useState("");
   const [designerView, setDesignerView] = useState<DesignerView>("code");
+  const [messageName, setMessageName] = useState("");
+  const [messageFieldValues, setMessageFieldValues] = useState<Record<string, string>>({});
+  const [messageEncodeResult, setMessageEncodeResult] = useState<MessageEncodeResult>();
   const [structureSelection, setStructureSelection] = useState<{
     messageName: string;
     fieldName?: string;
@@ -181,6 +208,9 @@ export default function App() {
   const project = workspace?.ok ? workspace.project : null;
   const selectedProtocol = project?.protocols.find(
     (protocol) => protocol.path === selectedProtocolPath,
+  );
+  const selectedMessage = selectedProtocol?.schema.messages.find(
+    (message) => message.name === messageName,
   );
   const selectedStructureMessage = selectedProtocol?.schema.messages.find(
     (message) => message.name === structureSelection?.messageName,
@@ -251,6 +281,38 @@ export default function App() {
   useEffect(() => {
     setDraftContent(selectedProtocol?.content ?? "");
   }, [selectedProtocol?.content, selectedProtocol?.path]);
+
+  useEffect(() => {
+    const nextMessage = selectedProtocol?.schema.messages[0];
+    setMessageName(nextMessage?.name ?? "");
+    setMessageFieldValues(
+      Object.fromEntries(
+        (nextMessage?.fields ?? []).map((field) => [field.name, defaultMessageFieldValue(field)]),
+      ),
+    );
+    setMessageEncodeResult(undefined);
+  }, [selectedProtocol?.path]);
+
+  useEffect(() => {
+    if (!selectedProtocol) {
+      setMessageName("");
+      setMessageFieldValues({});
+      setMessageEncodeResult(undefined);
+      return;
+    }
+    const nextMessage =
+      selectedProtocol.schema.messages.find((message) => message.name === messageName) ??
+      selectedProtocol.schema.messages[0];
+    if (nextMessage?.name !== messageName) {
+      setMessageName(nextMessage?.name ?? "");
+    }
+    setMessageFieldValues(
+      Object.fromEntries(
+        (nextMessage?.fields ?? []).map((field) => [field.name, defaultMessageFieldValue(field)]),
+      ),
+    );
+    setMessageEncodeResult(undefined);
+  }, [messageName, selectedProtocol?.schema.messages]);
 
   useEffect(() => {
     setStructureSelection(undefined);
@@ -360,6 +422,49 @@ export default function App() {
     );
   };
 
+  const encodeSelectedMessage = async () => {
+    if (!selectedProtocol || !selectedMessage || isDirty) {
+      return;
+    }
+    setBusy(true);
+    try {
+      setMessageEncodeResult(
+        await encodeProtocolMessage({
+          relativePath: selectedProtocol.path,
+          messageName: selectedMessage.name,
+          fields: selectedMessage.fields
+            .filter((field) => !field.lengthOf)
+            .map((field) => ({ name: field.name, value: messageFieldValues[field.name] ?? "" })),
+        }),
+      );
+    } catch (error) {
+      setMessageEncodeResult({
+        ok: false,
+        source: "browser-preview",
+        error: {
+          code: "bridge_error",
+          message: error instanceof Error ? error.message : String(error),
+          path: selectedMessage.name,
+        },
+      });
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const selectMessage = (nextName: string) => {
+    setMessageName(nextName);
+    const nextMessage = selectedProtocol?.schema.messages.find(
+      (message) => message.name === nextName,
+    );
+    setMessageFieldValues(
+      Object.fromEntries(
+        (nextMessage?.fields ?? []).map((field) => [field.name, defaultMessageFieldValue(field)]),
+      ),
+    );
+    setMessageEncodeResult(undefined);
+  };
+
   const toggleExpanded = (key: string) => {
     setExpanded((current) => {
       const next = new Set(current);
@@ -405,26 +510,6 @@ export default function App() {
           >
             <ArrowRight size={17} />
           </button>
-          <button
-            aria-current={page === "schema" ? "page" : undefined}
-            aria-label={translation.navigation.schema}
-            className={`nav-button schema-button ${page === "schema" ? "active" : ""}`}
-            onClick={() => navigate("schema")}
-            title={translation.navigation.schema}
-            type="button"
-          >
-            <Braces size={17} />
-          </button>
-          <button
-            aria-current={page === "settings" ? "page" : undefined}
-            aria-label={translation.navigation.settings}
-            className={`nav-button settings-button ${page === "settings" ? "active" : ""}`}
-            onClick={() => navigate("settings")}
-            title={translation.navigation.settings}
-            type="button"
-          >
-            <Settings size={16} />
-          </button>
         </nav>
         <div aria-hidden="true" className="titlebar-drag-region" />
         <div className="window-controls">
@@ -453,6 +538,29 @@ export default function App() {
       </header>
 
       <div className={`workspace-layout ${sidebarCollapsed ? "sidebar-collapsed" : ""}`}>
+        <aside aria-label={translation.navigation.title} className="navigation-rail">
+          <button
+            aria-current={page === "schema" ? "page" : undefined}
+            aria-label={translation.navigation.schema}
+            className={`nav-button schema-button ${page === "schema" ? "active" : ""}`}
+            onClick={() => navigate("schema")}
+            title={translation.navigation.schema}
+            type="button"
+          >
+            <Braces size={17} />
+          </button>
+          <button
+            aria-current={page === "settings" ? "page" : undefined}
+            aria-label={translation.navigation.settings}
+            className={`nav-button settings-button ${page === "settings" ? "active" : ""}`}
+            onClick={() => navigate("settings")}
+            title={translation.navigation.settings}
+            type="button"
+          >
+            <Settings size={16} />
+          </button>
+        </aside>
+
         <aside className="schema-sidebar">
           <div className="sidebar-header">
             {!sidebarCollapsed && <span>{translation.workspace.project}</span>}
@@ -476,6 +584,16 @@ export default function App() {
                 <button disabled={busy} onClick={() => void run(openProject)} type="button">
                   <FolderOpen size={15} />
                   {translation.workspace.openProject}
+                </button>
+                <button
+                  aria-disabled="true"
+                  className="planned-action"
+                  disabled
+                  title={translation.workspace.newProjectHint}
+                  type="button"
+                >
+                  <Plus size={15} />
+                  {translation.workspace.newProject}
                 </button>
                 {project && (
                   <>
@@ -649,6 +767,16 @@ export default function App() {
                               <ListTree size={13} />
                               {translation.editor.visual}
                             </button>
+                            <button
+                              aria-selected={designerView === "message"}
+                              className={designerView === "message" ? "active" : ""}
+                              onClick={() => setDesignerView("message")}
+                              role="tab"
+                              type="button"
+                            >
+                              <Send size={13} />
+                              {translation.editor.message}
+                            </button>
                           </div>
                           {designerView === "code" && (
                             <div className="source-actions" title={translation.editor.editingHint}>
@@ -674,7 +802,7 @@ export default function App() {
                           spellCheck={false}
                           value={draftContent}
                         />
-                      ) : (
+                      ) : designerView === "visual" ? (
                         <div className="protocol-structure" role="tabpanel">
                           <div className="structure-main">
                             <div className="structure-summary">
@@ -874,6 +1002,150 @@ export default function App() {
                               </>
                             )}
                           </aside>
+                        </div>
+                      ) : (
+                        <div className="message-studio" role="tabpanel">
+                          {isDirty && (
+                            <div className="message-studio-notice">
+                              <CircleAlert size={14} />
+                              {translation.messageStudio.unsavedHint}
+                            </div>
+                          )}
+                          <div className="message-studio-header">
+                            <div>
+                              <span className="content-eyebrow">
+                                {translation.messageStudio.title}
+                              </span>
+                              <h2>
+                                {selectedMessage?.displayName || selectedMessage?.name || "—"}
+                              </h2>
+                            </div>
+                            <label className="message-selector">
+                              <span>{translation.messageStudio.selectMessage}</span>
+                              <select
+                                disabled={selectedProtocol.schema.messages.length === 0}
+                                onChange={(event) => selectMessage(event.target.value)}
+                                value={messageName}
+                              >
+                                {selectedProtocol.schema.messages.map((message) => (
+                                  <option key={message.name} value={message.name}>
+                                    {message.displayName || message.name}
+                                    {message.displayName ? ` (${message.name})` : ""}
+                                  </option>
+                                ))}
+                              </select>
+                            </label>
+                          </div>
+                          {!selectedMessage ? (
+                            <div className="message-preview-empty">
+                              <ListTree size={24} />
+                              <strong>{translation.messageStudio.noMessage}</strong>
+                            </div>
+                          ) : (
+                            <>
+                              <div className="message-field-grid">
+                                <div className="message-field-row message-field-heading">
+                                  <span>{translation.structure.name}</span>
+                                  <span>{translation.structure.type}</span>
+                                  <span>{translation.messageStudio.fieldValue}</span>
+                                </div>
+                                {selectedMessage.fields.map((field) => {
+                                  const hint =
+                                    field.type === "bytes"
+                                      ? translation.messageStudio.bytesHint
+                                      : field.type === "array"
+                                        ? translation.messageStudio.arrayHint
+                                        : undefined;
+                                  return (
+                                    <div className="message-field-row" key={field.name}>
+                                      <div className="message-field-meta">
+                                        <strong>{field.displayName || field.name}</strong>
+                                        <code>{field.name}</code>
+                                        <small>
+                                          @{field.offset} · {field.length ?? "—"} B
+                                        </small>
+                                      </div>
+                                      <code className="message-field-type">
+                                        {field.type === "array"
+                                          ? `${field.elementType ?? "?"}[${field.count ?? "?"}]`
+                                          : field.type}
+                                      </code>
+                                      {field.lengthOf ? (
+                                        <div className="message-derived-value">
+                                          <strong>{translation.messageStudio.derived}</strong>
+                                          <span>{translation.messageStudio.automatic}</span>
+                                        </div>
+                                      ) : (
+                                        <label className="message-value-input">
+                                          <input
+                                            aria-label={`${translation.messageStudio.fieldValue}: ${field.name}`}
+                                            onChange={(event) =>
+                                              setMessageFieldValues((current) => ({
+                                                ...current,
+                                                [field.name]: event.target.value,
+                                              }))
+                                            }
+                                            placeholder={hint}
+                                            value={messageFieldValues[field.name] ?? ""}
+                                          />
+                                          {hint && <small>{hint}</small>}
+                                        </label>
+                                      )}
+                                    </div>
+                                  );
+                                })}
+                              </div>
+                              <div className="message-studio-actions">
+                                <button
+                                  className="primary"
+                                  disabled={busy || isDirty}
+                                  onClick={() => void encodeSelectedMessage()}
+                                  type="button"
+                                >
+                                  <Send size={14} />
+                                  {translation.messageStudio.encode}
+                                </button>
+                                <span>{translation.messageStudio.emptyPreview}</span>
+                              </div>
+                              {messageEncodeResult && (
+                                <div
+                                  className={`message-preview ${messageEncodeResult.ok ? "success" : "error"}`}
+                                >
+                                  <div className="message-preview-header">
+                                    <strong>{translation.messageStudio.encodedPreview}</strong>
+                                    {messageEncodeResult.ok && (
+                                      <span>
+                                        {translation.messageStudio.byteCount}:{" "}
+                                        {messageEncodeResult.byteCount}
+                                      </span>
+                                    )}
+                                  </div>
+                                  {messageEncodeResult.ok ? (
+                                    <>
+                                      <code className="message-preview-hex">
+                                        {messageEncodeResult.normalizedHex}
+                                      </code>
+                                      <div className="message-preview-ascii">
+                                        <span>{translation.messageStudio.ascii}</span>
+                                        <code>{messageEncodeResult.ascii}</code>
+                                      </div>
+                                    </>
+                                  ) : (
+                                    <div className="message-preview-error">
+                                      <strong>
+                                        [{messageEncodeResult.error.code}]{" "}
+                                        {messageEncodeResult.error.path}
+                                      </strong>
+                                      <span>{messageEncodeResult.error.message}</span>
+                                      {messageEncodeResult.error.offset !== undefined && (
+                                        <code>offset {messageEncodeResult.error.offset}</code>
+                                      )}
+                                    </div>
+                                  )}
+                                </div>
+                              )}
+                            </>
+                          )}
                         </div>
                       )}
                     </section>

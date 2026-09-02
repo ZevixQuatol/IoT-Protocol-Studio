@@ -1,19 +1,26 @@
+#include "iotps/core/codec/codec.hpp"
 #include "iotps/core/engine.hpp"
+#include "iotps/core/hex.hpp"
 #include "iotps/core/version.hpp"
 #include "iotps/core/workspace/workspace.hpp"
 #include "webview/webview.h"
 
+#include <algorithm>
 #include <atomic>
 #include <cctype>
+#include <charconv>
+#include <cmath>
 #include <dwmapi.h>
 #include <filesystem>
 #include <fstream>
+#include <limits>
 #include <optional>
 #include <shobjidl.h>
 #include <sstream>
 #include <stdexcept>
 #include <string>
 #include <string_view>
+#include <system_error>
 #include <variant>
 #include <vector>
 #include <windows.h>
@@ -490,6 +497,229 @@ update_workspace_field_display_name(const std::string_view request,
                           }));
 }
 
+template <typename Integer>
+[[nodiscard]] std::optional<Integer> parse_integer(const std::string_view value) {
+    if (value.empty()) {
+        return std::nullopt;
+    }
+    Integer parsed{};
+    const auto result = std::from_chars(value.data(), value.data() + value.size(), parsed, 10);
+    if (result.ec != std::errc{} || result.ptr != value.data() + value.size()) {
+        return std::nullopt;
+    }
+    return parsed;
+}
+
+[[nodiscard]] std::string_view trim_view(const std::string_view value) {
+    std::size_t first = 0;
+    while (first < value.size() && std::isspace(static_cast<unsigned char>(value[first])) != 0) {
+        ++first;
+    }
+    std::size_t last = value.size();
+    while (last > first && std::isspace(static_cast<unsigned char>(value[last - 1])) != 0) {
+        --last;
+    }
+    return value.substr(first, last - first);
+}
+
+[[nodiscard]] std::optional<double> parse_float(const std::string_view value) {
+    const auto trimmed = trim_view(value);
+    if (trimmed.empty()) {
+        return std::nullopt;
+    }
+    try {
+        std::size_t consumed = 0;
+        const auto parsed = std::stod(std::string{trimmed}, &consumed);
+        if (consumed != trimmed.size() || !std::isfinite(parsed)) {
+            return std::nullopt;
+        }
+        return parsed;
+    } catch (const std::exception&) {
+        return std::nullopt;
+    }
+}
+
+[[nodiscard]] std::optional<iotps::core::codec::PrimitiveValue>
+parse_primitive_value(const iotps::core::schema::FieldType type, const std::string_view value) {
+    const auto trimmed = trim_view(value);
+    switch (type) {
+    case iotps::core::schema::FieldType::boolean:
+        if (trimmed == "true") {
+            return true;
+        }
+        if (trimmed == "false") {
+            return false;
+        }
+        return std::nullopt;
+    case iotps::core::schema::FieldType::int8:
+    case iotps::core::schema::FieldType::int16:
+    case iotps::core::schema::FieldType::int32:
+    case iotps::core::schema::FieldType::int64:
+        if (const auto parsed = parse_integer<std::int64_t>(trimmed); parsed.has_value()) {
+            return *parsed;
+        }
+        return std::nullopt;
+    case iotps::core::schema::FieldType::uint8:
+    case iotps::core::schema::FieldType::uint16:
+    case iotps::core::schema::FieldType::uint32:
+    case iotps::core::schema::FieldType::uint64:
+        if (const auto parsed = parse_integer<std::uint64_t>(trimmed); parsed.has_value()) {
+            return *parsed;
+        }
+        return std::nullopt;
+    case iotps::core::schema::FieldType::float32:
+    case iotps::core::schema::FieldType::float64:
+        if (const auto parsed = parse_float(trimmed); parsed.has_value()) {
+            return *parsed;
+        }
+        return std::nullopt;
+    default:
+        return std::nullopt;
+    }
+}
+
+[[nodiscard]] std::optional<iotps::core::codec::ScalarValue>
+parse_field_value(const iotps::core::schema::FieldDefinition& field, const std::string_view value) {
+    switch (field.type) {
+    case iotps::core::schema::FieldType::string:
+        return std::string{value};
+    case iotps::core::schema::FieldType::bytes: {
+        const auto parsed = iotps::core::parse_hex(trim_view(value));
+        if (parsed.has_value()) {
+            return std::move(parsed).value();
+        }
+        return std::nullopt;
+    }
+    case iotps::core::schema::FieldType::array: {
+        if (!field.element_type.has_value()) {
+            return std::nullopt;
+        }
+        iotps::core::codec::ArrayValue values;
+        const auto trimmed = trim_view(value);
+        if (trimmed.empty()) {
+            return values;
+        }
+        std::size_t start = 0;
+        while (start <= trimmed.size()) {
+            const auto comma = trimmed.find(',', start);
+            const auto end = comma == std::string_view::npos ? trimmed.size() : comma;
+            const auto parsed =
+                parse_primitive_value(*field.element_type, trimmed.substr(start, end - start));
+            if (!parsed.has_value()) {
+                return std::nullopt;
+            }
+            values.push_back(*parsed);
+            if (comma == std::string_view::npos) {
+                break;
+            }
+            start = comma + 1;
+        }
+        return values;
+    }
+    default:
+        if (const auto parsed = parse_primitive_value(field.type, value); parsed.has_value()) {
+            return std::visit(
+                [](const auto& primitive) -> iotps::core::codec::ScalarValue { return primitive; },
+                *parsed);
+        }
+        return std::nullopt;
+    }
+}
+
+[[nodiscard]] std::string
+encode_error_response(const std::string_view code, const std::string_view message,
+                      const std::string_view path = {},
+                      const std::optional<std::size_t> offset = std::nullopt) {
+    std::string response = "{\"ok\":false,\"source\":\"native-core\",\"error\":{";
+    response += "\"code\":" + json_string(code) + ",\"message\":" + json_string(message) +
+                ",\"path\":" + json_string(path);
+    if (offset.has_value()) {
+        response += ",\"offset\":" + std::to_string(*offset);
+    }
+    response += "}}";
+    return response;
+}
+
+[[nodiscard]] std::string
+encode_protocol_message(const std::string_view request,
+                        const std::optional<std::filesystem::path>& current_project) {
+    const auto arguments = string_arguments(request);
+    if (!arguments.has_value() || arguments->size() < 2 || (arguments->size() - 2) % 2 != 0) {
+        return encode_error_response(
+            "invalid_request",
+            "encodeProtocolMessage expects relativePath, messageName, and field name/value pairs");
+    }
+    if (!current_project.has_value()) {
+        return encode_error_response("project_not_open",
+                                     "Open a project before encoding a message");
+    }
+
+    const auto loaded = iotps::core::workspace::load_project(*current_project);
+    if (const auto* error = loaded.error_if()) {
+        return encode_error_response(iotps::core::workspace::to_string(error->code), error->detail,
+                                     error->path, error->offset);
+    }
+    const auto& project = loaded.value();
+    const auto protocol = std::ranges::find_if(project.protocols, [&](const auto& candidate) {
+        return candidate.relative_path.generic_string() == (*arguments)[0];
+    });
+    if (protocol == project.protocols.end()) {
+        return encode_error_response("protocol_not_referenced",
+                                     "protocol is not referenced by project.yaml: '" +
+                                         (*arguments)[0] + "'",
+                                     "relativePath");
+    }
+    const auto message =
+        std::ranges::find_if(protocol->schema.messages, [&](const auto& candidate) {
+            return candidate.name == (*arguments)[1];
+        });
+    if (message == protocol->schema.messages.end()) {
+        return encode_error_response("protocol_message_not_found",
+                                     "message was not found: '" + (*arguments)[1] + "'",
+                                     "messageName");
+    }
+
+    iotps::core::codec::StructuredMessage structured{.message_name = (*arguments)[1]};
+    structured.fields.reserve((arguments->size() - 2) / 2);
+    for (std::size_t index = 2; index < arguments->size(); index += 2) {
+        const auto& field_name = (*arguments)[index];
+        const auto field = std::ranges::find_if(
+            message->fields, [&](const auto& candidate) { return candidate.name == field_name; });
+        if (field == message->fields.end()) {
+            return encode_error_response("protocol_field_not_found",
+                                         "field was not found in message '" + (*arguments)[1] +
+                                             "': '" + field_name + "'",
+                                         "fields." + field_name);
+        }
+        const auto parsed = parse_field_value(*field, (*arguments)[index + 1]);
+        if (!parsed.has_value()) {
+            return encode_error_response(
+                "encode_input_invalid",
+                "cannot parse value for field '" + field_name + "' as " +
+                    std::string{iotps::core::schema::to_string(field->type)},
+                (*arguments)[1] + "." + field_name);
+        }
+        structured.fields.push_back({.name = field_name, .value = std::move(*parsed)});
+    }
+
+    const auto encoded = iotps::core::codec::encode_protocol_hex(protocol->schema, structured);
+    if (const auto* error = encoded.error_if()) {
+        return encode_error_response(iotps::core::codec::to_string(error->code), error->detail,
+                                     error->path, error->offset);
+    }
+    const auto bytes = iotps::core::parse_hex(encoded.value());
+    if (encoded.value().empty()) {
+        return R"({"ok":true,"source":"native-core","normalizedHex":"","ascii":"","byteCount":0})";
+    }
+    if (const auto* error = bytes.error_if()) {
+        return encode_error_response("encode_failed", error->detail);
+    }
+    return "{\"ok\":true,\"source\":\"native-core\",\"normalizedHex\":" +
+           json_string(encoded.value()) +
+           ",\"ascii\":" + json_string(iotps::core::ascii_preview(bytes.value())) +
+           ",\"byteCount\":" + std::to_string(bytes.value().size()) + "}";
+}
+
 [[nodiscard]] std::string inspect_hex(const std::string& request,
                                       const iotps::core::Engine& engine) {
     try {
@@ -825,6 +1055,9 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR command_line, int) {
                     [&current_project](const std::string& request) {
                         return update_workspace_field_display_name(request, current_project);
                     });
+        window.bind("iotpsEncodeProtocolMessage", [&current_project](const std::string& request) {
+            return encode_protocol_message(request, current_project);
+        });
         window.bind("iotpsWorkspaceClose", [&current_project](const std::string&) {
             current_project.reset();
             return empty_workspace_response();
