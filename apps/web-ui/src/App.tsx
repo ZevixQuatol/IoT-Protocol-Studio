@@ -1,7 +1,6 @@
 import {
   ArrowLeft,
   ArrowRight,
-  Braces,
   ChevronDown,
   ChevronRight,
   CircleAlert,
@@ -18,12 +17,13 @@ import {
   PanelLeftOpen,
   Plus,
   Send,
-  Settings,
   Save,
   Square,
   X,
 } from "lucide-react";
 import { useEffect, useState, type FormEvent, type PointerEvent } from "react";
+import DotsHorizontalIcon from "./icons/dots-horizontal-icon";
+import KeyframesIcon from "./icons/keyframes-icon";
 import {
   closeProject,
   createProtocol,
@@ -547,7 +547,7 @@ export default function App() {
             title={translation.navigation.schema}
             type="button"
           >
-            <Braces size={17} />
+            <KeyframesIcon size={17} />
           </button>
           <button
             aria-current={page === "settings" ? "page" : undefined}
@@ -557,7 +557,7 @@ export default function App() {
             title={translation.navigation.settings}
             type="button"
           >
-            <Settings size={16} />
+            <DotsHorizontalIcon size={16} />
           </button>
         </aside>
 
@@ -671,7 +671,7 @@ export default function App() {
               <>
                 <header className="content-header">
                   <div className="content-heading-icon">
-                    <Settings size={20} />
+                    <DotsHorizontalIcon size={20} />
                   </div>
                   <div>
                     <span className="content-eyebrow">{translation.navigation.settings}</span>
@@ -714,7 +714,7 @@ export default function App() {
               <>
                 <header className="content-header">
                   <div className="content-heading-icon">
-                    {selectedProtocol ? <FileCode2 size={20} /> : <Braces size={20} />}
+                    {selectedProtocol ? <FileCode2 size={20} /> : <KeyframesIcon size={20} />}
                   </div>
                   <div className="content-heading-copy">
                     <span className="content-eyebrow">{project.name}</span>
@@ -730,7 +730,7 @@ export default function App() {
                 <div className="content-body">
                   {!selectedProtocol ? (
                     <div className="content-state">
-                      <Braces size={26} />
+                      <KeyframesIcon size={26} />
                       <strong>{translation.workspace.selectProtocol}</strong>
                       <span>{translation.workspace.selectProtocolHint}</span>
                     </div>
