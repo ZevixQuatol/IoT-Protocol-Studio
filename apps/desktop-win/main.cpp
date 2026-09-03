@@ -778,10 +778,11 @@ window.addEventListener("DOMContentLoaded", () => {
     const debug = document.querySelector(".debug-button");
     const settings = document.querySelector(".settings-button");
     const sidebar = document.querySelector(".schema-sidebar");
+    const sidebarResizeHandle = document.querySelector(".sidebar-resize-handle");
     const contentCard = document.querySelector(".content-card");
     const windowControls = document.querySelectorAll(".window-control");
-    if (shell && titlebar && schemaButton && debug && settings && sidebar && contentCard &&
-        windowControls.length === 3) {
+    if (shell && titlebar && schemaButton && debug && settings && sidebar &&
+        sidebarResizeHandle && contentCard && windowControls.length === 3) {
       Promise.all([
         window.iotpsWorkspaceCurrent(),
         window.iotpsWorkspaceCreateProtocol(
@@ -809,27 +810,35 @@ window.addEventListener("DOMContentLoaded", () => {
           debug.click();
           window.setTimeout(() => {
             if (!document.querySelector(".debug-page") ||
-                !document.querySelector("#debug-hex-input")) {
+                !document.querySelector("#debug-hex-input") ||
+                document.querySelector(".schema-sidebar") ||
+                document.querySelector(".sidebar-resize-handle")) {
               report("debug-navigation-failed");
               return;
             }
             settings.click();
             window.setTimeout(() => {
-            if (!document.querySelector(".settings-page")) {
+            if (!document.querySelector(".settings-page") ||
+                document.querySelector(".schema-sidebar") ||
+                document.querySelector(".sidebar-resize-handle")) {
               report("settings-navigation-failed");
               return;
             }
             document.querySelector(".history-back")?.click();
             window.setTimeout(() => {
               if (!document.querySelector(".debug-page") ||
-                  !document.querySelector(".debug-button.active")) {
+                  !document.querySelector(".debug-button.active") ||
+                  document.querySelector(".schema-sidebar") ||
+                  document.querySelector(".sidebar-resize-handle")) {
                 report("debug-history-failed");
                 return;
               }
               document.querySelector(".history-back")?.click();
               window.setTimeout(() => {
                 if (!document.querySelector(".schema-page") ||
-                    !document.querySelector(".schema-button.active")) {
+                    !document.querySelector(".schema-button.active") ||
+                    !document.querySelector(".schema-sidebar") ||
+                    !document.querySelector(".sidebar-resize-handle")) {
                   report("history-navigation-failed");
                   return;
                 }

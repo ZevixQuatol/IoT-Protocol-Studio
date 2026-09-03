@@ -315,6 +315,15 @@ export default function App() {
   }, [projectMenuOpen]);
 
   useEffect(() => {
+    if (page === "schema") {
+      return;
+    }
+    setProjectMenuOpen(false);
+    setSidebarResizing(false);
+    sidebarResizeRef.current = null;
+  }, [page]);
+
+  useEffect(() => {
     const handleResize = () => {
       setSidebarWidth((current) => Math.min(current, getSidebarMaxWidth()));
     };
@@ -396,6 +405,11 @@ export default function App() {
   }, []);
 
   const navigate = (nextPage: Page) => {
+    if (nextPage !== "schema") {
+      setProjectMenuOpen(false);
+      setSidebarResizing(false);
+      sidebarResizeRef.current = null;
+    }
     setNavigation((current) => {
       if (current.entries[current.index] === nextPage) {
         return current;
@@ -683,136 +697,142 @@ export default function App() {
           </button>
         </aside>
 
-        <aside className="schema-sidebar" style={{ width: `${sidebarWidth}px` }}>
-          <div className="sidebar-header">
-            <span>{translation.workspace.project}</span>
-            <div className="project-menu" ref={projectMenuRef}>
-              <button
-                aria-expanded={projectMenuOpen}
-                aria-haspopup="menu"
-                aria-label={translation.workspace.projectActions}
-                className="sidebar-menu-trigger"
-                onClick={() => setProjectMenuOpen((current) => !current)}
-                title={translation.workspace.projectActions}
-                type="button"
-              >
-                <SparklesIcon size={17} />
-              </button>
-              {projectMenuOpen && (
-                <div
-                  aria-label={translation.workspace.projectActions}
-                  className="project-menu-popover"
-                  role="menu"
-                >
+        {page === "schema" && (
+          <>
+            <aside className="schema-sidebar" style={{ width: `${sidebarWidth}px` }}>
+              <div className="sidebar-header">
+                <span>{translation.workspace.project}</span>
+                <div className="project-menu" ref={projectMenuRef}>
                   <button
-                    disabled={busy}
-                    onClick={() => {
-                      setProjectMenuOpen(false);
-                      void run(openProject);
-                    }}
-                    role="menuitem"
+                    aria-expanded={projectMenuOpen}
+                    aria-haspopup="menu"
+                    aria-label={translation.workspace.projectActions}
+                    className="sidebar-menu-trigger"
+                    onClick={() => setProjectMenuOpen((current) => !current)}
+                    title={translation.workspace.projectActions}
                     type="button"
                   >
-                    <FolderOpen size={15} />
-                    {translation.workspace.openProject}
+                    <SparklesIcon size={17} />
                   </button>
-                  <button
-                    aria-disabled="true"
-                    className="planned-action"
-                    disabled
-                    role="menuitem"
-                    title={translation.workspace.newProjectHint}
-                    type="button"
-                  >
-                    <SparklesIcon size={15} />
-                    {translation.workspace.newProject}
-                  </button>
-                  {project && (
-                    <>
+                  {projectMenuOpen && (
+                    <div
+                      aria-label={translation.workspace.projectActions}
+                      className="project-menu-popover"
+                      role="menu"
+                    >
                       <button
                         disabled={busy}
                         onClick={() => {
                           setProjectMenuOpen(false);
-                          setCreateOpen(true);
+                          void run(openProject);
                         }}
                         role="menuitem"
+                        type="button"
+                      >
+                        <FolderOpen size={15} />
+                        {translation.workspace.openProject}
+                      </button>
+                      <button
+                        aria-disabled="true"
+                        className="planned-action"
+                        disabled
+                        role="menuitem"
+                        title={translation.workspace.newProjectHint}
                         type="button"
                       >
                         <SparklesIcon size={15} />
-                        {translation.workspace.createProtocol}
+                        {translation.workspace.newProject}
                       </button>
-                      <button
-                        disabled={busy}
-                        onClick={() => {
-                          setProjectMenuOpen(false);
-                          void run(closeProject);
-                        }}
-                        role="menuitem"
-                        type="button"
-                      >
-                        <X size={15} />
-                        {translation.workspace.closeProject}
-                      </button>
-                    </>
+                      {project && (
+                        <>
+                          <button
+                            disabled={busy}
+                            onClick={() => {
+                              setProjectMenuOpen(false);
+                              setCreateOpen(true);
+                            }}
+                            role="menuitem"
+                            type="button"
+                          >
+                            <SparklesIcon size={15} />
+                            {translation.workspace.createProtocol}
+                          </button>
+                          <button
+                            disabled={busy}
+                            onClick={() => {
+                              setProjectMenuOpen(false);
+                              void run(closeProject);
+                            }}
+                            role="menuitem"
+                            type="button"
+                          >
+                            <X size={15} />
+                            {translation.workspace.closeProject}
+                          </button>
+                        </>
+                      )}
+                    </div>
                   )}
                 </div>
-              )}
-            </div>
-          </div>
-
-          <div className="schema-tree">
-            {busy && (
-              <div className="tree-state">
-                <LoaderCircle className="spin" size={16} />
-                {translation.workspace.loading}
               </div>
-            )}
-            {!busy && project && (
-              <>
-                <div className="project-title">
-                  <FolderOpen size={15} />
-                  <span>{project.name}</span>
-                  <span>{project.protocols.length}</span>
-                </div>
-                <TreeItems
-                  depth={0}
-                  expanded={expanded}
-                  nodes={buildTree(project)}
-                  onSelect={(protocol) => {
-                    setSelectedProtocolPath(protocol.path);
-                    navigate("schema");
-                  }}
-                  onToggle={toggleExpanded}
-                  selectedPath={selectedProtocolPath}
+
+              <div className="schema-tree">
+                {busy && (
+                  <div className="tree-state">
+                    <LoaderCircle className="spin" size={16} />
+                    {translation.workspace.loading}
+                  </div>
+                )}
+                {!busy && project && (
+                  <>
+                    <div className="project-title">
+                      <FolderOpen size={15} />
+                      <span>{project.name}</span>
+                      <span>{project.protocols.length}</span>
+                    </div>
+                    <TreeItems
+                      depth={0}
+                      expanded={expanded}
+                      nodes={buildTree(project)}
+                      onSelect={(protocol) => {
+                        setSelectedProtocolPath(protocol.path);
+                        navigate("schema");
+                      }}
+                      onToggle={toggleExpanded}
+                      selectedPath={selectedProtocolPath}
+                    />
+                  </>
+                )}
+                {!busy && !project && (
+                  <div className="tree-state">{translation.workspace.noProject}</div>
+                )}
+              </div>
+
+              <div className="sidebar-footer">
+                <Cpu size={14} />
+                <span>Core {coreInfo?.version ?? "..."}</span>
+                <span
+                  className={`core-dot ${coreInfo?.source === "native-core" ? "native" : ""}`}
                 />
-              </>
-            )}
-            {!busy && !project && (
-              <div className="tree-state">{translation.workspace.noProject}</div>
-            )}
-          </div>
+              </div>
+            </aside>
 
-          <div className="sidebar-footer">
-            <Cpu size={14} />
-            <span>Core {coreInfo?.version ?? "..."}</span>
-            <span className={`core-dot ${coreInfo?.source === "native-core" ? "native" : ""}`} />
-          </div>
-        </aside>
-
-        <div
-          aria-label={translation.workspace.resizeSidebar}
-          aria-valuemax={getSidebarMaxWidth()}
-          aria-valuemin={SIDEBAR_MIN_WIDTH}
-          aria-valuenow={sidebarWidth}
-          className={`sidebar-resize-handle ${sidebarResizing ? "active" : ""}`}
-          onKeyDown={handleSidebarResizeKeyDown}
-          onPointerCancel={stopSidebarResize}
-          onPointerDown={startSidebarResize}
-          onPointerMove={updateSidebarResize}
-          onPointerUp={stopSidebarResize}
-          role="separator"
-          tabIndex={0}
-        />
+            <div
+              aria-label={translation.workspace.resizeSidebar}
+              aria-valuemax={getSidebarMaxWidth()}
+              aria-valuemin={SIDEBAR_MIN_WIDTH}
+              aria-valuenow={sidebarWidth}
+              className={`sidebar-resize-handle ${sidebarResizing ? "active" : ""}`}
+              onKeyDown={handleSidebarResizeKeyDown}
+              onPointerCancel={stopSidebarResize}
+              onPointerDown={startSidebarResize}
+              onPointerMove={updateSidebarResize}
+              onPointerUp={stopSidebarResize}
+              role="separator"
+              tabIndex={0}
+            />
+          </>
+        )}
 
         <section className="content-stage">
           <main
