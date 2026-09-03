@@ -120,7 +120,6 @@ export type TranslationMessages = {
     decimal: string;
     annotation: string;
     annotationHint: string;
-    annotations: string;
     startOffset: string;
     endOffset: string;
     annotationLabel: string;
@@ -271,7 +270,6 @@ export const messages: Record<Locale, TranslationMessages> = {
       summary: "解析摘要",
       annotation: "标注解析结果",
       annotationHint: "按偏移范围添加颜色标注",
-      annotations: "已添加的标注",
       startOffset: "开始偏移",
       endOffset: "结束偏移",
       annotationLabel: "标注内容",
@@ -419,7 +417,6 @@ export const messages: Record<Locale, TranslationMessages> = {
       summary: "Inspection summary",
       annotation: "Annotate result",
       annotationHint: "Add a color label for an offset range",
-      annotations: "Added annotations",
       startOffset: "Start offset",
       endOffset: "End offset",
       annotationLabel: "Label",

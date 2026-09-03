@@ -83,6 +83,12 @@ type DebugAnnotation = {
   color: string;
 };
 
+type DebugAnnotationSegment = {
+  annotation: DebugAnnotation;
+  start: number;
+  end: number;
+};
+
 const SIDEBAR_MIN_WIDTH = 210;
 
 function getSidebarMaxWidth() {
@@ -130,6 +136,42 @@ function collectExpandedKeys(nodes: TreeNode[], keys: Set<string>) {
       collectExpandedKeys(node.children ?? [], keys);
     }
   }
+}
+
+function buildDebugAnnotationSegments(
+  annotations: DebugAnnotation[],
+  byteCount: number,
+): DebugAnnotationSegment[] {
+  const annotationAtOffset: Array<DebugAnnotation | undefined> = Array(byteCount).fill(undefined);
+  for (const annotation of annotations) {
+    for (
+      let offset = annotation.start;
+      offset <= annotation.end && offset < byteCount;
+      offset += 1
+    ) {
+      if (offset >= 0) {
+        annotationAtOffset[offset] = annotation;
+      }
+    }
+  }
+
+  const segments: DebugAnnotationSegment[] = [];
+  let offset = 0;
+  while (offset < byteCount) {
+    const annotation = annotationAtOffset[offset];
+    if (!annotation) {
+      offset += 1;
+      continue;
+    }
+
+    let end = offset;
+    while (end + 1 < byteCount && annotationAtOffset[end + 1]?.id === annotation.id) {
+      end += 1;
+    }
+    segments.push({ annotation, start: offset, end });
+    offset = end + 1;
+  }
+  return segments;
 }
 
 function defaultMessageFieldValue(
@@ -267,6 +309,12 @@ export default function App() {
   const debugByteCount = Math.floor(debugCharacterCount / 2);
   const debugInvalidPosition = compactDebugInput.search(/[^0-9a-f]/i);
   const debugHasOddLength = debugCharacterCount > 0 && debugCharacterCount % 2 !== 0;
+  const debugAnnotationSegments = debugResult?.ok
+    ? buildDebugAnnotationSegments(debugAnnotations, debugResult.bytes.length)
+    : [];
+  const debugAnnotationSegmentByStart = new Map(
+    debugAnnotationSegments.map((segment) => [segment.start, segment]),
+  );
   const structureProperties = selectedStructureField
     ? [
         [translation.structure.name, selectedStructureField.name],
@@ -1252,42 +1300,27 @@ export default function App() {
                         )}
                       </form>
 
-                      {debugAnnotations.length > 0 && (
-                        <div
-                          className="debug-annotation-list"
-                          aria-label={translation.debug.annotations}
-                        >
-                          {debugAnnotations.map((annotation) => (
-                            <div className="debug-annotation-item" key={annotation.id}>
-                              <span
-                                aria-hidden="true"
-                                className="debug-annotation-swatch"
-                                style={{ backgroundColor: annotation.color }}
-                              />
-                              <strong>{annotation.label}</strong>
-                              <code>
-                                {annotation.start}–{annotation.end}
-                              </code>
-                              <button
-                                aria-label={`${translation.debug.removeAnnotation}: ${annotation.label}`}
-                                onClick={() => removeDebugAnnotation(annotation.id)}
-                                type="button"
-                              >
-                                <X size={13} />
-                              </button>
-                            </div>
-                          ))}
-                        </div>
-                      )}
-
                       <div className="debug-table-wrap">
                         <table className="debug-byte-table">
                           <thead>
                             <tr>
-                              <th scope="col">{translation.debug.byteOffset}</th>
-                              <th scope="col">HEX</th>
-                              <th scope="col">ASCII</th>
-                              <th scope="col">{translation.debug.decimal}</th>
+                              <th
+                                aria-label={translation.debug.annotation}
+                                className="debug-annotation-column"
+                                scope="col"
+                              />
+                              <th className="debug-byte-offset-column" scope="col">
+                                {translation.debug.byteOffset}
+                              </th>
+                              <th className="debug-byte-hex-column" scope="col">
+                                HEX
+                              </th>
+                              <th className="debug-byte-ascii-column" scope="col">
+                                ASCII
+                              </th>
+                              <th className="debug-byte-decimal-column" scope="col">
+                                {translation.debug.decimal}
+                              </th>
                             </tr>
                           </thead>
                           <tbody>
@@ -1297,6 +1330,7 @@ export default function App() {
                                   index >= annotation.start && index <= annotation.end,
                               );
                               const annotation = rowAnnotations[rowAnnotations.length - 1];
+                              const annotationSegment = debugAnnotationSegmentByStart.get(index);
                               return (
                                 <tr
                                   aria-label={`${translation.debug.byteOffset} ${index}`}
@@ -1306,20 +1340,45 @@ export default function App() {
                                     annotation
                                       ? {
                                           backgroundColor: `${annotation.color}22`,
-                                          boxShadow: `inset 3px 0 ${annotation.color}`,
                                         }
                                       : undefined
                                   }
                                   title={rowAnnotations.map((item) => item.label).join(" / ")}
                                 >
-                                  <td>{index}</td>
-                                  <td>
+                                  {annotationSegment && (
+                                    <td
+                                      className="debug-annotation-cell"
+                                      rowSpan={annotationSegment.end - annotationSegment.start + 1}
+                                      style={{
+                                        backgroundColor: `${annotationSegment.annotation.color}22`,
+                                        borderColor: annotationSegment.annotation.color,
+                                        color: annotationSegment.annotation.color,
+                                      }}
+                                    >
+                                      <span className="debug-annotation-cell-label">
+                                        {annotationSegment.annotation.label}
+                                      </span>
+                                      <button
+                                        aria-label={`${translation.debug.removeAnnotation}: ${annotationSegment.annotation.label}`}
+                                        className="debug-annotation-remove"
+                                        onClick={() =>
+                                          removeDebugAnnotation(annotationSegment.annotation.id)
+                                        }
+                                        title={translation.debug.removeAnnotation}
+                                        type="button"
+                                      >
+                                        <X size={11} />
+                                      </button>
+                                    </td>
+                                  )}
+                                  <td className="debug-byte-offset">{index}</td>
+                                  <td className="debug-byte-hex">
                                     <code>{byte.toString(16).padStart(2, "0").toUpperCase()}</code>
                                   </td>
-                                  <td>
+                                  <td className="debug-byte-ascii">
                                     <code>{debugResult.ascii[index] || "·"}</code>
                                   </td>
-                                  <td>{byte}</td>
+                                  <td className="debug-byte-decimal">{byte}</td>
                                 </tr>
                               );
                             })}
