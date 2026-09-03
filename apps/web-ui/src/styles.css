@@ -1096,6 +1096,10 @@ button {
   outline-offset: -2px;
 }
 
+.debug-input-panel .debug-parse-button {
+  font-size: 10px;
+}
+
 .debug-input-panel .debug-format-button {
   display: inline-flex;
   flex: 0 0 auto;

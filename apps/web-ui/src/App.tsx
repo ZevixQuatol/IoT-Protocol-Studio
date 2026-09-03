@@ -1163,7 +1163,7 @@ export default function App() {
                       {debugByteCount} {translation.debug.byteCount}
                     </span>
                     <button
-                      className="primary"
+                      className="primary debug-parse-button"
                       disabled={
                         debugBusy ||
                         debugCharacterCount === 0 ||
@@ -1172,7 +1172,6 @@ export default function App() {
                       }
                       type="submit"
                     >
-                      <BugIcon size={14} />
                       {debugBusy ? translation.debug.parsing : translation.debug.parse}
                     </button>
                   </footer>
