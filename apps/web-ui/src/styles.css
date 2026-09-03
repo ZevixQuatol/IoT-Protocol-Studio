@@ -1008,13 +1008,6 @@ button {
   font-weight: 600;
 }
 
-.debug-panel-heading p {
-  margin: 4px 0 0;
-  color: #71808e;
-  font-size: 10px;
-  line-height: 1.5;
-}
-
 .debug-input-panel > textarea {
   flex: 1;
   width: 100%;
@@ -1134,19 +1127,6 @@ button {
   padding: 16px 18px 12px;
 }
 
-.debug-source-badge {
-  flex: 0 0 auto;
-  padding: 3px 6px;
-  border: 1px solid #30404c;
-  border-radius: 3px;
-  color: #8ed6b7 !important;
-  background: #101d1b;
-  font-family: "Cascadia Code", Consolas, monospace;
-  font-size: 9px;
-  letter-spacing: 0.04em;
-  border-color: #2c4a3e !important;
-}
-
 .debug-result-empty {
   display: flex;
   flex: 1;
@@ -1171,42 +1151,12 @@ button {
   overflow: hidden;
 }
 
-.debug-summary {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 4px 16px;
-  min-height: 38px;
-  padding: 0 18px;
-  border-bottom: 1px solid var(--line);
-  color: #71808e;
-  font-family: "Cascadia Code", Consolas, monospace;
-  font-size: 9px;
-}
-
-.debug-summary strong {
-  color: var(--text);
-  font-weight: 600;
-}
-
-.debug-subheading > span {
-  color: #71808e;
-  font-size: 9px;
-  font-weight: 600;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
-}
-
 .debug-annotation-form {
   display: flex;
   flex-direction: column;
   gap: 10px;
   padding: 12px 18px;
   border-bottom: 1px solid var(--line);
-}
-
-.debug-annotation-form .debug-subheading {
-  align-items: baseline;
 }
 
 .debug-annotation-fields {
@@ -2264,8 +2214,7 @@ button {
 :root[data-theme="light"] .content-header p,
 :root[data-theme="light"] .cache-location,
 :root[data-theme="light"] .cache-location code,
-:root[data-theme="light"] .settings-section-heading p,
-:root[data-theme="light"] .debug-panel-heading p {
+:root[data-theme="light"] .settings-section-heading p {
   color: #687b89;
 }
 
@@ -2308,8 +2257,6 @@ button {
 
 :root[data-theme="light"] .source-toolbar > div,
 :root[data-theme="light"] .designer-tabs button,
-:root[data-theme="light"] .debug-subheading > span,
-:root[data-theme="light"] .debug-subheading small,
 :root[data-theme="light"] .message-field-heading,
 :root[data-theme="light"] .message-selector,
 :root[data-theme="light"] .message-value-input small {
@@ -2451,12 +2398,6 @@ button {
   color: #728d80;
 }
 
-:root[data-theme="light"] .debug-source-badge {
-  border-color: #b8dfcc !important;
-  background: #effaf5;
-  color: #176a50 !important;
-}
-
 :root[data-theme="light"] .debug-byte-table th {
   background: var(--surface);
   color: #607482;
@@ -2479,8 +2420,7 @@ button {
   background: #eef5f2;
 }
 
-:root[data-theme="light"] .debug-annotation-form,
-:root[data-theme="light"] .debug-summary {
+:root[data-theme="light"] .debug-annotation-form {
   border-color: #d2dce3;
 }
 

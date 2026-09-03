@@ -94,7 +94,6 @@ export type TranslationMessages = {
     hint: string;
     inputLabel: string;
     inputPlaceholder: string;
-    inputHint: string;
     shortcutHint: string;
     format: string;
     unformat: string;
@@ -103,14 +102,9 @@ export type TranslationMessages = {
     parse: string;
     parsing: string;
     result: string;
-    resultHint: string;
     normalizedHex: string;
-    summary: string;
     byteCount: string;
     ascii: string;
-    sum8: string;
-    xor8: string;
-    crc16Modbus: string;
     bytes: string;
     byteOffset: string;
     characters: string;
@@ -119,7 +113,6 @@ export type TranslationMessages = {
     position: string;
     decimal: string;
     annotation: string;
-    annotationHint: string;
     startOffset: string;
     endOffset: string;
     annotationLabel: string;
@@ -128,8 +121,6 @@ export type TranslationMessages = {
     addAnnotation: string;
     removeAnnotation: string;
     annotationError: string;
-    nativeCore: string;
-    browserPreview: string;
   };
   settings: {
     title: string;
@@ -244,7 +235,6 @@ export const messages: Record<Locale, TranslationMessages> = {
       hint: "粘贴原始 HEX 数据，解析并查看规范化结果与校验值。",
       inputLabel: "原始 HEX",
       inputPlaceholder: "例如：AA 01 0F 7E",
-      inputHint: "仅支持 HEX 文本，可使用空格分隔字节。",
       shortcutHint: "按 Ctrl/Cmd + Enter 解析",
       format: "格式化",
       unformat: "取消格式化",
@@ -253,13 +243,9 @@ export const messages: Record<Locale, TranslationMessages> = {
       parse: "解析 HEX",
       parsing: "正在解析",
       result: "解析结果",
-      resultHint: "解析结果会显示在这里",
       normalizedHex: "规范化 HEX",
       byteCount: "字节数",
       ascii: "ASCII 预览",
-      sum8: "SUM8",
-      xor8: "XOR8",
-      crc16Modbus: "CRC16/MODBUS",
       bytes: "字节明细",
       byteOffset: "偏移",
       characters: "字符",
@@ -267,9 +253,7 @@ export const messages: Record<Locale, TranslationMessages> = {
       parseError: "HEX 解析失败",
       position: "位置",
       decimal: "十进制",
-      summary: "解析摘要",
       annotation: "标注解析结果",
-      annotationHint: "按偏移范围添加颜色标注",
       startOffset: "开始偏移",
       endOffset: "结束偏移",
       annotationLabel: "标注内容",
@@ -278,8 +262,6 @@ export const messages: Record<Locale, TranslationMessages> = {
       addAnnotation: "添加标注",
       removeAnnotation: "移除标注",
       annotationError: "请输入有效范围和标注内容",
-      nativeCore: "C++ Core",
-      browserPreview: "浏览器预览",
     },
     settings: {
       title: "设置",
@@ -391,7 +373,6 @@ export const messages: Record<Locale, TranslationMessages> = {
       hint: "Paste raw HEX data to inspect its normalized form and checksums.",
       inputLabel: "Raw HEX",
       inputPlaceholder: "Example: AA 01 0F 7E",
-      inputHint: "HEX text only; spaces may separate bytes.",
       shortcutHint: "Press Ctrl/Cmd + Enter to inspect",
       format: "Format",
       unformat: "Unformat",
@@ -400,13 +381,9 @@ export const messages: Record<Locale, TranslationMessages> = {
       parse: "Inspect HEX",
       parsing: "Inspecting",
       result: "Inspection result",
-      resultHint: "The parsed result will appear here",
       normalizedHex: "Normalized HEX",
       byteCount: "Bytes",
       ascii: "ASCII preview",
-      sum8: "SUM8",
-      xor8: "XOR8",
-      crc16Modbus: "CRC16/MODBUS",
       bytes: "Byte details",
       byteOffset: "Offset",
       characters: "characters",
@@ -414,9 +391,7 @@ export const messages: Record<Locale, TranslationMessages> = {
       parseError: "HEX inspection failed",
       position: "Position",
       decimal: "Decimal",
-      summary: "Inspection summary",
       annotation: "Annotate result",
-      annotationHint: "Add a color label for an offset range",
       startOffset: "Start offset",
       endOffset: "End offset",
       annotationLabel: "Label",
@@ -425,8 +400,6 @@ export const messages: Record<Locale, TranslationMessages> = {
       addAnnotation: "Add annotation",
       removeAnnotation: "Remove annotation",
       annotationError: "Enter a valid range and label",
-      nativeCore: "C++ Core",
-      browserPreview: "Browser preview",
     },
     settings: {
       title: "Settings",

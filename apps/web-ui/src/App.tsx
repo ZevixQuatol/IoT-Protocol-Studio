@@ -1096,7 +1096,6 @@ export default function App() {
                   <div className="debug-panel-heading">
                     <div>
                       <label htmlFor="debug-hex-input">{translation.debug.inputLabel}</label>
-                      <p>{translation.debug.inputHint}</p>
                     </div>
                     <button
                       aria-label={
@@ -1183,56 +1182,13 @@ export default function App() {
                   <header className="debug-panel-heading">
                     <div>
                       <span>{translation.debug.result}</span>
-                      <p>
-                        {debugResult?.ok
-                          ? debugResult.source === "native-core"
-                            ? translation.debug.nativeCore
-                            : translation.debug.browserPreview
-                          : translation.debug.resultHint}
-                      </p>
                     </div>
-                    {debugResult?.ok && (
-                      <span className="debug-source-badge">
-                        {debugResult.source === "native-core"
-                          ? translation.debug.nativeCore
-                          : translation.debug.browserPreview}
-                      </span>
-                    )}
                   </header>
                   {!debugResult ? (
                     <div aria-hidden="true" className="debug-result-empty" />
                   ) : debugResult.ok ? (
                     <div className="debug-result-content">
-                      <div className="debug-summary" aria-label={translation.debug.summary}>
-                        <span>
-                          {translation.debug.byteCount}: <strong>{debugResult.byteCount}</strong>
-                        </span>
-                        <span>
-                          {translation.debug.sum8}:{" "}
-                          <strong>
-                            0x{debugResult.sum8.toString(16).padStart(2, "0").toUpperCase()}
-                          </strong>
-                        </span>
-                        <span>
-                          {translation.debug.xor8}:{" "}
-                          <strong>
-                            0x{debugResult.xor8.toString(16).padStart(2, "0").toUpperCase()}
-                          </strong>
-                        </span>
-                        <span>
-                          {translation.debug.crc16Modbus}:{" "}
-                          <strong>
-                            0x
-                            {debugResult.crc16Modbus.toString(16).padStart(4, "0").toUpperCase()}
-                          </strong>
-                        </span>
-                      </div>
-
                       <form className="debug-annotation-form" onSubmit={addDebugAnnotation}>
-                        <div className="debug-subheading">
-                          <span>{translation.debug.annotation}</span>
-                          <small>{translation.debug.annotationHint}</small>
-                        </div>
                         <div className="debug-annotation-fields">
                           <label>
                             <span>{translation.debug.startOffset}</span>
