@@ -1152,10 +1152,7 @@ export default function App() {
                     )}
                   </header>
                   {!debugResult ? (
-                    <div className="debug-result-empty">
-                      <BugIcon size={28} />
-                      <strong>{translation.debug.emptyResult}</strong>
-                    </div>
+                    <div aria-hidden="true" className="debug-result-empty" />
                   ) : debugResult.ok ? (
                     <div className="debug-result-content">
                       <div className="debug-summary" aria-label={translation.debug.summary}>

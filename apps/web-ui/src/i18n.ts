@@ -104,7 +104,6 @@ export type TranslationMessages = {
     parsing: string;
     result: string;
     resultHint: string;
-    emptyResult: string;
     normalizedHex: string;
     summary: string;
     byteCount: string;
@@ -256,7 +255,6 @@ export const messages: Record<Locale, TranslationMessages> = {
       parsing: "正在解析",
       result: "解析结果",
       resultHint: "解析结果会显示在这里",
-      emptyResult: "粘贴 HEX 后点击解析，结果会显示在这里。",
       normalizedHex: "规范化 HEX",
       byteCount: "字节数",
       ascii: "ASCII 预览",
@@ -405,7 +403,6 @@ export const messages: Record<Locale, TranslationMessages> = {
       parsing: "Inspecting",
       result: "Inspection result",
       resultHint: "The parsed result will appear here",
-      emptyResult: "Paste HEX and inspect it to see the parsed result here.",
       normalizedHex: "Normalized HEX",
       byteCount: "Bytes",
       ascii: "ASCII preview",

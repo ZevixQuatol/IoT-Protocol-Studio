@@ -1098,8 +1098,7 @@ button {
   cursor: not-allowed;
 }
 
-.debug-input-panel button:focus-visible,
-.debug-input-panel > textarea:focus-visible {
+.debug-input-panel button:focus-visible {
   outline: 2px solid var(--accent);
   outline-offset: -2px;
 }
@@ -1160,18 +1159,6 @@ button {
   color: #71808e;
   font-size: 11px;
   text-align: center;
-}
-
-.debug-result-empty > svg {
-  color: #4f8a77;
-}
-
-.debug-result-empty strong {
-  max-width: 260px;
-  color: #aebbc5;
-  font-size: 12px;
-  font-weight: 500;
-  line-height: 1.5;
 }
 
 .debug-result-content {
@@ -2265,7 +2252,6 @@ button {
 }
 
 :root[data-theme="light"] .content-state strong,
-:root[data-theme="light"] .debug-result-empty strong,
 :root[data-theme="light"] .message-preview-empty strong {
   color: #263b48;
 }
