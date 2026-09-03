@@ -106,6 +106,7 @@ export type TranslationMessages = {
     resultHint: string;
     emptyResult: string;
     normalizedHex: string;
+    summary: string;
     byteCount: string;
     ascii: string;
     sum8: string;
@@ -117,6 +118,18 @@ export type TranslationMessages = {
     emptyInput: string;
     parseError: string;
     position: string;
+    decimal: string;
+    annotation: string;
+    annotationHint: string;
+    annotations: string;
+    startOffset: string;
+    endOffset: string;
+    annotationLabel: string;
+    annotationLabelPlaceholder: string;
+    annotationColor: string;
+    addAnnotation: string;
+    removeAnnotation: string;
+    annotationError: string;
     nativeCore: string;
     browserPreview: string;
   };
@@ -256,6 +269,19 @@ export const messages: Record<Locale, TranslationMessages> = {
       emptyInput: "等待输入 HEX",
       parseError: "HEX 解析失败",
       position: "位置",
+      decimal: "十进制",
+      summary: "解析摘要",
+      annotation: "标注解析结果",
+      annotationHint: "按偏移范围添加颜色标注",
+      annotations: "已添加的标注",
+      startOffset: "开始偏移",
+      endOffset: "结束偏移",
+      annotationLabel: "标注内容",
+      annotationLabelPlaceholder: "例如：帧头",
+      annotationColor: "颜色",
+      addAnnotation: "添加标注",
+      removeAnnotation: "移除标注",
+      annotationError: "请输入有效范围和标注内容",
       nativeCore: "C++ Core",
       browserPreview: "浏览器预览",
     },
@@ -392,6 +418,19 @@ export const messages: Record<Locale, TranslationMessages> = {
       emptyInput: "Waiting for HEX input",
       parseError: "HEX inspection failed",
       position: "Position",
+      decimal: "Decimal",
+      summary: "Inspection summary",
+      annotation: "Annotate result",
+      annotationHint: "Add a color label for an offset range",
+      annotations: "Added annotations",
+      startOffset: "Start offset",
+      endOffset: "End offset",
+      annotationLabel: "Label",
+      annotationLabelPlaceholder: "e.g. Frame header",
+      annotationColor: "Color",
+      addAnnotation: "Add annotation",
+      removeAnnotation: "Remove annotation",
+      annotationError: "Enter a valid range and label",
       nativeCore: "C++ Core",
       browserPreview: "Browser preview",
     },
