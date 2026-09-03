@@ -811,6 +811,8 @@ window.addEventListener("DOMContentLoaded", () => {
           window.setTimeout(() => {
             if (!document.querySelector(".debug-page") ||
                 !document.querySelector("#debug-hex-input") ||
+                !document.querySelector(".debug-format-button") ||
+                document.querySelector(".debug-page .content-header") ||
                 document.querySelector(".schema-sidebar") ||
                 document.querySelector(".sidebar-resize-handle")) {
               report("debug-navigation-failed");

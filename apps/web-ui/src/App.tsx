@@ -23,6 +23,7 @@ import DotsHorizontalIcon from "./icons/dots-horizontal-icon";
 import BugIcon from "./icons/bug-icon";
 import KeyframesIcon from "./icons/keyframes-icon";
 import SparklesIcon from "./icons/sparkles-icon";
+import UnorderedListIcon from "./icons/unordered-list-icon";
 import {
   closeProject,
   createProtocol,
@@ -207,6 +208,7 @@ export default function App() {
   const [messageFieldValues, setMessageFieldValues] = useState<Record<string, string>>({});
   const [messageEncodeResult, setMessageEncodeResult] = useState<MessageEncodeResult>();
   const [debugInput, setDebugInput] = useState("");
+  const [debugFormatted, setDebugFormatted] = useState(false);
   const [debugResult, setDebugResult] = useState<InspectionResult>();
   const [debugBusy, setDebugBusy] = useState(false);
   const [structureSelection, setStructureSelection] = useState<{
@@ -232,6 +234,11 @@ export default function App() {
   const selectedStructureField = structureSelection?.fieldName
     ? selectedStructureMessage?.fields.find((field) => field.name === structureSelection.fieldName)
     : undefined;
+  const compactDebugInput = debugInput.replace(/\s+/g, "");
+  const debugCharacterCount = compactDebugInput.length;
+  const debugByteCount = Math.floor(debugCharacterCount / 2);
+  const debugInvalidPosition = compactDebugInput.search(/[^0-9a-f]/i);
+  const debugHasOddLength = debugCharacterCount > 0 && debugCharacterCount % 2 !== 0;
   const structureProperties = selectedStructureField
     ? [
         [translation.structure.name, selectedStructureField.name],
@@ -512,6 +519,11 @@ export default function App() {
 
   const inspectDebugHex = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
+
+    if (debugCharacterCount === 0 || debugInvalidPosition >= 0 || debugHasOddLength) {
+      return;
+    }
+
     setDebugBusy(true);
     try {
       setDebugResult(await inspectHex(debugInput));
@@ -528,6 +540,15 @@ export default function App() {
     } finally {
       setDebugBusy(false);
     }
+  };
+
+  const toggleDebugFormat = () => {
+    setDebugInput((current) => {
+      const compact = current.replace(/\s+/g, "");
+      return debugFormatted ? compact : (compact.match(/.{1,2}/g)?.join(" ") ?? "");
+    });
+    setDebugFormatted((current) => !current);
+    setDebugResult(undefined);
   };
 
   const selectMessage = (nextName: string) => {
@@ -888,161 +909,192 @@ export default function App() {
                 </div>
               </>
             ) : page === "debug" ? (
-              <>
-                <header className="content-header">
-                  <div className="content-heading-icon">
-                    <BugIcon size={20} />
-                  </div>
-                  <div>
-                    <span className="content-eyebrow">{translation.navigation.debug}</span>
-                    <h1>{translation.debug.title}</h1>
-                    <p>{translation.debug.hint}</p>
-                  </div>
-                </header>
-                <div className="debug-body">
-                  <form className="debug-input-panel" onSubmit={inspectDebugHex}>
-                    <div className="debug-panel-heading">
-                      <div>
-                        <label htmlFor="debug-hex-input">{translation.debug.inputLabel}</label>
-                        <p>{translation.debug.inputHint}</p>
-                      </div>
-                      <span>RAW HEX</span>
+              <div className="debug-body">
+                <form className="debug-input-panel" onSubmit={inspectDebugHex}>
+                  <div className="debug-panel-heading">
+                    <div>
+                      <label htmlFor="debug-hex-input">{translation.debug.inputLabel}</label>
+                      <p>{translation.debug.inputHint}</p>
                     </div>
-                    <textarea
-                      aria-describedby="debug-hex-hint"
-                      id="debug-hex-input"
-                      onChange={(event) => {
-                        setDebugInput(event.target.value);
-                        setDebugResult(undefined);
-                      }}
-                      onKeyDown={(event) => {
-                        if ((event.ctrlKey || event.metaKey) && event.key === "Enter") {
-                          event.preventDefault();
-                          event.currentTarget.form?.requestSubmit();
-                        }
-                      }}
-                      placeholder={translation.debug.inputPlaceholder}
-                      spellCheck={false}
-                      value={debugInput}
-                    />
-                    <p className="debug-input-hint" id="debug-hex-hint">
-                      {translation.debug.shortcutHint}
-                    </p>
-                    <footer>
+                    <button
+                      aria-label={
+                        debugFormatted ? translation.debug.unformat : translation.debug.format
+                      }
+                      aria-pressed={debugFormatted}
+                      className={`debug-format-button ${debugFormatted ? "active" : ""}`}
+                      onClick={toggleDebugFormat}
+                      disabled={debugCharacterCount === 0}
+                      title={debugFormatted ? translation.debug.unformat : translation.debug.format}
+                      type="button"
+                    >
+                      <UnorderedListIcon size={15} />
                       <span>
-                        {debugInput.trim().length > 0
-                          ? `${debugInput.trim().length} ${translation.debug.characters}`
-                          : translation.debug.emptyInput}
+                        {debugFormatted ? translation.debug.unformat : translation.debug.format}
                       </span>
-                      <button className="primary" disabled={debugBusy} type="submit">
-                        <BugIcon size={14} />
-                        {debugBusy ? translation.debug.parsing : translation.debug.parse}
-                      </button>
-                    </footer>
-                  </form>
-
-                  <section
-                    aria-live="polite"
-                    className={`debug-result-panel ${
-                      debugResult ? (debugResult.ok ? "success" : "error") : ""
+                    </button>
+                  </div>
+                  <textarea
+                    aria-invalid={debugInvalidPosition >= 0 || debugHasOddLength}
+                    aria-describedby="debug-hex-hint"
+                    id="debug-hex-input"
+                    onChange={(event) => {
+                      const nextValue = event.target.value;
+                      setDebugInput(nextValue);
+                      if (nextValue.replace(/\s+/g, "").length === 0) {
+                        setDebugFormatted(false);
+                      }
+                      setDebugResult(undefined);
+                    }}
+                    onKeyDown={(event) => {
+                      if ((event.ctrlKey || event.metaKey) && event.key === "Enter") {
+                        event.preventDefault();
+                        event.currentTarget.form?.requestSubmit();
+                      }
+                    }}
+                    placeholder={translation.debug.inputPlaceholder}
+                    spellCheck={false}
+                    value={debugInput}
+                  />
+                  <p
+                    className={`debug-input-hint ${
+                      debugInvalidPosition >= 0 || debugHasOddLength ? "error" : ""
                     }`}
+                    id="debug-hex-hint"
                   >
-                    <header className="debug-panel-heading">
-                      <div>
-                        <span>{translation.debug.result}</span>
-                        <p>
-                          {debugResult?.ok
-                            ? debugResult.source === "native-core"
-                              ? translation.debug.nativeCore
-                              : translation.debug.browserPreview
-                            : translation.debug.resultHint}
-                        </p>
-                      </div>
-                      {debugResult?.ok && (
-                        <span className="debug-source-badge">
-                          {debugResult.source === "native-core"
+                    {debugInvalidPosition >= 0
+                      ? translation.debug.invalidCharacterHint
+                      : debugHasOddLength
+                        ? translation.debug.oddLengthHint
+                        : translation.debug.shortcutHint}
+                  </p>
+                  <footer>
+                    <span
+                      aria-live="polite"
+                      className={`debug-input-count ${
+                        debugInvalidPosition >= 0 || debugHasOddLength ? "error" : ""
+                      }`}
+                    >
+                      {debugCharacterCount} {translation.debug.characters}
+                      {" · "}
+                      {debugByteCount} {translation.debug.byteCount}
+                    </span>
+                    <button
+                      className="primary"
+                      disabled={
+                        debugBusy ||
+                        debugCharacterCount === 0 ||
+                        debugInvalidPosition >= 0 ||
+                        debugHasOddLength
+                      }
+                      type="submit"
+                    >
+                      <BugIcon size={14} />
+                      {debugBusy ? translation.debug.parsing : translation.debug.parse}
+                    </button>
+                  </footer>
+                </form>
+
+                <section
+                  aria-live="polite"
+                  className={`debug-result-panel ${
+                    debugResult ? (debugResult.ok ? "success" : "error") : ""
+                  }`}
+                >
+                  <header className="debug-panel-heading">
+                    <div>
+                      <span>{translation.debug.result}</span>
+                      <p>
+                        {debugResult?.ok
+                          ? debugResult.source === "native-core"
                             ? translation.debug.nativeCore
-                            : translation.debug.browserPreview}
-                        </span>
-                      )}
-                    </header>
-                    {!debugResult ? (
-                      <div className="debug-result-empty">
-                        <BugIcon size={28} />
-                        <strong>{translation.debug.emptyResult}</strong>
-                      </div>
-                    ) : debugResult.ok ? (
-                      <div className="debug-result-content">
-                        <div className="debug-normalized">
-                          <span>{translation.debug.normalizedHex}</span>
-                          <code>{debugResult.normalizedHex || "—"}</code>
-                        </div>
-                        <div className="debug-stats">
-                          <div>
-                            <span>{translation.debug.byteCount}</span>
-                            <strong>{debugResult.byteCount}</strong>
-                          </div>
-                          <div>
-                            <span>{translation.debug.sum8}</span>
-                            <strong>
-                              0x{debugResult.sum8.toString(16).padStart(2, "0").toUpperCase()}
-                            </strong>
-                          </div>
-                          <div>
-                            <span>{translation.debug.xor8}</span>
-                            <strong>
-                              0x{debugResult.xor8.toString(16).padStart(2, "0").toUpperCase()}
-                            </strong>
-                          </div>
-                          <div>
-                            <span>{translation.debug.crc16Modbus}</span>
-                            <strong>
-                              0x
-                              {debugResult.crc16Modbus.toString(16).padStart(4, "0").toUpperCase()}
-                            </strong>
-                          </div>
-                        </div>
-                        <div className="debug-ascii">
-                          <span>{translation.debug.ascii}</span>
-                          <code>{debugResult.ascii || "—"}</code>
-                        </div>
-                        <div className="debug-bytes-section">
-                          <div className="debug-subheading">
-                            <span>{translation.debug.bytes}</span>
-                            <small>{translation.debug.byteOffset}</small>
-                          </div>
-                          <div className="debug-byte-grid">
-                            {debugResult.bytes.map((byte, index) => (
-                              <div
-                                aria-label={`${translation.debug.byteOffset} ${index}: ${byte}`}
-                                className="debug-byte-cell"
-                                key={`${index}-${byte}`}
-                              >
-                                <span>{index.toString(16).padStart(4, "0")}</span>
-                                <code>{byte.toString(16).padStart(2, "0").toUpperCase()}</code>
-                                <small>{byte}</small>
-                              </div>
-                            ))}
-                          </div>
-                        </div>
-                      </div>
-                    ) : (
-                      <div className="debug-result-error" role="alert">
-                        <CircleAlert size={20} />
-                        <div>
-                          <strong>
-                            [{debugResult.error.code}] {translation.debug.parseError}
-                          </strong>
-                          <p>{debugResult.error.message}</p>
-                          <small>
-                            {translation.debug.position}: {debugResult.error.position + 1}
-                          </small>
-                        </div>
-                      </div>
+                            : translation.debug.browserPreview
+                          : translation.debug.resultHint}
+                      </p>
+                    </div>
+                    {debugResult?.ok && (
+                      <span className="debug-source-badge">
+                        {debugResult.source === "native-core"
+                          ? translation.debug.nativeCore
+                          : translation.debug.browserPreview}
+                      </span>
                     )}
-                  </section>
-                </div>
-              </>
+                  </header>
+                  {!debugResult ? (
+                    <div className="debug-result-empty">
+                      <BugIcon size={28} />
+                      <strong>{translation.debug.emptyResult}</strong>
+                    </div>
+                  ) : debugResult.ok ? (
+                    <div className="debug-result-content">
+                      <div className="debug-normalized">
+                        <span>{translation.debug.normalizedHex}</span>
+                        <code>{debugResult.normalizedHex || "—"}</code>
+                      </div>
+                      <div className="debug-stats">
+                        <div>
+                          <span>{translation.debug.byteCount}</span>
+                          <strong>{debugResult.byteCount}</strong>
+                        </div>
+                        <div>
+                          <span>{translation.debug.sum8}</span>
+                          <strong>
+                            0x{debugResult.sum8.toString(16).padStart(2, "0").toUpperCase()}
+                          </strong>
+                        </div>
+                        <div>
+                          <span>{translation.debug.xor8}</span>
+                          <strong>
+                            0x{debugResult.xor8.toString(16).padStart(2, "0").toUpperCase()}
+                          </strong>
+                        </div>
+                        <div>
+                          <span>{translation.debug.crc16Modbus}</span>
+                          <strong>
+                            0x
+                            {debugResult.crc16Modbus.toString(16).padStart(4, "0").toUpperCase()}
+                          </strong>
+                        </div>
+                      </div>
+                      <div className="debug-ascii">
+                        <span>{translation.debug.ascii}</span>
+                        <code>{debugResult.ascii || "—"}</code>
+                      </div>
+                      <div className="debug-bytes-section">
+                        <div className="debug-subheading">
+                          <span>{translation.debug.bytes}</span>
+                          <small>{translation.debug.byteOffset}</small>
+                        </div>
+                        <div className="debug-byte-grid">
+                          {debugResult.bytes.map((byte, index) => (
+                            <div
+                              aria-label={`${translation.debug.byteOffset} ${index}: ${byte}`}
+                              className="debug-byte-cell"
+                              key={`${index}-${byte}`}
+                            >
+                              <span>{index.toString(16).padStart(4, "0")}</span>
+                              <code>{byte.toString(16).padStart(2, "0").toUpperCase()}</code>
+                              <small>{byte}</small>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="debug-result-error" role="alert">
+                      <CircleAlert size={20} />
+                      <div>
+                        <strong>
+                          [{debugResult.error.code}] {translation.debug.parseError}
+                        </strong>
+                        <p>{debugResult.error.message}</p>
+                        <small>
+                          {translation.debug.position}: {debugResult.error.position + 1}
+                        </small>
+                      </div>
+                    </div>
+                  )}
+                </section>
+              </div>
             ) : !project ? null : (
               <>
                 <header className="content-header">

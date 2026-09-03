@@ -95,6 +95,10 @@ export type TranslationMessages = {
     inputPlaceholder: string;
     inputHint: string;
     shortcutHint: string;
+    format: string;
+    unformat: string;
+    oddLengthHint: string;
+    invalidCharacterHint: string;
     parse: string;
     parsing: string;
     result: string;
@@ -214,8 +218,12 @@ export const messages: Record<Locale, TranslationMessages> = {
       hint: "粘贴原始 HEX 数据，解析并查看规范化结果与校验值。",
       inputLabel: "原始 HEX",
       inputPlaceholder: "例如：AA 01 0F 7E",
-      inputHint: "支持空格、换行、逗号、冒号、连字符、下划线和 0x 前缀。",
+      inputHint: "仅支持 HEX 文本，可使用空格分隔字节。",
       shortcutHint: "按 Ctrl/Cmd + Enter 解析",
+      format: "格式化",
+      unformat: "取消格式化",
+      oddLengthHint: "HEX 字符数必须为偶数，两个字符组成一个字节。",
+      invalidCharacterHint: "仅支持 0-9 和 A-F 的 HEX 字符。",
       parse: "解析 HEX",
       parsing: "正在解析",
       result: "解析结果",
@@ -337,9 +345,12 @@ export const messages: Record<Locale, TranslationMessages> = {
       hint: "Paste raw HEX data to inspect its normalized form and checksums.",
       inputLabel: "Raw HEX",
       inputPlaceholder: "Example: AA 01 0F 7E",
-      inputHint:
-        "Spaces, newlines, commas, colons, dashes, underscores, and 0x prefixes are supported.",
+      inputHint: "HEX text only; spaces may separate bytes.",
       shortcutHint: "Press Ctrl/Cmd + Enter to inspect",
+      format: "Format",
+      unformat: "Unformat",
+      oddLengthHint: "HEX character count must be even; two characters form one byte.",
+      invalidCharacterHint: "Only HEX characters 0-9 and A-F are supported.",
       parse: "Inspect HEX",
       parsing: "Inspecting",
       result: "Inspection result",
