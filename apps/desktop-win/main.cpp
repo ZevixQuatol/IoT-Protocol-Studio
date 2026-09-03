@@ -820,37 +820,61 @@ window.addEventListener("DOMContentLoaded", () => {
             }
             settings.click();
             window.setTimeout(() => {
-            if (!document.querySelector(".settings-page") ||
-                document.querySelector(".schema-sidebar") ||
-                document.querySelector(".sidebar-resize-handle")) {
-              report("settings-navigation-failed");
-              return;
-            }
-            document.querySelector(".history-back")?.click();
-            window.setTimeout(() => {
-              if (!document.querySelector(".debug-page") ||
-                  !document.querySelector(".debug-button.active") ||
+              const lightTheme = document.querySelector(".light-choice");
+              const darkTheme = document.querySelector(".dark-choice");
+              if (!document.querySelector(".settings-page") ||
+                  !document.querySelector(".settings-body") ||
+                  !document.querySelector("#settings-theme-title") ||
+                  !lightTheme ||
+                  !darkTheme ||
+                  !document.querySelector("#settings-core-title") ||
                   document.querySelector(".schema-sidebar") ||
-                  document.querySelector(".sidebar-resize-handle")) {
-                report("debug-history-failed");
+                  document.querySelector(".sidebar-resize-handle") ||
+                  document.querySelector(".sidebar-footer")) {
+                report("settings-navigation-failed");
                 return;
               }
-              document.querySelector(".history-back")?.click();
+              lightTheme.click();
               window.setTimeout(() => {
-                if (!document.querySelector(".schema-page") ||
-                    !document.querySelector(".schema-button.active") ||
-                    !document.querySelector(".schema-sidebar") ||
-                    !document.querySelector(".sidebar-resize-handle")) {
-                  report("history-navigation-failed");
+                if (document.documentElement.dataset.theme !== "light" ||
+                    window.localStorage.getItem("iotps.theme") !== "light") {
+                  report("light-theme-failed");
                   return;
                 }
-                Promise.resolve(window.iotpsCoreInfo())
-                  .then((info) =>
-                    report(info?.source === "native-core" ? "pass" : "core-bridge-failed"),
-                  )
-                  .catch(() => report("core-bridge-failed"));
+                darkTheme.click();
+                window.setTimeout(() => {
+                  if (document.documentElement.dataset.theme !== "dark" ||
+                      window.localStorage.getItem("iotps.theme") !== "dark") {
+                    report("dark-theme-failed");
+                    return;
+                  }
+                  document.querySelector(".history-back")?.click();
+                  window.setTimeout(() => {
+                    if (!document.querySelector(".debug-page") ||
+                        !document.querySelector(".debug-button.active") ||
+                        document.querySelector(".schema-sidebar") ||
+                        document.querySelector(".sidebar-resize-handle")) {
+                      report("debug-history-failed");
+                      return;
+                    }
+                    document.querySelector(".history-back")?.click();
+                    window.setTimeout(() => {
+                      if (!document.querySelector(".schema-page") ||
+                          !document.querySelector(".schema-button.active") ||
+                          !document.querySelector(".schema-sidebar") ||
+                          !document.querySelector(".sidebar-resize-handle")) {
+                        report("history-navigation-failed");
+                        return;
+                      }
+                      Promise.resolve(window.iotpsCoreInfo())
+                        .then((info) =>
+                          report(info?.source === "native-core" ? "pass" : "core-bridge-failed"),
+                        )
+                        .catch(() => report("core-bridge-failed"));
+                    }, 0);
+                  }, 0);
+                }, 0);
               }, 0);
-            }, 0);
             }, 0);
           }, 0);
         })

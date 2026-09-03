@@ -1,4 +1,5 @@
 export type Locale = "zh-CN" | "en-US";
+export type Theme = "dark" | "light";
 
 export type TranslationMessages = {
   navigation: {
@@ -119,10 +120,24 @@ export type TranslationMessages = {
     nativeCore: string;
     browserPreview: string;
   };
-  settings: { title: string; language: string; languageHint: string };
+  settings: {
+    title: string;
+    description: string;
+    theme: string;
+    themeHint: string;
+    darkTheme: string;
+    lightTheme: string;
+    language: string;
+    languageHint: string;
+    coreVersion: string;
+    coreSource: string;
+    nativeCore: string;
+    browserPreview: string;
+  };
 };
 
 const STORAGE_KEY = "iotps.locale";
+const THEME_STORAGE_KEY = "iotps.theme";
 
 export const messages: Record<Locale, TranslationMessages> = {
   "zh-CN": {
@@ -246,8 +261,17 @@ export const messages: Record<Locale, TranslationMessages> = {
     },
     settings: {
       title: "设置",
+      description: "管理界面外观、语言和内核信息。",
+      theme: "主题",
+      themeHint: "选择适合当前工作环境的界面主题。",
+      darkTheme: "暗色",
+      lightTheme: "亮色",
       language: "界面语言",
       languageHint: "切换 Web UI 的中英文显示。",
+      coreVersion: "内核版本",
+      coreSource: "运行来源",
+      nativeCore: "C++ Core",
+      browserPreview: "浏览器预览",
     },
   },
   "en-US": {
@@ -373,8 +397,17 @@ export const messages: Record<Locale, TranslationMessages> = {
     },
     settings: {
       title: "Settings",
+      description: "Manage the interface theme, language, and core information.",
+      theme: "Theme",
+      themeHint: "Choose the interface theme that fits your workspace.",
+      darkTheme: "Dark",
+      lightTheme: "Light",
       language: "Interface language",
       languageHint: "Switch the Web UI between Chinese and English.",
+      coreVersion: "Core version",
+      coreSource: "Runtime source",
+      nativeCore: "C++ Core",
+      browserPreview: "Browser preview",
     },
   },
 };
@@ -396,6 +429,26 @@ export function storeLocale(locale: Locale): void {
     window.localStorage.setItem(STORAGE_KEY, locale);
   } catch {
     // The selected locale remains active for this session.
+  }
+}
+
+export function detectInitialTheme(): Theme {
+  try {
+    const stored = window.localStorage.getItem(THEME_STORAGE_KEY);
+    if (stored === "dark" || stored === "light") {
+      return stored;
+    }
+  } catch {
+    // Storage can be disabled; keep the dark theme for this session.
+  }
+  return "dark";
+}
+
+export function storeTheme(theme: Theme): void {
+  try {
+    window.localStorage.setItem(THEME_STORAGE_KEY, theme);
+  } catch {
+    // The selected theme remains active for this session.
   }
 }
 

@@ -12,13 +12,23 @@ import {
   Languages,
   ListTree,
   LoaderCircle,
+  Moon,
   Minus,
+  Palette,
   Send,
   Save,
   Square,
+  Sun,
   X,
 } from "lucide-react";
-import { useEffect, useRef, useState, type FormEvent, type PointerEvent } from "react";
+import {
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+  type FormEvent,
+  type PointerEvent,
+} from "react";
 import DotsHorizontalIcon from "./icons/dots-horizontal-icon";
 import BugIcon from "./icons/bug-icon";
 import KeyframesIcon from "./icons/keyframes-icon";
@@ -44,10 +54,13 @@ import {
 } from "./bridge";
 import {
   detectInitialLocale,
+  detectInitialTheme,
   messages,
   storeLocale,
+  storeTheme,
   translateWorkspaceError,
   type Locale,
+  type Theme,
 } from "./i18n";
 
 type Page = "schema" | "debug" | "settings";
@@ -189,6 +202,7 @@ function TreeItems({ nodes, depth, expanded, selectedPath, onToggle, onSelect }:
 
 export default function App() {
   const [locale, setLocale] = useState<Locale>(detectInitialLocale);
+  const [theme, setTheme] = useState<Theme>(detectInitialTheme);
   const [navigation, setNavigation] = useState<{ entries: Page[]; index: number }>({
     entries: ["schema"],
     index: 0,
@@ -298,6 +312,11 @@ export default function App() {
     document.documentElement.lang = locale;
     storeLocale(locale);
   }, [locale]);
+
+  useLayoutEffect(() => {
+    document.documentElement.dataset.theme = theme;
+    storeTheme(theme);
+  }, [theme]);
 
   useEffect(() => {
     if (!projectMenuOpen) {
@@ -828,14 +847,6 @@ export default function App() {
                   <div className="tree-state">{translation.workspace.noProject}</div>
                 )}
               </div>
-
-              <div className="sidebar-footer">
-                <Cpu size={14} />
-                <span>Core {coreInfo?.version ?? "..."}</span>
-                <span
-                  className={`core-dot ${coreInfo?.source === "native-core" ? "native" : ""}`}
-                />
-              </div>
             </aside>
 
             <div
@@ -883,29 +894,99 @@ export default function App() {
                   <div>
                     <span className="content-eyebrow">{translation.navigation.settings}</span>
                     <h1>{translation.settings.title}</h1>
-                    <p>{translation.settings.languageHint}</p>
+                    <p>{translation.settings.description}</p>
                   </div>
                 </header>
-                <div className="settings-empty">
-                  <Languages size={24} />
-                  <strong>{translation.settings.language}</strong>
-                  <div className="language-options">
-                    <button
-                      className={locale === "zh-CN" ? "active" : ""}
-                      onClick={() => setLocale("zh-CN")}
-                      type="button"
+                <div className="settings-body">
+                  <section className="settings-section" aria-labelledby="settings-theme-title">
+                    <div className="settings-section-heading">
+                      <div className="settings-section-icon">
+                        <Palette size={17} />
+                      </div>
+                      <div>
+                        <h2 id="settings-theme-title">{translation.settings.theme}</h2>
+                        <p>{translation.settings.themeHint}</p>
+                      </div>
+                    </div>
+                    <div
+                      aria-label={translation.settings.theme}
+                      className="settings-choice-row"
+                      role="group"
                     >
-                      中文
-                    </button>
-                    <button
-                      className={locale === "en-US" ? "active" : ""}
-                      onClick={() => setLocale("en-US")}
-                      type="button"
+                      <button
+                        aria-pressed={theme === "dark"}
+                        className={`settings-choice theme-choice dark-choice ${theme === "dark" ? "active" : ""}`}
+                        onClick={() => setTheme("dark")}
+                        type="button"
+                      >
+                        <Moon size={16} />
+                        <span>{translation.settings.darkTheme}</span>
+                      </button>
+                      <button
+                        aria-pressed={theme === "light"}
+                        className={`settings-choice theme-choice light-choice ${theme === "light" ? "active" : ""}`}
+                        onClick={() => setTheme("light")}
+                        type="button"
+                      >
+                        <Sun size={16} />
+                        <span>{translation.settings.lightTheme}</span>
+                      </button>
+                    </div>
+                  </section>
+
+                  <section className="settings-section" aria-labelledby="settings-language-title">
+                    <div className="settings-section-heading">
+                      <div className="settings-section-icon">
+                        <Languages size={17} />
+                      </div>
+                      <div>
+                        <h2 id="settings-language-title">{translation.settings.language}</h2>
+                        <p>{translation.settings.languageHint}</p>
+                      </div>
+                    </div>
+                    <div
+                      aria-label={translation.settings.language}
+                      className="settings-choice-row"
+                      role="group"
                     >
-                      English
-                    </button>
-                  </div>
-                  <code>{project?.rootPath ?? translation.workspace.noProject}</code>
+                      <button
+                        aria-pressed={locale === "zh-CN"}
+                        className={`settings-choice language-choice ${locale === "zh-CN" ? "active" : ""}`}
+                        onClick={() => setLocale("zh-CN")}
+                        type="button"
+                      >
+                        <span>中文</span>
+                      </button>
+                      <button
+                        aria-pressed={locale === "en-US"}
+                        className={`settings-choice language-choice ${locale === "en-US" ? "active" : ""}`}
+                        onClick={() => setLocale("en-US")}
+                        type="button"
+                      >
+                        <span>English</span>
+                      </button>
+                    </div>
+                  </section>
+
+                  <section className="settings-section" aria-labelledby="settings-core-title">
+                    <div className="settings-section-heading">
+                      <div className="settings-section-icon">
+                        <Cpu size={17} />
+                      </div>
+                      <div>
+                        <h2 id="settings-core-title">{translation.settings.coreVersion}</h2>
+                        <p>{translation.settings.coreSource}</p>
+                      </div>
+                    </div>
+                    <div className="settings-core-value">
+                      <strong>Core {coreInfo?.version ?? "..."}</strong>
+                      <span>
+                        {coreInfo?.source === "native-core"
+                          ? translation.settings.nativeCore
+                          : translation.settings.browserPreview}
+                      </span>
+                    </div>
+                  </section>
                 </div>
               </>
             ) : page === "debug" ? (
