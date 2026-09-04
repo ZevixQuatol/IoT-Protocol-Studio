@@ -3,6 +3,7 @@
 #include "iotps/core/hex.hpp"
 #include "iotps/core/version.hpp"
 #include "iotps/core/workspace/workspace.hpp"
+#include "resource.h"
 #include "webview/webview.h"
 
 #include <algorithm>
@@ -976,6 +977,18 @@ LRESULT CALLBACK custom_window_proc(const HWND window, const UINT message, const
     return static_cast<HWND>(window_result.value());
 }
 
+void apply_application_icon(const HWND window) {
+    const auto icon = LoadIconW(GetModuleHandleW(nullptr), MAKEINTRESOURCEW(IDI_APP_ICON));
+    if (icon == nullptr) {
+        return;
+    }
+
+    SendMessageW(window, WM_SETICON, ICON_BIG, reinterpret_cast<LPARAM>(icon));
+    SendMessageW(window, WM_SETICON, ICON_SMALL, reinterpret_cast<LPARAM>(icon));
+    SetClassLongPtrW(window, GCLP_HICON, reinterpret_cast<LONG_PTR>(icon));
+    SetClassLongPtrW(window, GCLP_HICONSM, reinterpret_cast<LONG_PTR>(icon));
+}
+
 void enable_custom_titlebar(const HWND window) {
     const auto style = GetWindowLongPtrW(window, GWL_STYLE);
     if (SetWindowLongPtrW(window, GWL_STYLE, style & ~static_cast<LONG_PTR>(WS_CAPTION)) == 0) {
@@ -1082,6 +1095,7 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR command_line, int) {
         webview::webview window(enable_devtools, nullptr);
         window.set_title("IoT Protocol Studio");
         const auto window_handle = native_window(window);
+        apply_application_icon(window_handle);
         enable_custom_titlebar(window_handle);
         window.set_size(1280, 800, WEBVIEW_HINT_NONE);
         window.set_size(960, 640, WEBVIEW_HINT_MIN);

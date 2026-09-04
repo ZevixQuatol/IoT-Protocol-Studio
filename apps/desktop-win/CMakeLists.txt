@@ -18,7 +18,7 @@ FetchContent_Declare(
   GIT_SHALLOW TRUE)
 FetchContent_MakeAvailable(webview)
 
-add_executable(iotps_desktop WIN32 main.cpp)
+add_executable(iotps_desktop WIN32 main.cpp app.rc)
 set_target_properties(iotps_desktop PROPERTIES OUTPUT_NAME "IoT Protocol Studio")
 
 target_link_libraries(
@@ -50,6 +50,10 @@ if(IOTPS_BUILD_WEB_UI)
     "${IOTPS_WEB_UI_DIR}/src/*.ts"
     "${IOTPS_WEB_UI_DIR}/src/*.tsx"
     "${IOTPS_WEB_UI_DIR}/src/*.css")
+  file(
+    GLOB_RECURSE IOTPS_WEB_UI_PUBLIC_SOURCES
+    CONFIGURE_DEPENDS
+    "${IOTPS_WEB_UI_DIR}/public/*")
 
   add_custom_command(
     OUTPUT "${IOTPS_WEB_UI_DIST}/index.html"
@@ -57,6 +61,7 @@ if(IOTPS_BUILD_WEB_UI)
     WORKING_DIRECTORY "${IOTPS_WEB_UI_DIR}"
     DEPENDS
       ${IOTPS_WEB_UI_SOURCES}
+      ${IOTPS_WEB_UI_PUBLIC_SOURCES}
       "${IOTPS_WEB_UI_DIR}/index.html"
       "${IOTPS_WEB_UI_DIR}/package.json"
       "${IOTPS_WEB_UI_DIR}/package-lock.json"
