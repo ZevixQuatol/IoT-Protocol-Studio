@@ -15,6 +15,7 @@
 #include <filesystem>
 #include <fstream>
 #include <limits>
+#include <memory>
 #include <optional>
 #include <shobjidl.h>
 #include <sstream>
@@ -22,6 +23,7 @@
 #include <string>
 #include <string_view>
 #include <system_error>
+#include <type_traits>
 #include <variant>
 #include <vector>
 #include <windows.h>
@@ -978,15 +980,26 @@ LRESULT CALLBACK custom_window_proc(const HWND window, const UINT message, const
 }
 
 void apply_application_icon(const HWND window) {
-    const auto icon = LoadIconW(GetModuleHandleW(nullptr), MAKEINTRESOURCEW(IDI_APP_ICON));
-    if (icon == nullptr) {
-        return;
+    using Icon = std::unique_ptr<std::remove_pointer_t<HICON>, decltype(&DestroyIcon)>;
+    // Keep both sizes alive for the window class; release them at process shutdown.
+    static const Icon big_icon{
+        static_cast<HICON>(LoadImageW(GetModuleHandleW(nullptr), MAKEINTRESOURCEW(IDI_APP_ICON),
+                                      IMAGE_ICON, GetSystemMetrics(SM_CXICON),
+                                      GetSystemMetrics(SM_CYICON), 0)),
+        DestroyIcon};
+    static const Icon small_icon{
+        static_cast<HICON>(LoadImageW(GetModuleHandleW(nullptr), MAKEINTRESOURCEW(IDI_APP_ICON),
+                                      IMAGE_ICON, GetSystemMetrics(SM_CXSMICON),
+                                      GetSystemMetrics(SM_CYSMICON), 0)),
+        DestroyIcon};
+    if (!big_icon || !small_icon) {
+        throw std::runtime_error("Loading the application icons failed");
     }
 
-    SendMessageW(window, WM_SETICON, ICON_BIG, reinterpret_cast<LPARAM>(icon));
-    SendMessageW(window, WM_SETICON, ICON_SMALL, reinterpret_cast<LPARAM>(icon));
-    SetClassLongPtrW(window, GCLP_HICON, reinterpret_cast<LONG_PTR>(icon));
-    SetClassLongPtrW(window, GCLP_HICONSM, reinterpret_cast<LONG_PTR>(icon));
+    SendMessageW(window, WM_SETICON, ICON_BIG, reinterpret_cast<LPARAM>(big_icon.get()));
+    SendMessageW(window, WM_SETICON, ICON_SMALL, reinterpret_cast<LPARAM>(small_icon.get()));
+    SetClassLongPtrW(window, GCLP_HICON, reinterpret_cast<LONG_PTR>(big_icon.get()));
+    SetClassLongPtrW(window, GCLP_HICONSM, reinterpret_cast<LONG_PTR>(small_icon.get()));
 }
 
 void enable_custom_titlebar(const HWND window) {
@@ -1012,6 +1025,10 @@ void enable_custom_titlebar(const HWND window) {
 }
 
 [[nodiscard]] bool custom_resize_frame_ready(const HWND window) {
+    if (SendMessageW(window, WM_GETICON, ICON_BIG, 0) == 0 ||
+        SendMessageW(window, WM_GETICON, ICON_SMALL, 0) == 0) {
+        return false;
+    }
     RECT bounds{};
     if (!GetWindowRect(window, &bounds)) {
         return false;
