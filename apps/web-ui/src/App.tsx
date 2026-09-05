@@ -80,13 +80,40 @@ type DebugAnnotation = {
   start: number;
   end: number;
   label: string;
-  color: string;
+  color: number;
 };
 
 type DebugAnnotationSegment = {
   annotation: DebugAnnotation;
   start: number;
   end: number;
+};
+
+const ANNOTATION_COLORS = {
+  light: [
+    "#C15DD5",
+    "#9075FC",
+    "#1EC0D7",
+    "#79C93A",
+    "#D5D71A",
+    "#FFCB45",
+    "#FF813A",
+    "#FB5E49",
+    "#F92A5E",
+    "#F16BA3",
+  ],
+  dark: [
+    "#C981D7",
+    "#A18CF0",
+    "#66BECA",
+    "#9CC673",
+    "#D0D16A",
+    "#EDCB74",
+    "#E99463",
+    "#F27A6A",
+    "#EC6486",
+    "#E991B5",
+  ],
 };
 
 const SIDEBAR_MIN_WIDTH = 210;
@@ -276,10 +303,15 @@ export default function App() {
   const [debugResult, setDebugResult] = useState<InspectionResult>();
   const [debugBusy, setDebugBusy] = useState(false);
   const [debugAnnotations, setDebugAnnotations] = useState<DebugAnnotation[]>([]);
-  const [annotationStart, setAnnotationStart] = useState("0");
-  const [annotationEnd, setAnnotationEnd] = useState("0");
+  const [indexMode, setIndexMode] = useState<"byte" | "offset">("byte");
+  const [annotationSelection, setAnnotationSelection] = useState<{
+    anchor: number;
+    end: number;
+    editing: boolean;
+  } | null>(null);
+  const annotationDialogRef = useRef<HTMLDialogElement>(null);
   const [annotationLabel, setAnnotationLabel] = useState("");
-  const [annotationColor, setAnnotationColor] = useState("#58c99e");
+  const [annotationColor, setAnnotationColor] = useState(0);
   const [annotationError, setAnnotationError] = useState(false);
   const [structureSelection, setStructureSelection] = useState<{
     messageName: string;
@@ -315,6 +347,27 @@ export default function App() {
   const debugAnnotationSegmentByStart = new Map(
     debugAnnotationSegments.map((segment) => [segment.start, segment]),
   );
+  const annotationPalette = ANNOTATION_COLORS[theme];
+  const selectionStart = annotationSelection
+    ? Math.min(annotationSelection.anchor, annotationSelection.end)
+    : -1;
+  const selectionEnd = annotationSelection
+    ? Math.max(annotationSelection.anchor, annotationSelection.end)
+    : -1;
+
+  useEffect(() => {
+    setAnnotationSelection(null);
+  }, [debugResult, page]);
+
+  useEffect(() => {
+    const dialog = annotationDialogRef.current;
+    if (annotationSelection?.editing && page === "debug" && debugResult?.ok) {
+      if (dialog && !dialog.open) dialog.showModal();
+    } else {
+      dialog?.close();
+    }
+  }, [annotationSelection?.editing, page, debugResult]);
+
   const structureProperties = selectedStructureField
     ? [
         [translation.structure.name, selectedStructureField.name],
@@ -610,8 +663,7 @@ export default function App() {
       const result = await inspectHex(debugInput);
       setDebugResult(result);
       setDebugAnnotations([]);
-      setAnnotationStart("0");
-      setAnnotationEnd(result.ok ? String(Math.max(result.byteCount - 1, 0)) : "0");
+      setAnnotationSelection(null);
       setAnnotationLabel("");
       setAnnotationError(false);
     } catch (error) {
@@ -629,24 +681,39 @@ export default function App() {
     }
   };
 
+  const selectAnnotationCell = (index: number) => {
+    if (annotationSelection?.editing) return;
+    setAnnotationError(false);
+    setAnnotationLabel("");
+    setAnnotationSelection((current) =>
+      current
+        ? { ...current, end: index, editing: true }
+        : { anchor: index, end: index, editing: false },
+    );
+  };
+
+  const previewAnnotationCell = (index: number) => {
+    setAnnotationSelection((current) =>
+      current && !current.editing ? { ...current, end: index } : current,
+    );
+  };
+
   const addDebugAnnotation = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    if (!debugResult?.ok) {
-      return;
-    }
-    const start = Number(annotationStart);
-    const end = Number(annotationEnd);
+    if (!debugResult?.ok || !annotationSelection?.editing) return;
+    const start = selectionStart;
+    const end = selectionEnd;
     const label = annotationLabel.trim();
-    const valid =
-      annotationStart.trim().length > 0 &&
-      annotationEnd.trim().length > 0 &&
-      Number.isInteger(start) &&
-      Number.isInteger(end) &&
-      start >= 0 &&
-      end >= start &&
-      end < debugResult.byteCount &&
-      label.length > 0;
-    if (!valid) {
+    if (
+      !Number.isInteger(start) ||
+      !Number.isInteger(end) ||
+      start < 0 ||
+      end < start ||
+      end >= debugResult.byteCount ||
+      !label ||
+      !Number.isInteger(annotationColor) ||
+      !annotationPalette[annotationColor]
+    ) {
       setAnnotationError(true);
       return;
     }
@@ -654,6 +721,7 @@ export default function App() {
       ...current,
       { id: Date.now(), start, end, label, color: annotationColor },
     ]);
+    setAnnotationSelection(null);
     setAnnotationLabel("");
     setAnnotationError(false);
   };
@@ -1187,153 +1255,155 @@ export default function App() {
                     <div aria-hidden="true" className="debug-result-empty" />
                   ) : debugResult.ok ? (
                     <div className="debug-result-content">
-                      <form className="debug-annotation-form" onSubmit={addDebugAnnotation}>
-                        <div className="debug-annotation-fields">
-                          <label>
-                            <span>{translation.debug.startOffset}</span>
-                            <input
-                              aria-label={translation.debug.startOffset}
-                              aria-invalid={annotationError}
-                              inputMode="numeric"
-                              min={0}
-                              max={Math.max(debugResult.byteCount - 1, 0)}
-                              onChange={(event) => {
-                                setAnnotationStart(event.target.value);
-                                setAnnotationError(false);
-                              }}
-                              type="number"
-                              value={annotationStart}
-                            />
-                          </label>
-                          <label>
-                            <span>{translation.debug.endOffset}</span>
-                            <input
-                              aria-label={translation.debug.endOffset}
-                              aria-invalid={annotationError}
-                              inputMode="numeric"
-                              min={0}
-                              max={Math.max(debugResult.byteCount - 1, 0)}
-                              onChange={(event) => {
-                                setAnnotationEnd(event.target.value);
-                                setAnnotationError(false);
-                              }}
-                              type="number"
-                              value={annotationEnd}
-                            />
-                          </label>
+                      <dialog
+                        ref={annotationDialogRef}
+                        className="debug-annotation-dialog"
+                        aria-labelledby="debug-annotation-title"
+                        onClose={() => setAnnotationSelection(null)}
+                      >
+                        <form className="debug-annotation-form" onSubmit={addDebugAnnotation}>
+                          <strong id="debug-annotation-title">
+                            {translation.debug.annotation} ·{" "}
+                            {indexMode === "byte"
+                              ? translation.debug.byte
+                              : translation.debug.byteOffset}{" "}
+                            {selectionStart + (indexMode === "byte" ? 1 : 0)}–
+                            {selectionEnd + (indexMode === "byte" ? 1 : 0)}
+                          </strong>
                           <label className="debug-annotation-label">
-                            <span>{translation.debug.annotationLabel}</span>
+                            <span>{translation.debug.description}</span>
                             <input
-                              aria-label={translation.debug.annotationLabel}
+                              autoFocus
+                              required
                               aria-invalid={annotationError}
+                              value={annotationLabel}
                               onChange={(event) => {
                                 setAnnotationLabel(event.target.value);
                                 setAnnotationError(false);
                               }}
                               placeholder={translation.debug.annotationLabelPlaceholder}
-                              type="text"
-                              value={annotationLabel}
                             />
                           </label>
-                          <label className="debug-color-picker">
-                            <span>{translation.debug.annotationColor}</span>
-                            <input
-                              aria-label={translation.debug.annotationColor}
-                              onChange={(event) => setAnnotationColor(event.target.value)}
-                              type="color"
-                              value={annotationColor}
-                            />
-                          </label>
-                          <button className="debug-annotation-add" type="submit">
-                            {translation.debug.addAnnotation}
-                          </button>
-                        </div>
-                        {annotationError && (
-                          <p className="debug-annotation-error" role="alert">
-                            {translation.debug.annotationError}
-                          </p>
-                        )}
-                      </form>
-
-                      <div className="debug-table-wrap">
+                          <fieldset className="debug-color-presets">
+                            <legend>{translation.debug.annotationColor}</legend>
+                            {annotationPalette.map((color, index) => (
+                              <button
+                                key={index}
+                                type="button"
+                                className="debug-color-swatch"
+                                aria-label={`${translation.debug.annotationColor} ${index + 1}`}
+                                aria-pressed={annotationColor === index}
+                                title={color}
+                                style={{ backgroundColor: color }}
+                                onClick={() => setAnnotationColor(index)}
+                              >
+                                {annotationColor === index ? "✓" : ""}
+                              </button>
+                            ))}
+                          </fieldset>
+                          {annotationError && (
+                            <p className="debug-annotation-error" role="alert">
+                              {translation.debug.annotationError}
+                            </p>
+                          )}
+                          <footer>
+                            <button type="button" onClick={() => setAnnotationSelection(null)}>
+                              {translation.create.cancel}
+                            </button>
+                            <button type="submit">{translation.editor.save}</button>
+                          </footer>
+                        </form>
+                      </dialog>
+                      <div
+                        className="debug-table-wrap"
+                        onKeyDown={(event) => {
+                          if (event.key === "Escape") setAnnotationSelection(null);
+                        }}
+                      >
                         <table className="debug-byte-table">
+                          <colgroup>
+                            <col style={{ width: "20%" }} />
+                            <col style={{ width: "15%" }} />
+                            <col style={{ width: "15%" }} />
+                            <col style={{ width: "15%" }} />
+                            <col style={{ width: "35%" }} />
+                          </colgroup>
                           <thead>
                             <tr>
-                              <th
-                                aria-label={translation.debug.annotation}
-                                className="debug-annotation-column"
-                                scope="col"
-                              />
-                              <th className="debug-byte-offset-column" scope="col">
-                                {translation.debug.byteOffset}
+                              <th scope="col">
+                                <span className="debug-index-toggle">
+                                  {(["byte", "offset"] as const).map((mode) => (
+                                    <button
+                                      key={mode}
+                                      type="button"
+                                      aria-pressed={indexMode === mode}
+                                      onClick={() => setIndexMode(mode)}
+                                    >
+                                      {mode === "byte"
+                                        ? translation.debug.byte
+                                        : translation.debug.byteOffset}
+                                    </button>
+                                  ))}
+                                </span>
                               </th>
-                              <th className="debug-byte-hex-column" scope="col">
-                                HEX
-                              </th>
-                              <th className="debug-byte-ascii-column" scope="col">
-                                ASCII
-                              </th>
-                              <th className="debug-byte-decimal-column" scope="col">
-                                {translation.debug.decimal}
-                              </th>
+                              <th scope="col">HEX</th>
+                              <th scope="col">ASCII</th>
+                              <th scope="col">{translation.debug.decimal}</th>
+                              <th scope="col">{translation.debug.description}</th>
                             </tr>
                           </thead>
                           <tbody>
                             {debugResult.bytes.map((byte, index) => {
                               const rowAnnotations = debugAnnotations.filter(
-                                (annotation) =>
-                                  index >= annotation.start && index <= annotation.end,
+                                (item) => index >= item.start && index <= item.end,
                               );
                               const annotation = rowAnnotations[rowAnnotations.length - 1];
-                              const annotationSegment = debugAnnotationSegmentByStart.get(index);
+                              const segment = debugAnnotationSegmentByStart.get(index);
+                              const selected = index >= selectionStart && index <= selectionEnd;
+                              const color = annotation && annotationPalette[annotation.color];
                               return (
                                 <tr
-                                  aria-label={`${translation.debug.byteOffset} ${index}`}
-                                  className={annotation ? "annotated" : ""}
-                                  key={`${index}-${byte}`}
-                                  style={
-                                    annotation
-                                      ? {
-                                          backgroundColor: `${annotation.color}22`,
-                                        }
-                                      : undefined
-                                  }
-                                  title={rowAnnotations.map((item) => item.label).join(" / ")}
+                                  key={index}
+                                  style={color ? { backgroundColor: `${color}22` } : undefined}
                                 >
-                                  {annotationSegment && (
-                                    <td
-                                      className="debug-annotation-cell"
-                                      rowSpan={annotationSegment.end - annotationSegment.start + 1}
-                                      style={{
-                                        backgroundColor: `${annotationSegment.annotation.color}22`,
-                                        borderColor: annotationSegment.annotation.color,
-                                        color: annotationSegment.annotation.color,
-                                      }}
+                                  <td className={`debug-byte-index ${selected ? "selected" : ""}`}>
+                                    <button
+                                      type="button"
+                                      aria-pressed={selected}
+                                      aria-label={`${indexMode === "byte" ? translation.debug.byte : translation.debug.byteOffset} ${index + (indexMode === "byte" ? 1 : 0)}`}
+                                      onClick={() => selectAnnotationCell(index)}
+                                      onPointerEnter={() => previewAnnotationCell(index)}
+                                      onFocus={() => previewAnnotationCell(index)}
                                     >
-                                      <span className="debug-annotation-cell-label">
-                                        {annotationSegment.annotation.label}
-                                      </span>
+                                      {index + (indexMode === "byte" ? 1 : 0)}
+                                    </button>
+                                  </td>
+                                  <td>
+                                    <code>{byte.toString(16).padStart(2, "0").toUpperCase()}</code>
+                                  </td>
+                                  <td>
+                                    <code>{debugResult.ascii[index] || "·"}</code>
+                                  </td>
+                                  <td>{byte}</td>
+                                  {segment ? (
+                                    <td
+                                      className="debug-description"
+                                      rowSpan={segment.end - segment.start + 1}
+                                      style={{ borderLeft: `3px solid ${color}` }}
+                                    >
+                                      <span>{segment.annotation.label}</span>
                                       <button
-                                        aria-label={`${translation.debug.removeAnnotation}: ${annotationSegment.annotation.label}`}
                                         className="debug-annotation-remove"
-                                        onClick={() =>
-                                          removeDebugAnnotation(annotationSegment.annotation.id)
-                                        }
-                                        title={translation.debug.removeAnnotation}
                                         type="button"
+                                        aria-label={`${translation.debug.removeAnnotation}: ${segment.annotation.label}`}
+                                        onClick={() => removeDebugAnnotation(segment.annotation.id)}
                                       >
                                         <X size={11} />
                                       </button>
                                     </td>
-                                  )}
-                                  <td className="debug-byte-offset">{index}</td>
-                                  <td className="debug-byte-hex">
-                                    <code>{byte.toString(16).padStart(2, "0").toUpperCase()}</code>
-                                  </td>
-                                  <td className="debug-byte-ascii">
-                                    <code>{debugResult.ascii[index] || "·"}</code>
-                                  </td>
-                                  <td className="debug-byte-decimal">{byte}</td>
+                                  ) : !annotation ? (
+                                    <td className="debug-description" />
+                                  ) : null}
                                 </tr>
                               );
                             })}

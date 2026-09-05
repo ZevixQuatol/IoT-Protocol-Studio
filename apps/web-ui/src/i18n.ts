@@ -107,6 +107,8 @@ export type TranslationMessages = {
     ascii: string;
     bytes: string;
     byteOffset: string;
+    byte: string;
+    description: string;
     characters: string;
     emptyInput: string;
     parseError: string;
@@ -248,6 +250,8 @@ export const messages: Record<Locale, TranslationMessages> = {
       ascii: "ASCII 预览",
       bytes: "字节明细",
       byteOffset: "偏移",
+      byte: "字节",
+      description: "描述",
       characters: "字符",
       emptyInput: "等待输入 HEX",
       parseError: "HEX 解析失败",
@@ -386,6 +390,8 @@ export const messages: Record<Locale, TranslationMessages> = {
       ascii: "ASCII preview",
       bytes: "Byte details",
       byteOffset: "Offset",
+      byte: "Byte",
+      description: "Description",
       characters: "characters",
       emptyInput: "Waiting for HEX input",
       parseError: "HEX inspection failed",

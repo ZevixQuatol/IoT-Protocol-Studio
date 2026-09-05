@@ -1155,90 +1155,99 @@ button {
   overflow: hidden;
 }
 
+.debug-annotation-dialog {
+  width: min(380px, calc(100vw - 40px));
+  padding: 0;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface);
+  color: var(--text);
+  font-size: 11px;
+}
+
+.debug-annotation-dialog::backdrop {
+  background: #0006;
+}
+
 .debug-annotation-form {
   display: flex;
   flex-direction: column;
-  gap: 10px;
-  padding: 12px 18px;
-  border-bottom: 1px solid var(--line);
-}
-
-.debug-annotation-fields {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: flex-end;
-  gap: 8px;
-}
-
-.debug-annotation-fields label {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  color: #71808e;
-  font-size: 9px;
-}
-
-.debug-annotation-fields input {
-  height: 30px;
-  min-width: 76px;
-  padding: 0 8px;
-  border: 1px solid #33414e;
-  border-radius: 4px;
-  outline: 0;
-  background: transparent;
-  color: var(--text);
-  font:
-    11px "Cascadia Code",
-    Consolas,
-    monospace;
-}
-
-.debug-annotation-fields input:focus {
-  border-color: var(--accent);
-}
-
-.debug-annotation-fields input[aria-invalid="true"] {
-  border-color: #b85c69;
-}
-
-.debug-annotation-fields input:focus-visible {
-  outline: 2px solid var(--accent);
-  outline-offset: 1px;
+  gap: 16px;
+  padding: 20px;
 }
 
 .debug-annotation-label {
-  flex: 1 1 130px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
 }
 
 .debug-annotation-label input {
   width: 100%;
+  height: 32px;
+  padding: 0 8px;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  background: var(--surface-deep);
+  color: var(--text);
+  font: inherit;
 }
 
-.debug-color-picker input[type="color"] {
-  width: 76px;
-  padding: 3px;
+.debug-color-presets {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.debug-color-presets legend {
+  margin-bottom: 8px;
+}
+
+.debug-color-swatch {
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  border: 2px solid transparent;
+  border-radius: 5px;
+  color: #101820;
   cursor: pointer;
 }
 
-.debug-annotation-add {
-  min-height: 30px;
-  padding: 0 10px;
-  border: 1px solid #47725f;
+.debug-color-swatch[aria-pressed="true"] {
+  border-color: var(--text);
+}
+
+.debug-annotation-form footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.debug-annotation-form footer button {
+  padding: 6px 12px;
+  border: 1px solid var(--line);
   border-radius: 4px;
   background: var(--accent-soft);
-  color: var(--accent);
+  color: var(--text);
   cursor: pointer;
   font-size: 10px;
 }
 
-.debug-annotation-add:hover {
-  border-color: #68d5ac;
+.debug-annotation-dialog :focus-visible,
+.debug-byte-table button:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
 }
 
 .debug-annotation-error {
   margin: 0;
   color: #e18790;
-  font-size: 9px;
+  font-size: 10px;
 }
 
 .debug-table-wrap {
@@ -1258,8 +1267,8 @@ button {
 .debug-byte-table th,
 .debug-byte-table td {
   height: 34px;
-  padding: 0 18px;
-  border-bottom: 1px solid #202b34;
+  padding: 0 12px;
+  border-bottom: 1px solid var(--line);
   text-align: left;
 }
 
@@ -1267,117 +1276,96 @@ button {
   position: sticky;
   top: 0;
   z-index: 1;
-  height: 32px;
+  height: 34px;
   background: var(--surface);
-  color: #71808e;
-  font-size: 9px;
-  font-weight: 650;
-  letter-spacing: 0.05em;
-  text-transform: uppercase;
-}
-
-.debug-byte-table .debug-annotation-column,
-.debug-byte-table .debug-annotation-cell {
-  width: 42px;
-  padding: 0 4px;
-  text-align: center;
-}
-
-.debug-byte-table .debug-byte-offset-column,
-.debug-byte-table .debug-byte-offset {
-  width: 14%;
-}
-
-.debug-byte-table .debug-byte-hex-column,
-.debug-byte-table .debug-byte-hex {
-  width: 28%;
-}
-
-.debug-byte-table .debug-byte-ascii-column,
-.debug-byte-table .debug-byte-ascii {
-  width: 18%;
-}
-
-.debug-byte-table .debug-byte-decimal-column,
-.debug-byte-table .debug-byte-decimal {
-  width: 20%;
-}
-
-.debug-byte-table tbody tr {
-  transition: background-color 160ms ease;
-}
-
-.debug-byte-table tbody tr:hover {
-  background: #182731;
-}
-
-.debug-byte-table tbody tr.annotated .debug-byte-offset {
-  color: var(--accent);
-  font-weight: 650;
-}
-
-.debug-annotation-cell {
-  position: relative;
-  vertical-align: middle;
-  border-right: 1px solid currentColor;
-  border-left: 3px solid currentColor;
-  color: var(--accent);
-}
-
-.debug-annotation-cell-label {
-  display: block;
-  max-height: 100%;
-  overflow: hidden;
-  color: inherit;
+  color: var(--muted);
   font-size: 10px;
-  font-weight: 650;
-  line-height: 1.2;
-  text-overflow: ellipsis;
-  text-orientation: upright;
-  white-space: nowrap;
-  writing-mode: vertical-rl;
+  font-weight: 600;
+}
+
+.debug-index-toggle {
+  display: inline-flex;
+  gap: 4px;
+}
+
+.debug-index-toggle button {
+  padding: 3px;
+  border: 0;
+  border-radius: 3px;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+}
+
+.debug-index-toggle button[aria-pressed="true"] {
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+.debug-byte-table td {
+  color: var(--text);
+  font-family: "Cascadia Code", Consolas, monospace;
+}
+
+.debug-byte-table td code {
+  color: inherit;
+  font-family: inherit;
+}
+
+.debug-byte-table .debug-byte-index {
+  padding: 0;
+}
+
+.debug-byte-index button {
+  width: 100%;
+  min-height: 34px;
+  padding: 0 12px;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  text-align: left;
+  cursor: crosshair;
+}
+
+.debug-byte-index.selected,
+.debug-byte-index:hover {
+  background: var(--accent-soft);
+  box-shadow: inset 3px 0 var(--accent);
+}
+
+.debug-byte-table .debug-description {
+  position: relative;
+  padding: 8px 28px 8px 12px;
+  vertical-align: middle;
+  overflow-wrap: anywhere;
+  font-family: inherit;
 }
 
 .debug-annotation-remove {
   position: absolute;
-  top: 3px;
-  right: 1px;
+  top: 5px;
+  right: 4px;
   display: grid;
-  width: 16px;
-  height: 16px;
-  padding: 0;
   place-items: center;
+  width: 20px;
+  height: 20px;
+  padding: 0;
   border: 0;
   border-radius: 3px;
   background: transparent;
-  color: #71808e;
+  color: var(--muted);
   cursor: pointer;
   opacity: 0;
-  transition:
-    opacity 140ms ease,
-    color 140ms ease,
-    background-color 140ms ease;
 }
 
-.debug-annotation-cell:hover .debug-annotation-remove,
+.debug-description:hover .debug-annotation-remove,
 .debug-annotation-remove:focus-visible {
   opacity: 1;
 }
 
 .debug-annotation-remove:hover {
-  background: #40252b;
+  background: #e1879033;
   color: #e18790;
-}
-
-.debug-byte-table td {
-  color: #aebbc5;
-  font-family: "Cascadia Code", Consolas, monospace;
-}
-
-.debug-byte-table td code {
-  color: #8ed6b7;
-  font-family: inherit;
-  font-weight: 600;
 }
 
 .debug-result-error {
@@ -2400,42 +2388,6 @@ button {
 :root[data-theme="light"] .message-preview-ascii code,
 :root[data-theme="light"] .message-derived-value span {
   color: #728d80;
-}
-
-:root[data-theme="light"] .debug-byte-table th {
-  background: var(--surface);
-  color: #607482;
-}
-
-:root[data-theme="light"] .debug-byte-table th,
-:root[data-theme="light"] .debug-byte-table td {
-  border-color: #e0e7eb;
-}
-
-:root[data-theme="light"] .debug-byte-table td {
-  color: #435b68;
-}
-
-:root[data-theme="light"] .debug-byte-table td code {
-  color: #176a50;
-}
-
-:root[data-theme="light"] .debug-byte-table tbody tr:hover {
-  background: #eef5f2;
-}
-
-:root[data-theme="light"] .debug-annotation-form {
-  border-color: #d2dce3;
-}
-
-:root[data-theme="light"] .debug-annotation-fields input {
-  border-color: #c6d2da;
-  background: transparent;
-  color: #263b48;
-}
-
-:root[data-theme="light"] .debug-annotation-fields label {
-  color: #687b89;
 }
 
 :root[data-theme="light"] .debug-annotation-error {
