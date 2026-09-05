@@ -36,6 +36,8 @@ import SparklesIcon from "./icons/sparkles-icon";
 import UnorderedListIcon from "./icons/unordered-list-icon";
 import {
   closeProject,
+  changeFolder,
+  createProject,
   createProtocol,
   encodeProtocolMessage,
   getCoreInfo,
@@ -124,6 +126,24 @@ function getSidebarMaxWidth() {
 
 function buildTree(project: WorkspaceProject): TreeNode[] {
   const roots: TreeNode[] = [];
+  const ensureFolder = (folderPath: string) => {
+    let path = "protocols";
+    let children = roots;
+    for (const part of folderPath.split("/").slice(1)) {
+      path += `/${part}`;
+      let folder = children.find((node) => node.type === "folder" && node.path === path);
+      if (!folder) {
+        folder = { key: `folder:${path}`, name: part, path, type: "folder", children: [] };
+        children.push(folder);
+      }
+      children = folder.children!;
+    }
+    return children;
+  };
+  for (const folder of [...(project.folders ?? [])].sort(
+    (a, b) => a.split("/").length - b.split("/").length,
+  ))
+    ensureFolder(folder);
   for (const protocol of project.protocols) {
     const parts = protocol.path.split("/").filter(Boolean);
     if (parts[0] === "protocols") {
@@ -134,17 +154,7 @@ function buildTree(project: WorkspaceProject): TreeNode[] {
       continue;
     }
 
-    let path = "protocols";
-    let children = roots;
-    for (const part of parts) {
-      path += `/${part}`;
-      let folder = children.find((node) => node.type === "folder" && node.path === path);
-      if (!folder) {
-        folder = { key: `folder:${path}`, name: part, path, type: "folder", children: [] };
-        children.push(folder);
-      }
-      children = folder.children ?? [];
-    }
+    const children = ensureFolder(["protocols", ...parts].join("/"));
     children.push({
       key: `protocol:${protocol.path}`,
       name: protocol.name || filename.replace(/\.protocol\.ya?ml$/i, ""),
@@ -229,27 +239,93 @@ type TreeItemsProps = {
   selectedPath?: string;
   onToggle: (key: string) => void;
   onSelect: (protocol: WorkspaceProtocol) => void;
+  onFolderMenu: (path: string) => void;
+  onDragFolder: (path: string | null) => void;
+  onDropFolder: (path: string, placement: "before" | "inside" | "after") => void;
+  folderActionsLabel: string;
 };
 
-function TreeItems({ nodes, depth, expanded, selectedPath, onToggle, onSelect }: TreeItemsProps) {
+function TreeItems(props: TreeItemsProps) {
+  const {
+    nodes,
+    depth,
+    expanded,
+    selectedPath,
+    onToggle,
+    onSelect,
+    onFolderMenu,
+    onDragFolder,
+    onDropFolder,
+    folderActionsLabel,
+  } = props;
+  const [dropTarget, setDropTarget] = useState<string>();
   return nodes.map((node) => {
     const isOpen = expanded.has(node.key);
     if (node.type === "folder") {
       return (
         <div key={node.key}>
-          <button
-            aria-expanded={isOpen}
-            className="tree-item folder-item"
-            onClick={() => onToggle(node.key)}
-            style={{ paddingLeft: 14 + depth * 16 }}
-            type="button"
+          <div
+            className="folder-row"
+            data-drop={
+              dropTarget?.startsWith(`${node.path}:`) ? dropTarget.split(":").at(-1) : undefined
+            }
+            onContextMenu={(event) => {
+              event.preventDefault();
+              onFolderMenu(node.path);
+            }}
           >
-            {isOpen ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
-            {isOpen ? <FolderOpen size={15} /> : <Folder size={15} />}
-            <span>{node.name}</span>
-          </button>
+            <button
+              aria-expanded={isOpen}
+              className="tree-item folder-item"
+              onClick={() => onToggle(node.key)}
+              style={{ paddingLeft: 14 + depth * 16 }}
+              type="button"
+              draggable
+              onDragStart={(event) => {
+                event.dataTransfer.setData("text/plain", node.path);
+                event.dataTransfer.effectAllowed = "move";
+                onDragFolder(node.path);
+              }}
+              onDragEnd={() => {
+                onDragFolder(null);
+                setDropTarget(undefined);
+              }}
+              onDragOver={(event) => {
+                event.preventDefault();
+                const box = event.currentTarget.getBoundingClientRect();
+                const ratio = (event.clientY - box.top) / box.height;
+                setDropTarget(
+                  `${node.path}:${ratio < 0.25 ? "before" : ratio > 0.75 ? "after" : "inside"}`,
+                );
+              }}
+              onDragLeave={() => setDropTarget(undefined)}
+              onDrop={(event) => {
+                event.preventDefault();
+                const box = event.currentTarget.getBoundingClientRect();
+                const ratio = (event.clientY - box.top) / box.height;
+                onDropFolder(
+                  node.path,
+                  ratio < 0.25 ? "before" : ratio > 0.75 ? "after" : "inside",
+                );
+                setDropTarget(undefined);
+              }}
+            >
+              {isOpen ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+              {isOpen ? <FolderOpen size={15} /> : <Folder size={15} />}
+              <span>{node.name}</span>
+            </button>
+            <button
+              className="folder-actions"
+              aria-label={`${folderActionsLabel}: ${node.name}`}
+              type="button"
+              onClick={() => onFolderMenu(node.path)}
+            >
+              <DotsHorizontalIcon size={14} />
+            </button>
+          </div>
           {isOpen && (
             <TreeItems
+              {...props}
               depth={depth + 1}
               expanded={expanded}
               nodes={node.children ?? []}
@@ -299,6 +375,7 @@ export default function App() {
   const [messageFieldValues, setMessageFieldValues] = useState<Record<string, string>>({});
   const [messageEncodeResult, setMessageEncodeResult] = useState<MessageEncodeResult>();
   const [debugInput, setDebugInput] = useState("");
+  const debugContentRef = useRef("");
   const [debugFormatted, setDebugFormatted] = useState(false);
   const [debugResult, setDebugResult] = useState<InspectionResult>();
   const [debugBusy, setDebugBusy] = useState(false);
@@ -321,6 +398,12 @@ export default function App() {
   const [errorMessage, setErrorMessage] = useState<string>();
   const [projectMenuOpen, setProjectMenuOpen] = useState(false);
   const projectMenuRef = useRef<HTMLDivElement>(null);
+  const [treeDialog, setTreeDialog] = useState<{
+    action: "project" | "actions" | "create" | "delete" | "move" | "removeProject";
+    path: string;
+  } | null>(null);
+  const treeDialogRef = useRef<HTMLDialogElement>(null);
+  const draggedFolder = useRef<string | null>(null);
   const translation = messages[locale];
   const page = navigation.entries[navigation.index];
   const project = workspace?.ok ? workspace.project : null;
@@ -395,6 +478,11 @@ export default function App() {
         ]
       : [];
   const isDirty = selectedProtocol ? draftContent !== selectedProtocol.content : false;
+
+  useEffect(() => {
+    if (treeDialog && !treeDialogRef.current?.open) treeDialogRef.current?.showModal();
+    if (!treeDialog) treeDialogRef.current?.close();
+  }, [treeDialog]);
 
   const applyWorkspace = (result: WorkspaceResult, preferredPath?: string) => {
     if (!result.ok) {
@@ -574,6 +662,70 @@ export default function App() {
     }
   };
 
+  const openTreeDialog = (action: NonNullable<typeof treeDialog>["action"], path = "protocols") => {
+    setProjectMenuOpen(false);
+    if (isDirty) {
+      setErrorMessage(translation.structure.saveBlocked);
+      return;
+    }
+    setTreeDialog({ action, path });
+    setErrorMessage(undefined);
+  };
+
+  const moveFolder = async (source: string, target: string, before = "") => {
+    if (busy || isDirty) {
+      if (isDirty) setErrorMessage(translation.structure.saveBlocked);
+      return false;
+    }
+    const destination = `${target}/${source.split("/").at(-1)}`;
+    const preferred = selectedProtocolPath?.startsWith(`${source}/`)
+      ? destination + selectedProtocolPath.slice(source.length)
+      : selectedProtocolPath;
+    return run(() => changeFolder("move", source, target, before), preferred);
+  };
+
+  const dropFolder = (target: string, placement: "before" | "inside" | "after") => {
+    const source = draggedFolder.current;
+    draggedFolder.current = null;
+    if (!source || source === target || !project?.folders.includes(source)) return;
+    const parent = placement === "inside" ? target : target.slice(0, target.lastIndexOf("/"));
+    const siblings = project.folders.filter(
+      (folder) => folder !== source && folder.slice(0, folder.lastIndexOf("/")) === parent,
+    );
+    const before =
+      placement === "before"
+        ? target
+        : placement === "after"
+          ? (siblings[siblings.indexOf(target) + 1] ?? "")
+          : "";
+    void moveFolder(source, parent, before);
+  };
+
+  const submitTreeDialog = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (!treeDialog || busy) return;
+    const data = new FormData(event.currentTarget);
+    const { action, path } = treeDialog;
+    const name = String(data.get("name") ?? "").trim();
+    if (
+      (action === "project" || action === "create") &&
+      (!name || /[\\/<>:"|?*\u0000-\u001f]/.test(name) || name.endsWith("."))
+    ) {
+      setErrorMessage(translation.workspace.invalidName);
+      return;
+    }
+    let ok = false;
+    if (action === "project") ok = await run(() => createProject(name));
+    if (action === "create")
+      ok = await run(() => changeFolder("create", `${path}/${name}`), selectedProtocolPath);
+    if (action === "delete")
+      ok = await run(() => changeFolder("delete", path), selectedProtocolPath);
+    if (action === "move")
+      ok = await moveFolder(path, String(data.get("parent")), String(data.get("before") ?? ""));
+    if (action === "removeProject") ok = await run(closeProject);
+    if (ok) setTreeDialog(null);
+  };
+
   const submitCreate = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     const form = event.currentTarget;
@@ -658,15 +810,19 @@ export default function App() {
       return;
     }
 
+    if (debugBusy) return;
+    const content = debugContentRef.current;
     setDebugBusy(true);
     try {
       const result = await inspectHex(debugInput);
+      if (debugContentRef.current !== content) return;
       setDebugResult(result);
       setDebugAnnotations([]);
       setAnnotationSelection(null);
       setAnnotationLabel("");
       setAnnotationError(false);
     } catch (error) {
+      if (debugContentRef.current !== content) return;
       setDebugResult({
         ok: false,
         source: "browser-preview",
@@ -736,7 +892,19 @@ export default function App() {
       return debugFormatted ? compact : (compact.match(/.{1,2}/g)?.join(" ") ?? "");
     });
     setDebugFormatted((current) => !current);
+  };
+
+  const updateDebugInput = (nextValue: string) => {
+    const content = nextValue.replace(/\s+/g, "").toUpperCase();
+    setDebugInput(nextValue);
+    if (!content) setDebugFormatted(false);
+    if (content === debugContentRef.current) return;
+    debugContentRef.current = content;
     setDebugResult(undefined);
+    setDebugAnnotations([]);
+    setAnnotationSelection(null);
+    setAnnotationLabel("");
+    setAnnotationError(false);
   };
 
   const selectMessage = (nextName: string) => {
@@ -933,6 +1101,10 @@ export default function App() {
                         disabled={busy}
                         onClick={() => {
                           setProjectMenuOpen(false);
+                          if (isDirty) {
+                            setErrorMessage(translation.structure.saveBlocked);
+                            return;
+                          }
                           void run(openProject);
                         }}
                         role="menuitem"
@@ -942,11 +1114,9 @@ export default function App() {
                         {translation.workspace.openProject}
                       </button>
                       <button
-                        aria-disabled="true"
-                        className="planned-action"
-                        disabled
+                        disabled={busy}
+                        onClick={() => openTreeDialog("project")}
                         role="menuitem"
-                        title={translation.workspace.newProjectHint}
                         type="button"
                       >
                         <SparklesIcon size={15} />
@@ -956,8 +1126,21 @@ export default function App() {
                         <>
                           <button
                             disabled={busy}
+                            onClick={() => openTreeDialog("create")}
+                            role="menuitem"
+                            type="button"
+                          >
+                            <Folder size={15} />
+                            {translation.workspace.newFolder}
+                          </button>
+                          <button
+                            disabled={busy}
                             onClick={() => {
                               setProjectMenuOpen(false);
+                              if (isDirty) {
+                                setErrorMessage(translation.structure.saveBlocked);
+                                return;
+                              }
                               setCreateOpen(true);
                             }}
                             role="menuitem"
@@ -970,6 +1153,10 @@ export default function App() {
                             disabled={busy}
                             onClick={() => {
                               setProjectMenuOpen(false);
+                              if (isDirty) {
+                                setErrorMessage(translation.structure.saveBlocked);
+                                return;
+                              }
                               void run(closeProject);
                             }}
                             role="menuitem"
@@ -977,6 +1164,15 @@ export default function App() {
                           >
                             <X size={15} />
                             {translation.workspace.closeProject}
+                          </button>
+                          <button
+                            disabled={busy}
+                            onClick={() => openTreeDialog("removeProject")}
+                            role="menuitem"
+                            type="button"
+                          >
+                            <X size={15} />
+                            {translation.workspace.removeProject}
                           </button>
                         </>
                       )}
@@ -994,7 +1190,15 @@ export default function App() {
                 )}
                 {!busy && project && (
                   <>
-                    <div className="project-title">
+                    <div
+                      className="project-title"
+                      title={translation.workspace.dropAtRoot}
+                      onDragOver={(event) => event.preventDefault()}
+                      onDrop={(event) => {
+                        event.preventDefault();
+                        dropFolder("protocols", "inside");
+                      }}
+                    >
                       <FolderOpen size={15} />
                       <span>{project.name}</span>
                       <span>{project.protocols.length}</span>
@@ -1004,11 +1208,21 @@ export default function App() {
                       expanded={expanded}
                       nodes={buildTree(project)}
                       onSelect={(protocol) => {
+                        if (isDirty) {
+                          setErrorMessage(translation.structure.saveBlocked);
+                          return;
+                        }
                         setSelectedProtocolPath(protocol.path);
                         navigate("schema");
                       }}
                       onToggle={toggleExpanded}
                       selectedPath={selectedProtocolPath}
+                      onFolderMenu={(path) => openTreeDialog("actions", path)}
+                      onDragFolder={(path) => {
+                        draggedFolder.current = path;
+                      }}
+                      onDropFolder={dropFolder}
+                      folderActionsLabel={translation.workspace.folderActions}
                     />
                   </>
                 )}
@@ -1186,17 +1400,7 @@ export default function App() {
                     aria-invalid={debugInvalidPosition >= 0 || debugHasOddLength}
                     aria-describedby="debug-hex-hint"
                     id="debug-hex-input"
-                    onChange={(event) => {
-                      const nextValue = event.target.value;
-                      setDebugInput(nextValue);
-                      if (nextValue.replace(/\s+/g, "").length === 0) {
-                        setDebugFormatted(false);
-                      }
-                      setDebugResult(undefined);
-                      setDebugAnnotations([]);
-                      setAnnotationLabel("");
-                      setAnnotationError(false);
-                    }}
+                    onChange={(event) => updateDebugInput(event.target.value)}
                     onKeyDown={(event) => {
                       if ((event.ctrlKey || event.metaKey) && event.key === "Enter") {
                         event.preventDefault();
@@ -1332,18 +1536,21 @@ export default function App() {
                             <tr>
                               <th scope="col">
                                 <span className="debug-index-toggle">
-                                  {(["byte", "offset"] as const).map((mode) => (
-                                    <button
-                                      key={mode}
-                                      type="button"
-                                      aria-pressed={indexMode === mode}
-                                      onClick={() => setIndexMode(mode)}
-                                    >
-                                      {mode === "byte"
-                                        ? translation.debug.byte
-                                        : translation.debug.byteOffset}
-                                    </button>
-                                  ))}
+                                  <button
+                                    type="button"
+                                    title={
+                                      indexMode === "byte"
+                                        ? translation.debug.byteOffset
+                                        : translation.debug.byte
+                                    }
+                                    onClick={() =>
+                                      setIndexMode(indexMode === "byte" ? "offset" : "byte")
+                                    }
+                                  >
+                                    {indexMode === "byte"
+                                      ? translation.debug.byte
+                                      : translation.debug.byteOffset}
+                                  </button>
                                 </span>
                               </th>
                               <th scope="col">HEX</th>
@@ -1874,6 +2081,113 @@ export default function App() {
         </section>
       </div>
 
+      <dialog
+        ref={treeDialogRef}
+        className="protocol-dialog tree-dialog"
+        aria-labelledby="tree-dialog-title"
+        onCancel={(event) => {
+          if (busy) event.preventDefault();
+        }}
+        onClose={() => setTreeDialog(null)}
+      >
+        {treeDialog && (
+          <form
+            key={`${treeDialog.action}:${treeDialog.path}`}
+            onSubmit={(event) => void submitTreeDialog(event)}
+          >
+            <h2 id="tree-dialog-title">
+              {
+                {
+                  project: translation.workspace.newProject,
+                  actions: translation.workspace.folderActions,
+                  create: translation.workspace.newFolder,
+                  delete: translation.workspace.deleteFolder,
+                  move: translation.workspace.moveFolder,
+                  removeProject: translation.workspace.removeProject,
+                }[treeDialog.action]
+              }
+            </h2>
+            <p className="tree-dialog-path">
+              {treeDialog.action === "project"
+                ? translation.workspace.projectRoot
+                : treeDialog.action === "removeProject"
+                  ? project?.rootPath
+                  : treeDialog.path}
+            </p>
+            {treeDialog.action === "actions" ? (
+              <div className="tree-dialog-actions">
+                {(["create", "move", "delete"] as const).map((action) => (
+                  <button
+                    type="button"
+                    key={action}
+                    className="secondary-button"
+                    onClick={() => setTreeDialog({ ...treeDialog, action })}
+                  >
+                    {action === "create"
+                      ? translation.workspace.newFolder
+                      : action === "move"
+                        ? translation.workspace.moveFolder
+                        : translation.workspace.deleteFolder}
+                  </button>
+                ))}
+              </div>
+            ) : (
+              <>
+                {(treeDialog.action === "project" || treeDialog.action === "create") && (
+                  <label>
+                    {translation.workspace.folderName}
+                    <input autoFocus name="name" required maxLength={100} disabled={busy} />
+                  </label>
+                )}
+                {treeDialog.action === "move" && (
+                  <label>
+                    {translation.workspace.targetFolder}
+                    <select name="parent" disabled={busy} defaultValue="protocols">
+                      <option value="protocols">{project?.name}</option>
+                      {(project?.folders ?? [])
+                        .filter(
+                          (folder) =>
+                            folder !== treeDialog.path && !folder.startsWith(`${treeDialog.path}/`),
+                        )
+                        .map((folder) => (
+                          <option key={folder} value={folder}>
+                            {folder}
+                          </option>
+                        ))}
+                    </select>
+                  </label>
+                )}
+                {treeDialog.action === "delete" && <p>{translation.workspace.deleteFolderHint}</p>}
+                {treeDialog.action === "removeProject" && (
+                  <p>{translation.workspace.removeProjectHint}</p>
+                )}
+              </>
+            )}
+            {errorMessage && <p role="alert">{errorMessage}</p>}
+            <footer>
+              <button
+                type="button"
+                className="secondary-button"
+                disabled={busy}
+                onClick={() => setTreeDialog(null)}
+              >
+                {translation.create.cancel}
+              </button>
+              {treeDialog.action !== "actions" && (
+                <button className="primary-button" type="submit" disabled={busy}>
+                  {treeDialog.action === "delete"
+                    ? translation.workspace.deleteFolder
+                    : treeDialog.action === "removeProject"
+                      ? translation.workspace.removeProject
+                      : treeDialog.action === "move"
+                        ? translation.workspace.moveFolder
+                        : translation.create.submit}
+                </button>
+              )}
+            </footer>
+          </form>
+        )}
+      </dialog>
       {createOpen && (
         <div className="modal-backdrop">
           <form aria-modal="true" className="protocol-dialog" onSubmit={submitCreate} role="dialog">

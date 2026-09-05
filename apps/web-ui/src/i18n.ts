@@ -21,12 +21,22 @@ export type TranslationMessages = {
     openHint: string;
     closeProject: string;
     newProject: string;
-    newProjectHint: string;
     createProtocol: string;
     projectRoot: string;
     selectProtocol: string;
     selectProtocolHint: string;
     physicalFile: string;
+    newFolder: string;
+    deleteFolder: string;
+    moveFolder: string;
+    folderActions: string;
+    folderName: string;
+    invalidName: string;
+    targetFolder: string;
+    removeProject: string;
+    removeProjectHint: string;
+    deleteFolderHint: string;
+    dropAtRoot: string;
   };
   create: {
     title: string;
@@ -164,12 +174,22 @@ export const messages: Record<Locale, TranslationMessages> = {
       openHint: "选择包含 project.yaml 的目录。协议文件会由 C++ Workspace Core 校验。",
       closeProject: "关闭项目",
       newProject: "新建项目",
-      newProjectHint: "项目创建向导尚未接入 Core。",
       createProtocol: "创建协议",
       projectRoot: "项目目录",
       selectProtocol: "请选择协议",
       selectProtocolHint: "从左侧真实目录树中选择一个协议文件。",
       physicalFile: "物理文件",
+      newFolder: "新建文件夹",
+      deleteFolder: "删除文件夹",
+      moveFolder: "移动文件夹",
+      folderActions: "文件夹操作",
+      folderName: "名称",
+      invalidName: "请输入有效名称，不可包含路径分隔符或以句点结尾。",
+      targetFolder: "目标文件夹",
+      removeProject: "移除项目",
+      removeProjectHint: "从当前工作区移除项目，磁盘文件将保留。",
+      deleteFolderHint: "仅可删除空文件夹，请先清理文件夹中的所有内容。",
+      dropAtRoot: "拖到这里移至项目根级；拖到文件夹上下边缘排序，中间移入。",
     },
     create: {
       title: "创建协议",
@@ -303,12 +323,23 @@ export const messages: Record<Locale, TranslationMessages> = {
         "Choose a directory containing project.yaml. Protocol files are validated by the C++ Workspace Core.",
       closeProject: "Close project",
       newProject: "New project",
-      newProjectHint: "The project creation wizard is not connected to Core yet.",
       createProtocol: "Create protocol",
       projectRoot: "Project root",
       selectProtocol: "Select a protocol",
       selectProtocolHint: "Choose a protocol file from the physical tree on the left.",
       physicalFile: "Physical file",
+      newFolder: "New folder",
+      deleteFolder: "Delete folder",
+      moveFolder: "Move folder",
+      folderActions: "Folder actions",
+      folderName: "Name",
+      invalidName: "Enter a valid name without path separators or a trailing period.",
+      targetFolder: "Target folder",
+      removeProject: "Remove project",
+      removeProjectHint: "Remove this project from the workspace; keep its files on disk.",
+      deleteFolderHint: "Only empty folders can be deleted. Clear all contents first.",
+      dropAtRoot:
+        "Drop here to move to the project root; drop on folder edges to reorder or the center to move inside.",
     },
     create: {
       title: "Create protocol",
@@ -451,9 +482,9 @@ export function detectInitialTheme(): Theme {
       return stored;
     }
   } catch {
-    // Storage can be disabled; keep the dark theme for this session.
+    // Storage can be disabled; keep the default light theme for this session.
   }
-  return "dark";
+  return "light";
 }
 
 export function storeTheme(theme: Theme): void {
@@ -465,6 +496,9 @@ export function storeTheme(theme: Theme): void {
 }
 
 const chineseWorkspaceErrors: Record<string, string> = {
+  invalid_folder_path: "文件夹路径无效：不允许越界、链接目录或移动到自身及其子目录",
+  folder_not_empty: "文件夹中还有内容，请清理后再删除",
+  workspace_operation_failed: "文件操作失败，请检查重名、目录权限或文件是否被占用",
   native_host_required: "此操作需要 Windows 桌面客户端",
   project_not_open: "请先打开项目",
   invalid_request: "请求参数无效",

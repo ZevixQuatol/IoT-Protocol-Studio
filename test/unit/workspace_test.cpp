@@ -7,6 +7,11 @@
 #include <iterator>
 #include <string_view>
 
+#if defined(_WIN32)
+#define WIN32_LEAN_AND_MEAN
+#include <windows.h>
+#endif
+
 namespace {
 
 int failures = 0;
@@ -385,6 +390,93 @@ messages:
     if (const auto* error = existing_file.error_if()) {
         CHECK(error->code == WorkspaceErrorCode::protocol_file_already_exists);
     }
+
+    // Exercise physical folder operations and persisted ordering through the same Core API as the
+    // UI.
+    const auto managed = temporary / "managed";
+    CHECK(create_project(temporary, "managed").has_value());
+    const auto managed_manifest = read_file(managed / "project.yaml");
+    CHECK(!create_project(temporary, "managed").has_value());
+    CHECK(read_file(managed / "project.yaml") == managed_manifest);
+    CHECK(!create_project(temporary, "../escape").has_value());
+    CHECK(!create_project(temporary, "CON").has_value());
+    CHECK(!create_project(temporary, "trailing.").has_value());
+    CHECK(change_folder(managed, "create", "protocols/a").has_value());
+    CHECK(change_folder(managed, "create", "protocols/b").has_value());
+    CHECK(change_folder(managed, "create", "protocols/a/nested").has_value());
+    const auto nonempty = change_folder(managed, "delete", "protocols/a");
+    CHECK(!nonempty.has_value());
+    if (const auto* error = nonempty.error_if())
+        CHECK(error->code == WorkspaceErrorCode::folder_not_empty);
+    CHECK(!change_folder(managed, "delete", "protocols").has_value());
+    CHECK(!change_folder(managed, "create", "protocols/../escape").has_value());
+    CHECK(!change_folder(managed, "create", "protocols/a").has_value());
+    CHECK(!change_folder(managed, "move", "protocols/a", "protocols/a/nested").has_value());
+    CHECK(!change_folder(managed, "move", "protocols/a", "protocols", "protocols/missing")
+               .has_value());
+    CHECK(change_folder(managed, "move", "protocols/b", "protocols", "protocols/a").has_value());
+    auto ordered = load_project(managed);
+    CHECK(ordered.has_value());
+    if (const auto* project = ordered.value_if()) {
+        CHECK(project->folders.size() == 3);
+        CHECK(project->folders[0] == "protocols/b");
+        CHECK(project->manifest.folder_order[0] == "protocols/b");
+    }
+    CHECK(create_protocol(managed,
+                          ProtocolCreateRequest{
+                              .relative_path = "a/nested/sensor.protocol.yaml",
+                              .protocol = {.name = "sensor", .version = "1.0"},
+                          })
+              .has_value());
+    const auto protocol_bytes = read_file(managed / "protocols/a/nested/sensor.protocol.yaml");
+    const auto moved = change_folder(managed, "move", "protocols/a", "protocols/b");
+    CHECK(moved.has_value());
+    CHECK(!std::filesystem::exists(managed / "protocols/a"));
+    CHECK(read_file(managed / "protocols/b/a/nested/sensor.protocol.yaml") == protocol_bytes);
+    if (const auto* project = moved.value_if()) {
+        CHECK(project->protocols[0].relative_path == "protocols/b/a/nested/sensor.protocol.yaml");
+    }
+    CHECK(load_project(managed).has_value());
+    CHECK(!change_folder(managed, "delete", "protocols/b/a/nested").has_value());
+    CHECK(change_folder(managed, "move", "protocols/b/a", "protocols").has_value());
+    CHECK(change_folder(managed, "delete", "protocols/b").has_value());
+    CHECK(!std::filesystem::exists(managed / "protocols/b"));
+    // Unknown contents (not just registered protocols) prevent deletion.
+    CHECK(change_folder(managed, "create", "protocols/unknown").has_value());
+    write_file(managed / "protocols/unknown/readme.txt", "keep me");
+    CHECK(!change_folder(managed, "delete", "protocols/unknown").has_value());
+    CHECK(read_file(managed / "protocols/unknown/readme.txt") == "keep me");
+    // A staging file must never be overwritten; no folder movement occurs on failure.
+    write_file(managed / "project.yaml.iotps.tmp", "reserved");
+    CHECK(!change_folder(managed, "move", "protocols/a", "protocols/unknown").has_value());
+    CHECK(std::filesystem::is_directory(managed / "protocols/a"));
+    CHECK(read_file(managed / "project.yaml.iotps.tmp") == "reserved");
+    std::filesystem::remove(managed / "project.yaml.iotps.tmp");
+
+    CHECK(create_project(temporary, "中文项目").has_value());
+    const auto unicode_project = temporary / std::filesystem::path{u8"中文项目"};
+    CHECK(change_folder(unicode_project, "create", "protocols/设备").has_value());
+    CHECK(change_folder(unicode_project, "create", "protocols/设备/数据").has_value());
+    CHECK(change_folder(unicode_project, "move", "protocols/设备/数据", "protocols").has_value());
+    CHECK(load_project(unicode_project).has_value());
+#if defined(_WIN32)
+    // Deny manifest replacement to exercise rollback after the physical folder was moved.
+    const auto manifest_before_failure = read_file(managed / "project.yaml");
+    const auto locked =
+        CreateFileW((managed / "project.yaml").c_str(), GENERIC_READ, FILE_SHARE_READ, nullptr,
+                    OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
+    CHECK(locked != INVALID_HANDLE_VALUE);
+    if (locked != INVALID_HANDLE_VALUE) {
+        CHECK(!change_folder(managed, "move", "protocols/unknown", "protocols/a").has_value());
+        CHECK(std::filesystem::is_directory(managed / "protocols/unknown"));
+        CHECK(!std::filesystem::exists(managed / "protocols/a/unknown"));
+        CHECK(read_file(managed / "project.yaml") == manifest_before_failure);
+        CHECK(!std::filesystem::exists(managed / "project.yaml.iotps.tmp"));
+        CloseHandle(locked);
+    }
+#endif
+    CHECK(change_folder(managed, "create", "protocols/unknown/a").has_value());
+    CHECK(!change_folder(managed, "move", "protocols/a", "protocols/unknown").has_value());
 
     std::error_code cleanup_error;
     std::filesystem::remove_all(temporary, cleanup_error);

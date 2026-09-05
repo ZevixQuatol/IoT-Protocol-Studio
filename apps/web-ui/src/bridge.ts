@@ -68,6 +68,7 @@ export type WorkspaceProject = {
   name: string;
   description: string;
   rootPath: string;
+  folders: string[];
   protocols: WorkspaceProtocol[];
 };
 
@@ -137,6 +138,13 @@ declare global {
     iotpsWindowAction?: (action: WindowAction) => Promise<{ ok: boolean }>;
     iotpsWorkspaceCurrent?: () => Promise<WorkspaceResult>;
     iotpsWorkspaceOpen?: () => Promise<WorkspaceResult>;
+    iotpsWorkspaceCreate?: (name: string) => Promise<WorkspaceResult>;
+    iotpsWorkspaceChangeFolder?: (
+      action: string,
+      path: string,
+      targetParent: string,
+      before: string,
+    ) => Promise<WorkspaceResult>;
     iotpsWorkspaceCreateProtocol?: (
       relativePath: string,
       name: string,
@@ -277,6 +285,21 @@ export async function getCurrentProject(): Promise<WorkspaceResult> {
 
 export async function openProject(): Promise<WorkspaceResult> {
   return window.iotpsWorkspaceOpen ? window.iotpsWorkspaceOpen() : nativeRequired();
+}
+
+export async function createProject(name: string): Promise<WorkspaceResult> {
+  return window.iotpsWorkspaceCreate ? window.iotpsWorkspaceCreate(name) : nativeRequired();
+}
+
+export async function changeFolder(
+  action: "create" | "delete" | "move",
+  path: string,
+  targetParent = "protocols",
+  before = "",
+): Promise<WorkspaceResult> {
+  return window.iotpsWorkspaceChangeFolder
+    ? window.iotpsWorkspaceChangeFolder(action, path, targetParent, before)
+    : nativeRequired();
 }
 
 export async function createProtocol(request: ProtocolCreateRequest): Promise<WorkspaceResult> {

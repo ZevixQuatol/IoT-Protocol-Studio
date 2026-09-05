@@ -1960,6 +1960,57 @@ button {
   background: rgb(3 8 12 / 72%);
 }
 
+.folder-row {
+  display: flex;
+  align-items: center;
+  border-block: 2px solid transparent;
+}
+
+.folder-row .tree-item {
+  flex: 1;
+  min-width: 0;
+}
+.folder-row[data-drop="before"] {
+  border-top-color: var(--accent);
+}
+.folder-row[data-drop="after"] {
+  border-bottom-color: var(--accent);
+}
+.folder-row[data-drop="inside"] {
+  background: color-mix(in srgb, var(--accent) 20%, transparent);
+}
+.folder-actions {
+  padding: 4px;
+  border: 0;
+  background: transparent;
+  color: var(--text);
+  cursor: pointer;
+}
+.tree-dialog:not([open]) {
+  display: none;
+}
+.tree-dialog {
+  margin: auto;
+  color: var(--text);
+}
+.tree-dialog::backdrop {
+  background: rgb(3 8 12 / 55%);
+}
+.tree-dialog form {
+  display: grid;
+  gap: 16px;
+}
+.tree-dialog-path {
+  overflow-wrap: anywhere;
+}
+.tree-dialog-actions {
+  display: grid;
+  gap: 8px;
+}
+.debug-index-toggle button {
+  color: var(--accent);
+}
+
 .protocol-dialog {
   display: flex;
   width: min(520px, 100%);

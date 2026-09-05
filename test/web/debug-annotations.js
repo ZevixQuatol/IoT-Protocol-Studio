@@ -6,9 +6,14 @@ async function checkDebugAnnotations(page) {
   };
   await page.evaluate(() => {
     localStorage.setItem("iotps.locale", "zh-CN");
-    localStorage.setItem("iotps.theme", "dark");
+    localStorage.removeItem("iotps.theme");
   });
   await page.reload();
+  check((await page.locator('html[data-theme="light"]').count()) === 1, "Default light theme");
+  await page.getByRole("button", { name: "设置", exact: true }).click();
+  await page.getByRole("button", { name: "暗色", exact: true }).click();
+  await page.reload();
+  check((await page.locator('html[data-theme="dark"]').count()) === 1, "Explicit theme persists");
   await page.getByRole("button", { name: "调试", exact: true }).click();
   await page.getByRole("textbox", { name: "原始 HEX", exact: true }).fill("AA 41 42 43 FF");
   await page.getByRole("button", { name: "解析", exact: true }).click();
@@ -23,7 +28,8 @@ async function checkDebugAnnotations(page) {
       .evaluateAll((rows) => rows.every((row) => row.cells.length === 5)),
     "Unannotated rows have five cells",
   );
-  await page.getByRole("button", { name: "偏移", exact: true }).click();
+  check((await table.locator("thead button").count()) === 1, "Only one index toggle is visible");
+  await table.getByRole("button", { name: "字节", exact: true }).click();
   check((await cells().allTextContents()).join() === "0,1,2,3,4", "Zero-based offsets");
   const dialog = page.locator(".debug-annotation-dialog");
   await cells().nth(0).click();
@@ -51,6 +57,17 @@ async function checkDebugAnnotations(page) {
       .first()
       .evaluate((row) => getComputedStyle(row).backgroundColor)) === "rgba(102, 190, 202, 0.133)",
     "Dark palette",
+  );
+  const input = page.getByRole("textbox", { name: "原始 HEX", exact: true });
+  const resultBefore = await table.innerHTML();
+  await page.getByRole("button", { name: "格式化", exact: true }).click();
+  await page.getByRole("button", { name: "取消格式化", exact: true }).click();
+  check((await input.inputValue()) === "AA414243FF", "Unformatted input");
+  check((await table.innerHTML()) === resultBefore, "Formatting preserves result and annotations");
+  await input.fill("aa\n41 42\t43 ff");
+  check(
+    (await table.innerHTML()) === resultBefore,
+    "Whitespace and case preserve result and annotations",
   );
   // Reverse selection and overlap: newest annotation wins, uncovered cells stay aligned.
   await cells().nth(4).click();

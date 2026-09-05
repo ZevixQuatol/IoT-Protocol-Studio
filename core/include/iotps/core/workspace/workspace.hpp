@@ -23,6 +23,7 @@ struct ProjectManifest {
     std::string schema_version{current_project_schema_version};
     ProjectMetadata metadata;
     std::vector<std::filesystem::path> protocol_files;
+    std::vector<std::filesystem::path> folder_order;
 };
 
 struct ProjectProtocol {
@@ -34,6 +35,7 @@ struct Project {
     std::filesystem::path root_directory;
     ProjectManifest manifest;
     std::vector<ProjectProtocol> protocols;
+    std::vector<std::filesystem::path> folders;
 };
 
 struct ProtocolCreateRequest {
@@ -72,12 +74,21 @@ enum class WorkspaceErrorCode {
     protocol_directory_create_failed,
     protocol_file_write_failed,
     project_manifest_write_failed,
+    invalid_folder_path,
+    folder_not_empty,
+    workspace_operation_failed,
 };
 
 using WorkspaceDiagnostic = Error<WorkspaceErrorCode>;
 using ProjectLoadResult = Result<Project, WorkspaceDiagnostic>;
 
 [[nodiscard]] ProjectLoadResult load_project(const std::filesystem::path& project_directory);
+[[nodiscard]] ProjectLoadResult create_project(const std::filesystem::path& parent_directory,
+                                               std::string_view name);
+[[nodiscard]] ProjectLoadResult change_folder(const std::filesystem::path& project_directory,
+                                              std::string_view action, std::string_view path,
+                                              std::string_view target_parent = "protocols",
+                                              std::string_view before = "");
 [[nodiscard]] ProjectLoadResult create_protocol(const std::filesystem::path& project_directory,
                                                 const ProtocolCreateRequest& request);
 [[nodiscard]] ProjectLoadResult update_protocol(const std::filesystem::path& project_directory,

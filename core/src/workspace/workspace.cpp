@@ -4,6 +4,7 @@
 
 #include <algorithm>
 #include <c4/yml/std/string.hpp>
+#include <cctype>
 #include <fstream>
 #include <optional>
 #include <ryml.hpp>
@@ -284,6 +285,19 @@ Result<ProjectManifest, WorkspaceDiagnostic> load_manifest(const std::string_vie
             manifest.protocol_files.push_back(std::move(relative_path));
             ++index;
         }
+        if (root.has_child("folderOrder")) {
+            const auto order = root["folderOrder"];
+            if (const auto error = require_sequence(order, "folderOrder", parser))
+                return *error;
+            for (const auto folder : order.children()) {
+                if (const auto error = require_scalar(folder, "folderOrder", parser))
+                    return *error;
+                auto path = normalize_protocol_path(scalar(folder), "folderOrder");
+                if (const auto* error = path.error_if())
+                    return *error;
+                manifest.folder_order.push_back(path.value());
+            }
+        }
         return manifest;
     } catch (const ryml::ExceptionParse& error) {
         const auto& location = error.errdata_parse.ymlloc;
@@ -420,6 +434,50 @@ bool atomic_replace_file(const std::filesystem::path& source,
     return !error;
 }
 
+std::string portable(const std::filesystem::path& path) {
+    const auto utf8 = path.generic_u8string();
+    return {utf8.begin(), utf8.end()};
+}
+
+bool linked_directory(const std::filesystem::path& path) {
+#if defined(_WIN32)
+    const auto attributes = GetFileAttributesW(path.c_str());
+    return attributes != INVALID_FILE_ATTRIBUTES &&
+           (attributes & FILE_ATTRIBUTE_REPARSE_POINT) != 0;
+#else
+    return std::filesystem::is_symlink(std::filesystem::symlink_status(path));
+#endif
+}
+
+bool valid_name(const std::string_view name) {
+    if (name.empty() || name == "." || name == ".." || name.back() == '.' || name.back() == ' ' ||
+        name.find_first_of("/\\<>:\"|?*") != std::string_view::npos ||
+        std::ranges::any_of(name, [](const unsigned char c) { return c < 32; }))
+        return false;
+    auto base = std::string{name.substr(0, name.find('.'))};
+    std::ranges::transform(base, base.begin(), [](const unsigned char c) {
+        return static_cast<char>(std::toupper(c));
+    });
+    return base != "CON" && base != "PRN" && base != "AUX" && base != "NUL" &&
+           !(base.size() == 4 && (base.starts_with("COM") || base.starts_with("LPT")) &&
+             base[3] >= '0' && base[3] <= '9');
+}
+
+bool safe_folder_path(const std::filesystem::path& root, const std::filesystem::path& relative) {
+    if (relative.empty() || relative.is_absolute() || relative.has_root_name() ||
+        *relative.begin() != "protocols")
+        return false;
+    auto current = root;
+    for (const auto& part : relative) {
+        if (!valid_name(portable(part)))
+            return false;
+        current /= part;
+        if (linked_directory(current))
+            return false;
+    }
+    return is_within(std::filesystem::weakly_canonical(current), root);
+}
+
 } // namespace
 
 ProjectLoadResult load_project(const std::filesystem::path& project_directory) {
@@ -499,7 +557,215 @@ ProjectLoadResult load_project(const std::filesystem::path& project_directory) {
             .schema = std::move(protocol_result).value(),
         });
     }
+    try {
+        const auto directory = root / "protocols";
+        if (std::filesystem::exists(directory)) {
+            if (linked_directory(directory)) {
+                return make_error(WorkspaceErrorCode::invalid_folder_path, "protocols",
+                                  "linked protocol directories are not supported");
+            }
+            for (auto it = std::filesystem::recursive_directory_iterator(directory);
+                 it != std::filesystem::recursive_directory_iterator{}; ++it) {
+                if (linked_directory(it->path())) {
+                    it.disable_recursion_pending();
+                    continue;
+                }
+                if (it->is_directory())
+                    loaded.folders.push_back(it->path().lexically_relative(root));
+            }
+        }
+        std::ranges::sort(loaded.folders);
+        const auto& order = loaded.manifest.folder_order;
+        std::stable_sort(loaded.folders.begin(), loaded.folders.end(),
+                         [&](const auto& a, const auto& b) {
+                             return std::ranges::find(order, a) < std::ranges::find(order, b);
+                         });
+    } catch (const std::exception& error) {
+        return make_error(WorkspaceErrorCode::workspace_operation_failed, "protocols",
+                          error.what());
+    }
     return loaded;
+}
+
+ProjectLoadResult create_project(const std::filesystem::path& parent_directory,
+                                 const std::string_view name) {
+    if (!valid_name(name)) {
+        return make_error(WorkspaceErrorCode::invalid_folder_path, "$name", "invalid project name");
+    }
+    std::filesystem::path destination;
+    bool created = false;
+    try {
+        const auto parent = std::filesystem::canonical(parent_directory);
+        destination = parent / std::filesystem::u8path(name);
+        if (!std::filesystem::create_directory(destination)) {
+            return make_error(WorkspaceErrorCode::workspace_operation_failed, "$name",
+                              "a file or directory with this project name already exists");
+        }
+        created = true;
+        std::filesystem::create_directory(destination / "protocols");
+        ryml::Tree tree;
+        auto root = tree.rootref();
+        root.set_map();
+        root["schemaVersion"].save(std::string{current_project_schema_version});
+        root["project"].set_map();
+        root["project"]["name"].save(std::string{name});
+        root["protocols"].set_seq();
+        std::string yaml;
+        ryml::emitrs_yaml(tree, &yaml);
+        if (!write_text_file(destination / "project.yaml", yaml)) {
+            throw std::runtime_error("cannot write project manifest");
+        }
+        return load_project(destination);
+    } catch (const std::exception& error) {
+        if (created) {
+            // Only remove the files created by this operation, never a pre-existing tree.
+            remove_file(destination / "project.yaml");
+            remove_file(destination / "protocols");
+            remove_file(destination);
+        }
+        return make_error(WorkspaceErrorCode::workspace_operation_failed, "$directory",
+                          error.what());
+    }
+}
+
+ProjectLoadResult change_folder(const std::filesystem::path& project_directory,
+                                const std::string_view action, const std::string_view path,
+                                const std::string_view target_parent,
+                                const std::string_view before) {
+    auto loaded = load_project(project_directory);
+    if (const auto* error = loaded.error_if())
+        return *error;
+    auto& project = loaded.value();
+    const auto& root = project.root_directory;
+    try {
+        const auto source = std::filesystem::u8path(path);
+        const auto parent = std::filesystem::u8path(target_parent);
+        if (source == "protocols" || !safe_folder_path(root, source) ||
+            (action != "create" && action != "delete" && action != "move")) {
+            return make_error(WorkspaceErrorCode::invalid_folder_path, "$path",
+                              "invalid folder path or action");
+        }
+        auto destination = source;
+        if (action == "create") {
+            if (std::filesystem::exists(root / source)) {
+                return make_error(WorkspaceErrorCode::workspace_operation_failed, "$path",
+                                  "folder already exists");
+            }
+            if (source.parent_path() == "protocols")
+                std::filesystem::create_directory(root / "protocols");
+            if (!std::filesystem::is_directory(root / source.parent_path())) {
+                return make_error(WorkspaceErrorCode::invalid_folder_path, "$path",
+                                  "parent folder does not exist");
+            }
+        } else if (!std::filesystem::is_directory(root / source) ||
+                   std::ranges::find(project.folders, source) == project.folders.end()) {
+            return make_error(WorkspaceErrorCode::invalid_folder_path, "$path",
+                              "folder does not exist");
+        }
+        if (action == "delete" && !std::filesystem::is_empty(root / source)) {
+            return make_error(WorkspaceErrorCode::folder_not_empty, "$path",
+                              "clear all folder contents before deleting it");
+        }
+        if (action == "move") {
+            if (!safe_folder_path(root, parent) || !std::filesystem::is_directory(root / parent) ||
+                is_within(parent, source)) {
+                return make_error(WorkspaceErrorCode::invalid_folder_path, "$target",
+                                  "cannot move a folder into itself or a descendant");
+            }
+            destination = parent / source.filename();
+            if (destination != source && std::filesystem::exists(root / destination)) {
+                return make_error(WorkspaceErrorCode::workspace_operation_failed, "$target",
+                                  "destination already exists");
+            }
+            if (!before.empty()) {
+                const auto sibling = std::filesystem::u8path(before);
+                if (sibling == source || sibling.parent_path() != parent ||
+                    std::ranges::find(project.folders, sibling) == project.folders.end()) {
+                    return make_error(WorkspaceErrorCode::invalid_folder_path, "$before",
+                                      "invalid sibling for sorting");
+                }
+            }
+        }
+        auto remap = [&](const std::filesystem::path& item) {
+            return action == "move" && is_within(item, source)
+                       ? (destination / item.lexically_relative(source)).lexically_normal()
+                       : item;
+        };
+        std::vector<std::filesystem::path> order;
+        for (const auto& folder : project.folders) {
+            if (folder != source)
+                order.push_back(remap(folder));
+        }
+        if (action != "delete") {
+            order.insert(before.empty() ? order.end()
+                                        : std::ranges::find(order, std::filesystem::u8path(before)),
+                         destination);
+        }
+        const auto manifest = root / "project.yaml";
+        auto temporary = manifest;
+        temporary += ".iotps.tmp";
+        if (std::filesystem::exists(std::filesystem::symlink_status(temporary))) {
+            return make_error(WorkspaceErrorCode::project_manifest_write_failed, "$manifest",
+                              "temporary manifest already exists");
+        }
+        std::ifstream input{manifest, std::ios::binary};
+        std::ostringstream contents;
+        contents << input.rdbuf();
+        if (!input.is_open() || input.bad())
+            throw std::runtime_error("cannot read manifest");
+        input.close();
+        const auto yaml = contents.str();
+        ryml::EventHandlerTree event_handler{loader_callbacks()};
+        ryml::Parser parser(&event_handler);
+        auto tree = ryml::parse_in_arena(&parser, ryml::to_csubstr(yaml));
+        for (auto protocol : tree.rootref()["protocols"].children()) {
+            protocol.save(portable(remap(std::filesystem::u8path(scalar(protocol)))));
+        }
+        auto folders = tree.rootref()["folderOrder"];
+        folders.set_seq();
+        folders.clear_children();
+        for (const auto& folder : order)
+            folders.append_child().save(portable(folder));
+        std::string updated;
+        ryml::emitrs_yaml(tree, &updated);
+        auto validated = load_manifest(updated, portable(manifest));
+        if (const auto* error = validated.error_if())
+            return *error;
+        if (!write_text_file(temporary, updated)) {
+            remove_file(temporary);
+            throw std::runtime_error("cannot write temporary manifest");
+        }
+        std::error_code error;
+        if (action == "create") {
+            if (!std::filesystem::create_directory(root / source, error) && !error)
+                error = std::make_error_code(std::errc::file_exists);
+        } else if (action == "delete") {
+            if (!std::filesystem::remove(root / source, error) && !error)
+                error = std::make_error_code(std::errc::no_such_file_or_directory);
+        } else if (source != destination)
+            std::filesystem::rename(root / source, root / destination, error);
+        if (error) {
+            remove_file(temporary);
+            throw std::runtime_error(error.message());
+        }
+        if (!atomic_replace_file(temporary, manifest, error)) {
+            std::error_code rollback;
+            if (action == "create")
+                std::filesystem::remove(root / source, rollback);
+            else if (action == "delete")
+                std::filesystem::create_directory(root / source, rollback);
+            else if (source != destination)
+                std::filesystem::rename(root / destination, root / source, rollback);
+            if (!rollback)
+                remove_file(temporary);
+            throw std::runtime_error(rollback ? "manifest save and folder rollback failed: " +
+                                                    rollback.message()
+                                              : error.message());
+        }
+        return load_project(root);
+    } catch (const std::exception& error) {
+        return make_error(WorkspaceErrorCode::workspace_operation_failed, "$folder", error.what());
+    }
 }
 
 ProjectLoadResult create_protocol(const std::filesystem::path& project_directory,
@@ -843,6 +1109,12 @@ std::string_view to_string(const WorkspaceErrorCode code) noexcept {
         return "protocol_file_write_failed";
     case WorkspaceErrorCode::project_manifest_write_failed:
         return "project_manifest_write_failed";
+    case WorkspaceErrorCode::invalid_folder_path:
+        return "invalid_folder_path";
+    case WorkspaceErrorCode::folder_not_empty:
+        return "folder_not_empty";
+    case WorkspaceErrorCode::workspace_operation_failed:
+        return "workspace_operation_failed";
     }
     return "unknown";
 }

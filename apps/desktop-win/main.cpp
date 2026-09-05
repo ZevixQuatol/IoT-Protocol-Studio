@@ -351,6 +351,12 @@ void append_protocol_schema(std::ostringstream& response,
         append_protocol_schema(response, protocol.schema);
         response << '}';
     }
+    response << "],\"folders\":[";
+    for (std::size_t index = 0; index < project.folders.size(); ++index) {
+        if (index != 0)
+            response << ',';
+        response << json_string(path_utf8(project.folders[index]));
+    }
     response << "]}}";
     return response.str();
 }
@@ -375,7 +381,9 @@ workspace_result_response(const iotps::core::workspace::ProjectLoadResult& resul
     }
 }
 
-[[nodiscard]] std::optional<std::filesystem::path> select_project_directory(const HWND owner) {
+[[nodiscard]] std::optional<std::filesystem::path>
+select_project_directory(const HWND owner,
+                         const wchar_t* title = L"Open IoT Protocol Studio project") {
     Microsoft::WRL::ComPtr<IFileOpenDialog> dialog;
     if (FAILED(CoCreateInstance(CLSID_FileOpenDialog, nullptr, CLSCTX_INPROC_SERVER,
                                 IID_PPV_ARGS(&dialog)))) {
@@ -386,7 +394,7 @@ workspace_result_response(const iotps::core::workspace::ProjectLoadResult& resul
         FAILED(dialog->SetOptions(options | FOS_PICKFOLDERS | FOS_FORCEFILESYSTEM))) {
         throw std::runtime_error("Configuring the project directory picker failed");
     }
-    dialog->SetTitle(L"Open IoT Protocol Studio project");
+    dialog->SetTitle(title);
     const auto shown = dialog->Show(owner);
     if (shown == HRESULT_FROM_WIN32(ERROR_CANCELLED)) {
         return std::nullopt;
@@ -796,8 +804,10 @@ window.addEventListener("DOMContentLoaded", () => {
         window.iotpsWorkspaceClose(),
         Promise.resolve(window.iotpsWindowAction("maximize"))
           .then((result) => result?.ok && window.iotpsWindowAction("maximize")),
+        window.iotpsWorkspaceChangeFolder("create", "protocols/smoke", "protocols", ""),
+        window.iotpsWorkspaceCreate(),
       ])
-        .then(([current, createResult, saveResult, fieldResult, closed, windowResult]) => {
+        .then(([current, createResult, saveResult, fieldResult, closed, windowResult, folderResult, projectResult]) => {
           if (!windowResult?.ok) {
             report("window-controls-failed");
             return;
@@ -806,7 +816,9 @@ window.addEventListener("DOMContentLoaded", () => {
               closed.project !== null || createResult?.ok ||
               createResult?.error?.code !== "project_not_open" || saveResult?.ok ||
               saveResult?.error?.code !== "project_not_open" || fieldResult?.ok ||
-              fieldResult?.error?.code !== "project_not_open") {
+              fieldResult?.error?.code !== "project_not_open" || folderResult?.ok ||
+              folderResult?.error?.code !== "project_not_open" || projectResult?.ok ||
+              projectResult?.error?.code !== "invalid_request") {
             report("workspace-bridge-failed");
             return;
           }
@@ -1127,6 +1139,37 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR command_line, int) {
         });
         window.bind("iotpsWorkspaceOpen", [window_handle, &current_project](const std::string&) {
             return open_workspace(window_handle, current_project);
+        });
+        window.bind("iotpsWorkspaceCreate", [window_handle,
+                                             &current_project](const std::string& request) {
+            const auto arguments = string_arguments(request);
+            if (!arguments || arguments->size() != 1) {
+                return workspace_error_response("invalid_request", "createProject expects a name");
+            }
+            try {
+                const auto parent = select_project_directory(
+                    window_handle, L"Select parent directory for the new project");
+                if (!parent)
+                    return empty_workspace_response(true);
+                auto result = iotps::core::workspace::create_project(*parent, (*arguments)[0]);
+                if (result.has_value())
+                    current_project = result.value().root_directory;
+                return workspace_result_response(result);
+            } catch (const std::exception& error) {
+                return workspace_error_response("directory_picker_failed", error.what());
+            }
+        });
+        window.bind("iotpsWorkspaceChangeFolder", [&current_project](const std::string& request) {
+            const auto arguments = string_arguments(request);
+            if (!arguments || arguments->size() != 4) {
+                return workspace_error_response("invalid_request",
+                                                "changeFolder expects four strings");
+            }
+            if (!current_project)
+                return workspace_error_response("project_not_open", "Open a project first");
+            return workspace_result_response(iotps::core::workspace::change_folder(
+                *current_project, (*arguments)[0], (*arguments)[1], (*arguments)[2],
+                (*arguments)[3]));
         });
         window.bind("iotpsWorkspaceCreateProtocol", [&current_project](const std::string& request) {
             return create_workspace_protocol(request, current_project);
