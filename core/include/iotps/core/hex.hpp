@@ -20,6 +20,8 @@ enum class HexErrorCode {
 using HexError = Error<HexErrorCode>;
 using HexParseResult = Result<ByteBuffer, HexError>;
 
+[[nodiscard]] bool is_valid_utf8(std::string_view value);
+
 [[nodiscard]] HexParseResult parse_hex(std::string_view input);
 [[nodiscard]] std::string format_hex(std::span<const std::uint8_t> bytes);
 [[nodiscard]] std::string ascii_preview(std::span<const std::uint8_t> bytes);

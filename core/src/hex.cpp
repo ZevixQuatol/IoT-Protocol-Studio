@@ -125,4 +125,44 @@ std::string_view to_string(const HexErrorCode code) noexcept {
     return "unknown";
 }
 
+bool is_valid_utf8(const std::string_view value) {
+    const auto continuation = [&value](const std::size_t index, const unsigned char minimum = 0x80U,
+                                       const unsigned char maximum = 0xBFU) {
+        if (index >= value.size()) {
+            return false;
+        }
+        const auto byte = static_cast<unsigned char>(value[index]);
+        return byte >= minimum && byte <= maximum;
+    };
+
+    for (std::size_t index = 0; index < value.size();) {
+        const auto byte = static_cast<unsigned char>(value[index]);
+        if (byte <= 0x7FU) {
+            ++index;
+        } else if (byte >= 0xC2U && byte <= 0xDFU && continuation(index + 1U)) {
+            index += 2U;
+        } else if (byte == 0xE0U && continuation(index + 1U, 0xA0U) && continuation(index + 2U)) {
+            index += 3U;
+        } else if (((byte >= 0xE1U && byte <= 0xECU) || (byte >= 0xEEU && byte <= 0xEFU)) &&
+                   continuation(index + 1U) && continuation(index + 2U)) {
+            index += 3U;
+        } else if (byte == 0xEDU && continuation(index + 1U, 0x80U, 0x9FU) &&
+                   continuation(index + 2U)) {
+            index += 3U;
+        } else if (byte == 0xF0U && continuation(index + 1U, 0x90U) && continuation(index + 2U) &&
+                   continuation(index + 3U)) {
+            index += 4U;
+        } else if (byte >= 0xF1U && byte <= 0xF3U && continuation(index + 1U) &&
+                   continuation(index + 2U) && continuation(index + 3U)) {
+            index += 4U;
+        } else if (byte == 0xF4U && continuation(index + 1U, 0x80U, 0x8FU) &&
+                   continuation(index + 2U) && continuation(index + 3U)) {
+            index += 4U;
+        } else {
+            return false;
+        }
+    }
+    return true;
+}
+
 } // namespace iotps::core

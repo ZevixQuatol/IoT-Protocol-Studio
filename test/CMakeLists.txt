@@ -8,6 +8,7 @@ endfunction()
 
 iotps_add_test(iotps_hex_unit_test unit/hex_test.cpp iotps::codec)
 iotps_add_test(iotps_checksum_unit_test unit/checksum_test.cpp iotps::codec)
+iotps_add_test(iotps_debug_unit_test unit/debug_test.cpp iotps::codec)
 iotps_add_test(iotps_result_unit_test unit/result_test.cpp iotps::common)
 iotps_add_test(iotps_schema_unit_test unit/schema_test.cpp iotps::schema)
 iotps_add_test(iotps_schema_loader_unit_test unit/schema_loader_test.cpp iotps::schema)

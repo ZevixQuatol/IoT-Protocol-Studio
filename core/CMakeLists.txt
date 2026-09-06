@@ -47,6 +47,7 @@ target_link_libraries(iotps_workspace PUBLIC iotps::schema PRIVATE ryml::ryml)
 add_library(
   iotps_codec STATIC
   src/checksum.cpp
+  src/debug.cpp
   src/codec/codec.cpp
   src/hex.cpp)
 add_library(iotps::codec ALIAS iotps_codec)

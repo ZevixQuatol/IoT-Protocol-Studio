@@ -1,4 +1,5 @@
 #include "iotps/core/codec/codec.hpp"
+#include "iotps/core/debug.hpp"
 #include "iotps/core/engine.hpp"
 #include "iotps/core/hex.hpp"
 #include "iotps/core/version.hpp"
@@ -731,6 +732,151 @@ encode_protocol_message(const std::string_view request,
            ",\"byteCount\":" + std::to_string(bytes.value().size()) + "}";
 }
 
+[[nodiscard]] std::string debug_tool(const std::string& request) {
+    const auto args = string_arguments(request);
+    if (!args || args->empty() || request.size() > 2 * 1024 * 1024)
+        return encode_error_response("invalid_request", "Invalid debug request");
+    const auto result = iotps::core::run_debug_tool((*args)[0], std::span(*args).subspan(1));
+    if (const auto* error = result.error_if())
+        return encode_error_response("invalid_input", error->detail, error->path, error->offset);
+    const auto& output = result.value();
+    std::ostringstream json;
+    json << "{\"ok\":true,\"text\":" << json_string(output.text)
+         << ",\"hex\":" << json_string(output.hex) << ",\"matches\":[";
+    for (std::size_t i = 0; i < output.matches.size(); ++i) {
+        if (i)
+            json << ',';
+        json << output.matches[i];
+    }
+    json << "]}";
+    return json.str();
+}
+
+[[nodiscard]] std::string
+decode_debug_message(const std::string& request,
+                     const std::optional<std::filesystem::path>& current_project) {
+    const auto args = string_arguments(request);
+    if (!args || args->size() != 3 || request.size() > 1024 * 1024)
+        return encode_error_response("invalid_request", "Decode expects protocol, message and HEX");
+    if (!current_project)
+        return encode_error_response("project_not_open", "Open a project first");
+    const auto loaded = iotps::core::workspace::load_project(*current_project);
+    if (const auto* error = loaded.error_if())
+        return encode_error_response(iotps::core::workspace::to_string(error->code), error->detail,
+                                     error->path, error->offset);
+    const auto& project = loaded.value();
+    const auto protocol = std::ranges::find_if(project.protocols, [&](const auto& item) {
+        return item.relative_path.generic_string() == (*args)[0];
+    });
+    if (protocol == project.protocols.end())
+        return encode_error_response("protocol_not_referenced",
+                                     "Protocol is not in the open project");
+    const auto decoded =
+        iotps::core::codec::decode_protocol_hex(protocol->schema, (*args)[1], (*args)[2]);
+    if (const auto* error = decoded.error_if())
+        return encode_error_response(iotps::core::codec::to_string(error->code), error->detail,
+                                     error->path, error->offset);
+    const auto message = std::ranges::find_if(
+        protocol->schema.messages, [&](const auto& item) { return item.name == (*args)[1]; });
+    std::ostringstream json;
+    json << "{\"ok\":true,\"fields\":[";
+    const auto& data = decoded.value();
+    for (std::size_t i = 0; i < data.message.fields.size(); ++i) {
+        if (i)
+            json << ',';
+        const auto& field = data.message.fields[i];
+        const auto definition = std::ranges::find_if(
+            message->fields, [&](const auto& item) { return item.name == field.name; });
+        const auto range = std::ranges::find_if(data.field_ranges, [&](const auto& item) {
+            return item.path == message->name + "." + field.name;
+        });
+        if (range == data.field_ranges.end())
+            return encode_error_response("decode_failed", "Missing field byte range");
+        json << "{\"name\":" << json_string(field.name)
+             << ",\"displayName\":" << json_string(definition->display_name)
+             << ",\"type\":" << json_string(iotps::core::schema::to_string(definition->type))
+             << ",\"value\":" << json_string(iotps::core::format_scalar(field.value))
+             << ",\"offset\":" << range->offset << ",\"length\":" << range->length << '}';
+    }
+    json << "]}";
+    return json.str();
+}
+
+[[nodiscard]] std::string debug_file(HWND owner, const std::string& request) {
+    try {
+        const auto args = string_arguments(request);
+        if (!args || args->size() != 2 || ((*args)[0] != "open" && (*args)[0] != "save") ||
+            (*args)[1].size() > 1024 * 1024)
+            return encode_error_response("invalid_request",
+                                         "Invalid annotation file request (maximum 1 MiB)");
+        const bool save = (*args)[0] == "save";
+        Microsoft::WRL::ComPtr<IFileDialog> dialog;
+        if (FAILED(CoCreateInstance(save ? CLSID_FileSaveDialog : CLSID_FileOpenDialog, nullptr,
+                                    CLSCTX_INPROC_SERVER, IID_PPV_ARGS(&dialog))))
+            throw std::runtime_error("Cannot create file dialog");
+        const COMDLG_FILTERSPEC filters[]{
+            {L"IoT Debug annotations (*.iotdebug.json)", L"*.iotdebug.json"},
+            {L"JSON (*.json)", L"*.json"}};
+        dialog->SetFileTypes(2, filters);
+        dialog->SetDefaultExtension(L"iotdebug.json");
+        dialog->SetFileName(L"annotations.iotdebug.json");
+        dialog->SetTitle(save ? L"Export debug annotations" : L"Import debug annotations");
+        FILEOPENDIALOGOPTIONS options{};
+        if (FAILED(dialog->GetOptions(&options)) ||
+            FAILED(dialog->SetOptions(options | FOS_FORCEFILESYSTEM |
+                                      (save ? FOS_OVERWRITEPROMPT : FOS_FILEMUSTEXIST))))
+            throw std::runtime_error("Cannot configure file dialog");
+        const auto shown = dialog->Show(owner);
+        if (shown == HRESULT_FROM_WIN32(ERROR_CANCELLED))
+            return R"({"ok":true,"cancelled":true,"content":""})";
+        if (FAILED(shown))
+            throw std::runtime_error("File dialog failed");
+        Microsoft::WRL::ComPtr<IShellItem> selection;
+        PWSTR name = nullptr;
+        if (FAILED(dialog->GetResult(&selection)) ||
+            FAILED(selection->GetDisplayName(SIGDN_FILESYSPATH, &name)))
+            throw std::runtime_error("Cannot read file selection");
+        const std::filesystem::path path(name);
+        CoTaskMemFree(name);
+        if (!save) {
+            if (std::filesystem::file_size(path) > 1024 * 1024)
+                throw std::runtime_error("Annotation file exceeds 1 MiB");
+            std::ifstream stream(path, std::ios::binary);
+            if (!stream)
+                throw std::runtime_error("Cannot open annotation file");
+            std::string content(1024 * 1024 + 1, '\0');
+            stream.read(content.data(), static_cast<std::streamsize>(content.size()));
+            if (stream.bad())
+                throw std::runtime_error("Cannot read annotation file");
+            content.resize(static_cast<std::size_t>(stream.gcount()));
+            if (content.size() > 1024 * 1024)
+                throw std::runtime_error("Annotation file exceeds 1 MiB");
+            return "{\"ok\":true,\"cancelled\":false,\"content\":" + json_string(content) + "}";
+        }
+        // Write beside the target, then replace atomically; failed saves preserve the old file.
+        const auto temp = std::filesystem::path(path.wstring() + L"." +
+                                                std::to_wstring(GetTickCount64()) + L".tmp");
+        const auto handle = CreateFileW(temp.c_str(), GENERIC_WRITE, 0, nullptr, CREATE_NEW,
+                                        FILE_ATTRIBUTE_NORMAL, nullptr);
+        if (handle == INVALID_HANDLE_VALUE)
+            throw std::runtime_error("Cannot create temporary annotation file");
+        DWORD written = 0;
+        const auto& content = (*args)[1];
+        const bool saved = WriteFile(handle, content.data(), static_cast<DWORD>(content.size()),
+                                     &written, nullptr) &&
+                           written == content.size() && FlushFileBuffers(handle);
+        CloseHandle(handle);
+        if (!saved || !MoveFileExW(temp.c_str(), path.c_str(),
+                                   MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH)) {
+            DeleteFileW(temp.c_str());
+            throw std::runtime_error("Cannot save annotation file; original file was preserved");
+        }
+        return R"({"ok":true,"cancelled":false,"content":""})";
+    } catch (const std::exception& error) {
+        return encode_error_response("file_error", error.what());
+    }
+}
+
 [[nodiscard]] std::string inspect_hex(const std::string& request,
                                       const iotps::core::Engine& engine) {
     try {
@@ -806,8 +952,19 @@ window.addEventListener("DOMContentLoaded", () => {
           .then((result) => result?.ok && window.iotpsWindowAction("maximize")),
         window.iotpsWorkspaceChangeFolder("create", "protocols/smoke", "protocols", ""),
         window.iotpsWorkspaceCreate(),
+        window.iotpsDebugTool("convert", "FF FF FF FF FF FF FF FF", "hex", "uint64", "big"),
+        window.iotpsDebugTool("checksum", "31 32 33 34 35 36 37 38 39", "CRC", "0", "8", "16", "8005", "FFFF", "1", "1", "0"),
+        window.iotpsDebugDecode("missing", "missing", "00"),
+        window.iotpsDebugFile("invalid", ""),
+        window.iotpsSmokeDecodeFixture(),
       ])
-        .then(([current, createResult, saveResult, fieldResult, closed, windowResult, folderResult, projectResult]) => {
+        .then(([current, createResult, saveResult, fieldResult, closed, windowResult, folderResult, projectResult, converted, checksum, decoded, file, fixture]) => {
+          if (!fixture?.ok || fixture.fields?.[0]?.value !== "4660" || fixture.fields[0].offset !== 0 || fixture.fields[0].length !== 2) {
+            report("debug-decode-fixture-failed"); return;
+          }
+          if (!converted?.ok || converted.text !== "18446744073709551615" || !checksum?.ok || checksum.text !== "4B37" || decoded?.error?.code !== "project_not_open" || file?.error?.code !== "invalid_request") {
+            report("debug-tools-bridge-failed"); return;
+          }
           if (!windowResult?.ok) {
             report("window-controls-failed");
             return;
@@ -1134,6 +1291,14 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR command_line, int) {
         window.bind("iotpsCoreInfo", [](const std::string&) { return core_info(); });
         window.bind("iotpsInspectHex",
                     [&engine](const std::string& request) { return inspect_hex(request, engine); });
+        window.bind("iotpsDebugTool",
+                    [](const std::string& request) { return debug_tool(request); });
+        window.bind("iotpsDebugDecode", [&current_project](const std::string& request) {
+            return decode_debug_message(request, current_project);
+        });
+        window.bind("iotpsDebugFile", [window_handle](const std::string& request) {
+            return debug_file(window_handle, request);
+        });
         window.bind("iotpsWorkspaceCurrent", [&current_project](const std::string&) {
             return current_workspace(current_project);
         });
@@ -1194,6 +1359,13 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR command_line, int) {
 
         std::atomic_bool smoke_test_passed = false;
         if (smoke_test) {
+#if defined(IOTPS_TEST_PROJECT)
+            window.bind("iotpsSmokeDecodeFixture", [](const std::string&) {
+                return decode_debug_message(
+                    R"(["protocols/smart-sensor.protocol.yaml","telemetry","34 12"])",
+                    std::filesystem::path{IOTPS_TEST_PROJECT});
+            });
+#endif
             window.bind("iotpsSmokeResult", [&window, &smoke_test_passed,
                                              smoke_test_frame_ready](const std::string& request) {
                 const auto result = first_string_argument(request);

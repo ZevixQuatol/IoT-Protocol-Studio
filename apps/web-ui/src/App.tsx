@@ -34,6 +34,7 @@ import BugIcon from "./icons/bug-icon";
 import KeyframesIcon from "./icons/keyframes-icon";
 import SparklesIcon from "./icons/sparkles-icon";
 import UnorderedListIcon from "./icons/unordered-list-icon";
+import DebugTools, { type DebugAnnotation, type DebugRange } from "./DebugTools";
 import {
   closeProject,
   changeFolder,
@@ -75,14 +76,6 @@ type TreeNode = {
   type: "folder" | "protocol";
   children?: TreeNode[];
   protocol?: WorkspaceProtocol;
-};
-
-type DebugAnnotation = {
-  id: number;
-  start: number;
-  end: number;
-  label: string;
-  color: number;
 };
 
 type DebugAnnotationSegment = {
@@ -380,6 +373,8 @@ export default function App() {
   const [debugResult, setDebugResult] = useState<InspectionResult>();
   const [debugBusy, setDebugBusy] = useState(false);
   const [debugAnnotations, setDebugAnnotations] = useState<DebugAnnotation[]>([]);
+  const [debugToolRange, setDebugToolRange] = useState<DebugRange>(null);
+  const [debugByteOffset, setDebugByteOffset] = useState<{ offset: number } | null>(null);
   const [indexMode, setIndexMode] = useState<"byte" | "offset">("byte");
   const [annotationSelection, setAnnotationSelection] = useState<{
     anchor: number;
@@ -868,7 +863,9 @@ export default function App() {
       end >= debugResult.byteCount ||
       !label ||
       !Number.isInteger(annotationColor) ||
-      !annotationPalette[annotationColor]
+      !annotationPalette[annotationColor] ||
+      label.length > 160 ||
+      debugAnnotations.length >= 1000
     ) {
       setAnnotationError(true);
       return;
@@ -1447,6 +1444,28 @@ export default function App() {
                       {debugBusy ? translation.debug.parsing : translation.debug.parse}
                     </button>
                   </footer>
+                  <DebugTools
+                    locale={locale}
+                    input={debugInput}
+                    result={debugResult}
+                    annotations={debugAnnotations}
+                    project={project}
+                    dirty={isDirty}
+                    byteOffset={debugByteOffset}
+                    onRange={setDebugToolRange}
+                    onInput={updateDebugInput}
+                    onImport={(result, annotations) => {
+                      debugContentRef.current = result.normalizedHex.replace(/\s/g, "");
+                      setDebugInput(result.normalizedHex);
+                      setDebugFormatted(true);
+                      setDebugResult(result);
+                      setDebugAnnotations(annotations);
+                      setAnnotationSelection(null);
+                      setAnnotationError(false);
+                      setDebugToolRange(null);
+                      setDebugByteOffset(null);
+                    }}
+                  />
                 </form>
 
                 <section aria-live="polite" className="debug-result-panel">
@@ -1481,6 +1500,7 @@ export default function App() {
                               required
                               aria-invalid={annotationError}
                               value={annotationLabel}
+                              maxLength={160}
                               onChange={(event) => {
                                 setAnnotationLabel(event.target.value);
                                 setAnnotationError(false);
@@ -1571,6 +1591,14 @@ export default function App() {
                               return (
                                 <tr
                                   key={index}
+                                  id={`debug-byte-${index}`}
+                                  className={
+                                    debugToolRange &&
+                                    index >= debugToolRange.start &&
+                                    index <= debugToolRange.end
+                                      ? "debug-tool-highlight"
+                                      : ""
+                                  }
                                   style={color ? { backgroundColor: `${color}22` } : undefined}
                                 >
                                   <td className={`debug-byte-index ${selected ? "selected" : ""}`}>
@@ -1586,7 +1614,16 @@ export default function App() {
                                     </button>
                                   </td>
                                   <td>
-                                    <code>{byte.toString(16).padStart(2, "0").toUpperCase()}</code>
+                                    <button
+                                      type="button"
+                                      className="debug-hex-select"
+                                      aria-label={`${locale === "zh-CN" ? "定位字节" : "Locate byte"} ${index}`}
+                                      onClick={() => setDebugByteOffset({ offset: index })}
+                                    >
+                                      <code>
+                                        {byte.toString(16).padStart(2, "0").toUpperCase()}
+                                      </code>
+                                    </button>
                                   </td>
                                   <td>
                                     <code>{debugResult.ascii[index] || "·"}</code>

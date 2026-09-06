@@ -133,6 +133,13 @@ export type MessageEncodeResult =
 
 declare global {
   interface Window {
+    iotpsDebugTool?: (operation: string, ...args: string[]) => Promise<DebugToolResult>;
+    iotpsDebugDecode?: (
+      protocol: string,
+      message: string,
+      hex: string,
+    ) => Promise<DebugDecodeResult>;
+    iotpsDebugFile?: (action: string, content: string) => Promise<DebugFileResult>;
     iotpsCoreInfo?: () => Promise<CoreInfo>;
     iotpsInspectHex?: (input: string) => Promise<InspectionResult>;
     iotpsWindowAction?: (action: WindowAction) => Promise<{ ok: boolean }>;
@@ -170,6 +177,42 @@ declare global {
     ) => Promise<MessageEncodeResult>;
     iotpsWorkspaceClose?: () => Promise<WorkspaceResult>;
   }
+}
+
+type DebugFailure = {
+  ok: false;
+  error: { code: string; message: string; path?: string; offset?: number };
+};
+export type DebugField = {
+  name: string;
+  displayName: string;
+  type: string;
+  value: string;
+  offset: number;
+  length: number;
+};
+export type DebugToolResult =
+  { ok: true; text: string; hex: string; matches: number[] } | DebugFailure;
+export type DebugDecodeResult = { ok: true; fields: DebugField[] } | DebugFailure;
+export type DebugFileResult = { ok: true; cancelled: boolean; content: string } | DebugFailure;
+const debugNativeRequired: DebugFailure = {
+  ok: false,
+  error: { code: "native_host_required", message: "This action requires the Windows desktop host" },
+};
+export async function debugTool(operation: string, ...args: string[]): Promise<DebugToolResult> {
+  return window.iotpsDebugTool ? window.iotpsDebugTool(operation, ...args) : debugNativeRequired;
+}
+export async function debugDecode(
+  protocol: string,
+  message: string,
+  hex: string,
+): Promise<DebugDecodeResult> {
+  return window.iotpsDebugDecode
+    ? window.iotpsDebugDecode(protocol, message, hex)
+    : debugNativeRequired;
+}
+export async function debugFile(action: string, content = ""): Promise<DebugFileResult> {
+  return window.iotpsDebugFile ? window.iotpsDebugFile(action, content) : debugNativeRequired;
 }
 
 const browserWorkspace: WorkspaceResult = {

@@ -35,6 +35,7 @@ target_compile_definitions(iotps_desktop PRIVATE NOMINMAX UNICODE _UNICODE)
 iotps_enable_warnings(iotps_desktop)
 
 if(BUILD_TESTING AND IOTPS_BUILD_WEB_UI)
+  target_compile_definitions(iotps_desktop PRIVATE IOTPS_TEST_PROJECT="${PROJECT_SOURCE_DIR}/test/vectors/project/smart-sensor")
   add_test(NAME iotps_desktop_ui_smoke_test COMMAND iotps_desktop --smoke-test)
   set_tests_properties(iotps_desktop_ui_smoke_test PROPERTIES TIMEOUT 15)
 endif()

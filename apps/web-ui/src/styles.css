@@ -983,6 +983,99 @@ button {
   padding: 0 18px 18px;
   min-height: 320px;
   border-right: 1px solid var(--line);
+  overflow-y: auto;
+}
+
+.debug-tools {
+  flex: 0 0 auto;
+  display: grid;
+  gap: 10px;
+  padding-top: 14px;
+  margin-top: 12px;
+  border-top: 1px solid var(--line);
+  font-size: 11px;
+  color: var(--text);
+}
+.debug-tools label {
+  display: grid;
+  gap: 5px;
+  min-width: 0;
+}
+.debug-tools input,
+.debug-tools select,
+.debug-tools textarea {
+  width: 100%;
+  min-width: 0;
+  padding: 6px 8px;
+  border: 1px solid var(--line);
+  border-radius: 3px;
+  background: var(--surface-deep);
+  color: var(--text);
+  font: inherit;
+}
+.debug-tools textarea {
+  min-height: 65px;
+  resize: vertical;
+  font-family: Consolas, monospace;
+}
+.debug-tools p {
+  margin: 0;
+  color: var(--muted);
+  line-height: 1.6;
+  overflow-wrap: anywhere;
+}
+.debug-tools .error {
+  color: #d65050;
+}
+.debug-tool-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+.debug-tool-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.debug-checksum-value {
+  padding: 8px;
+  font:
+    16px Consolas,
+    monospace;
+  user-select: all;
+}
+.debug-field-list {
+  display: grid;
+  gap: 4px;
+  max-height: 260px;
+  overflow: auto;
+}
+.debug-tools .debug-field-list button {
+  display: grid;
+  gap: 4px;
+  text-align: left;
+  overflow-wrap: anywhere;
+}
+.debug-field-list small {
+  color: var(--muted);
+}
+.debug-field-list code {
+  white-space: pre-wrap;
+}
+.debug-field-list button.active {
+  outline: 1px solid var(--accent);
+}
+.debug-byte-table tr.debug-tool-highlight > td {
+  box-shadow:
+    inset 0 2px var(--accent),
+    inset 0 -2px var(--accent);
+}
+.debug-byte-table .debug-hex-select {
+  border: 0;
+  padding: 3px;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
 }
 
 .debug-panel-heading {
