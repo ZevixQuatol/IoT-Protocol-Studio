@@ -305,6 +305,10 @@ void append_protocol_schema(std::ostringstream& response,
             } else {
                 response << "null";
             }
+            response << ",\"declaredOffset\":"
+                     << (field.offset ? json_string(std::to_string(*field.offset)) : "null")
+                     << ",\"declaredLength\":"
+                     << (field.length ? json_string(std::to_string(*field.length)) : "null");
             response << ",\"elementType\":";
             if (field.element_type.has_value()) {
                 response << json_string(iotps::core::schema::to_string(*field.element_type));
@@ -998,6 +1002,36 @@ window.addEventListener("DOMContentLoaded", () => {
               failedOpen?.ok || retained.project?.rootPath !== reopened.project?.rootPath) {
             report("project-management-bridge-failed"); return;
           }
+          const editable = await window.iotpsSmokeSchemaFixture();
+          if (!editable?.ok) { report("schema-fixture-failed"); return; }
+          await window.iotpsWorkspaceOpen(editable.project.rootPath);
+          const path = editable.project.protocols[0].path;
+          const edit = async (action, message, field, ...properties) => {
+            const result = await window.iotpsWorkspaceEditSchema(path, action, message, field, ...properties);
+            if (!result.ok) throw new Error("schema edit failed: " + action);
+            return result.project.protocols[0];
+          };
+          await edit("addMessage", "", "", "name", "packet", "typeId", "18446744073709551615");
+          await edit("addField", "packet", "", "name", "value", "type", "uint16", "endian", "little");
+          await edit("addField", "packet", "", "name", "flag", "type", "uint8");
+          const renamed = await edit("updateField", "packet", "value", "name", "reading", "displayName", "Reading");
+          const parsedField = renamed.schema.messages[0].fields[1];
+          const invalid = await window.iotpsWorkspaceEditSchema(path, "updateField", "packet", "reading", "type", "uint128");
+          const encoded = await window.iotpsEncodeProtocolMessage(path, "packet", "reading", "4660", "flag", "1");
+          if (invalid?.ok || parsedField.offset !== "2" || parsedField.declaredOffset !== null ||
+              parsedField.declaredLength !== null || !encoded?.ok || encoded.normalizedHex !== "34 12 01" ||
+              renamed.schema.messages[0].typeId !== "18446744073709551615") {
+            report("schema-edit-bridge-failed"); return;
+          }
+          const moved = await edit("moveFieldUp", "packet", "flag");
+          if (moved.schema.messages[0].fields[0].name !== "flag") {
+            report("schema-reorder-bridge-failed"); return;
+          }
+          await edit("deleteField", "packet", "flag");
+          await edit("updateMessage", "packet", "", "name", "updated");
+          const empty = await edit("deleteMessage", "updated", "");
+          if (empty.schema.messages.length !== 0) { report("schema-delete-bridge-failed"); return; }
+          await window.iotpsWorkspaceClose();
           debug.click();
           window.setTimeout(() => {
             if (!document.querySelector(".debug-page") ||
@@ -1390,6 +1424,25 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR command_line, int) {
                     [&current_project](const std::string& request) {
                         return update_workspace_field_display_name(request, current_project);
                     });
+        window.bind("iotpsWorkspaceEditSchema", [&current_project](const std::string& request) {
+            const auto arguments = string_arguments(request);
+            if (!arguments || arguments->size() < 4 || arguments->size() > 22 ||
+                arguments->size() % 2 != 0)
+                return workspace_error_response(
+                    "invalid_request", "editSchema expects a target followed by property pairs");
+            if (!current_project)
+                return workspace_error_response("project_not_open", "Open a project first");
+            iotps::core::workspace::SchemaEditRequest edit{
+                .relative_path = (*arguments)[0],
+                .action = (*arguments)[1],
+                .message_name = (*arguments)[2],
+                .field_name = (*arguments)[3],
+            };
+            for (std::size_t i = 4; i < arguments->size(); i += 2)
+                edit.properties.emplace_back((*arguments)[i], (*arguments)[i + 1]);
+            return workspace_result_response(
+                iotps::core::workspace::edit_schema(*current_project, edit));
+        });
         window.bind("iotpsEncodeProtocolMessage", [&current_project](const std::string& request) {
             return encode_protocol_message(request, current_project);
         });
@@ -1402,7 +1455,20 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR command_line, int) {
         });
 
         std::atomic_bool smoke_test_passed = false;
+        std::optional<std::filesystem::path> smoke_schema_project;
         if (smoke_test) {
+            window.bind("iotpsSmokeSchemaFixture", [&smoke_schema_project](const std::string&) {
+                auto project = iotps::core::workspace::create_project(
+                    std::filesystem::temp_directory_path(),
+                    "iotps-schema-smoke-" + std::to_string(GetCurrentProcessId()) + "-" +
+                        std::to_string(GetTickCount64()));
+                if (!project.has_value())
+                    return workspace_result_response(project);
+                smoke_schema_project = project.value().root_directory;
+                return workspace_result_response(iotps::core::workspace::create_protocol(
+                    *smoke_schema_project, {.relative_path = "protocols/editor.protocol.yaml",
+                                            .protocol = {.name = "editor", .version = "1.0"}}));
+            });
 #if defined(IOTPS_TEST_PROJECT)
             window.bind("iotpsSmokeProjectPath", [](const std::string&) {
                 return json_string(path_utf8(std::filesystem::path{IOTPS_TEST_PROJECT}));
@@ -1438,6 +1504,10 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR command_line, int) {
         }
 
         window.run();
+        if (smoke_schema_project) {
+            std::error_code ignored;
+            std::filesystem::remove_all(*smoke_schema_project, ignored);
+        }
         return smoke_test && !smoke_test_passed.load(std::memory_order_acquire) ? 2 : 0;
     } catch (const std::exception& error) {
         MessageBoxA(nullptr, error.what(), "IoT Protocol Studio", MB_OK | MB_ICONERROR);

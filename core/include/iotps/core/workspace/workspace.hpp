@@ -6,6 +6,7 @@
 #include <filesystem>
 #include <string>
 #include <string_view>
+#include <utility>
 #include <vector>
 
 namespace iotps::core::workspace {
@@ -48,6 +49,17 @@ struct FieldDisplayNameUpdateRequest {
     std::string message_name;
     std::string field_name;
     std::string display_name;
+};
+
+struct SchemaEditRequest {
+    std::string relative_path;
+    // addMessage / updateMessage / deleteMessage / addField / updateField / deleteField /
+    // moveFieldUp / moveFieldDown. Properties are a restricted patch; empty removes an optional
+    // value.
+    std::string action;
+    std::string message_name;
+    std::string field_name;
+    std::vector<std::pair<std::string, std::string>> properties;
 };
 
 enum class WorkspaceErrorCode {
@@ -100,6 +112,8 @@ using ProjectLoadResult = Result<Project, WorkspaceDiagnostic>;
 [[nodiscard]] ProjectLoadResult
 update_field_display_name(const std::filesystem::path& project_directory,
                           const FieldDisplayNameUpdateRequest& request);
+[[nodiscard]] ProjectLoadResult edit_schema(const std::filesystem::path& project_directory,
+                                            const SchemaEditRequest& request);
 [[nodiscard]] std::string_view to_string(WorkspaceErrorCode code) noexcept;
 
 } // namespace iotps::core::workspace

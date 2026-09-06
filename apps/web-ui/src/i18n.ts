@@ -69,6 +69,20 @@ export type TranslationMessages = {
     editingHint: string;
   };
   structure: {
+    addMessage: string;
+    editMessage: string;
+    deleteMessage: string;
+    addField: string;
+    editField: string;
+    deleteField: string;
+    moveUp: string;
+    moveDown: string;
+    deleteHint: string;
+    editHint: string;
+    optional: string;
+    automaticLayout: string;
+    naturalLength: string;
+    none: string;
     schemaVersion: string;
     protocolVersion: string;
     defaultByteOrder: string;
@@ -230,6 +244,21 @@ export const messages: Record<Locale, TranslationMessages> = {
       editingHint: "保存前由 C++ Schema Loader 校验；校验失败不会覆盖原文件。",
     },
     structure: {
+      addMessage: "新增消息",
+      editMessage: "编辑消息",
+      deleteMessage: "删除消息",
+      addField: "新增字段",
+      editField: "编辑字段",
+      deleteField: "删除字段",
+      moveUp: "上移",
+      moveDown: "下移",
+      deleteHint: "确认删除所选内容？保存后立即生效：",
+      editHint:
+        "保存后更新协议文件。字段偏移留空时连续排列；被长度字段引用的字段需先解除引用才能删除。",
+      optional: "可选",
+      automaticLayout: "自动排列",
+      naturalLength: "类型默认长度",
+      none: "无",
       schemaVersion: "Schema 版本",
       protocolVersion: "协议版本",
       defaultByteOrder: "默认字节序",
@@ -389,6 +418,21 @@ export const messages: Record<Locale, TranslationMessages> = {
         "The C++ Schema Loader validates before save; invalid YAML never replaces the original file.",
     },
     structure: {
+      addMessage: "Add message",
+      editMessage: "Edit message",
+      deleteMessage: "Delete message",
+      addField: "Add field",
+      editField: "Edit field",
+      deleteField: "Delete field",
+      moveUp: "Move up",
+      moveDown: "Move down",
+      deleteHint: "Delete the selected content? This change is saved immediately:",
+      editHint:
+        "Saving updates the protocol file. Leave offset blank for sequential layout. Remove length references before deleting their target field.",
+      optional: "Optional",
+      automaticLayout: "Sequential",
+      naturalLength: "Type default",
+      none: "None",
       schemaVersion: "Schema version",
       protocolVersion: "Protocol version",
       defaultByteOrder: "Default byte order",

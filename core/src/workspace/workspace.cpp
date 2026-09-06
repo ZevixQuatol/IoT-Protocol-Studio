@@ -114,42 +114,6 @@ normalize_protocol_path(const std::string_view value, std::string error_path) {
     return relative_path;
 }
 
-Result<std::string, WorkspaceDiagnostic>
-field_display_name_yaml(const std::string_view yaml, const std::string& source_name,
-                        const std::string_view message_name, const std::string_view field_name,
-                        const std::string_view display_name) {
-    try {
-        ryml::EventHandlerTree event_handler{loader_callbacks()};
-        ryml::Parser parser(&event_handler);
-        auto tree = ryml::parse_in_arena(&parser, {source_name.data(), source_name.size()},
-                                         {yaml.data(), yaml.size()});
-        auto messages = tree.rootref()["messages"];
-        for (auto message : messages.children()) {
-            if (to_string(message.key()) != message_name) {
-                continue;
-            }
-            for (auto field : message["fields"].children()) {
-                if (field.has_child("name") && scalar(field["name"]) == field_name) {
-                    auto display_name_node = field["displayName"];
-                    display_name_node.save(std::string{display_name});
-                    display_name_node.set_val_style(ryml::VAL_DQUO);
-                    std::string output;
-                    ryml::emitrs_yaml(tree, &output);
-                    return output;
-                }
-            }
-            return make_error(WorkspaceErrorCode::protocol_field_not_found, "$request.fieldName",
-                              "field was not found in message '" + std::string{message_name} +
-                                  "': '" + std::string{field_name} + "'");
-        }
-        return make_error(WorkspaceErrorCode::protocol_message_not_found, "$request.messageName",
-                          "message was not found: '" + std::string{message_name} + "'");
-    } catch (const std::exception& error) {
-        return make_error(WorkspaceErrorCode::protocol_schema_invalid, "$protocol",
-                          "cannot update protocol YAML: " + std::string{error.what()});
-    }
-}
-
 std::optional<WorkspaceDiagnostic> require_mapping(const ryml::ConstNodeRef node,
                                                    const std::string_view path,
                                                    const ryml::Parser& parser) {
@@ -1090,6 +1054,15 @@ ProjectLoadResult update_protocol(const std::filesystem::path& project_directory
 
 ProjectLoadResult update_field_display_name(const std::filesystem::path& project_directory,
                                             const FieldDisplayNameUpdateRequest& request) {
+    return edit_schema(project_directory, {request.relative_path,
+                                           "updateField",
+                                           request.message_name,
+                                           request.field_name,
+                                           {{"displayName", request.display_name}}});
+}
+
+ProjectLoadResult edit_schema(const std::filesystem::path& project_directory,
+                              const SchemaEditRequest& request) {
     auto loaded = load_project(project_directory);
     if (const auto* error = loaded.error_if()) {
         return *error;
@@ -1108,22 +1081,6 @@ ProjectLoadResult update_field_display_name(const std::filesystem::path& project
                           "protocol is not referenced by project.yaml: '" + portable_path + "'");
     }
 
-    const auto message =
-        std::ranges::find_if(protocol->schema.messages, [&](const auto& candidate) {
-            return candidate.name == request.message_name;
-        });
-    if (message == protocol->schema.messages.end()) {
-        return make_error(WorkspaceErrorCode::protocol_message_not_found, "$request.messageName",
-                          "message was not found: '" + request.message_name + "'");
-    }
-    if (std::ranges::none_of(message->fields, [&](const auto& candidate) {
-            return candidate.name == request.field_name;
-        })) {
-        return make_error(WorkspaceErrorCode::protocol_field_not_found, "$request.fieldName",
-                          "field was not found in message '" + request.message_name + "': '" +
-                              request.field_name + "'");
-    }
-
     const auto source_path = project.root_directory / relative_path.value();
     std::ifstream input{source_path, std::ios::binary};
     if (!input.is_open()) {
@@ -1138,13 +1095,137 @@ ProjectLoadResult update_field_display_name(const std::filesystem::path& project
     }
     input.close();
 
-    auto updated_yaml =
-        field_display_name_yaml(contents.str(), source_path.string(), request.message_name,
-                                request.field_name, request.display_name);
-    if (const auto* error = updated_yaml.error_if()) {
-        return *error;
+    try {
+        const auto& action = request.action;
+        const bool is_message =
+            action == "addMessage" || action == "updateMessage" || action == "deleteMessage";
+        const bool is_field = action == "addField" || action == "updateField" ||
+                              action == "deleteField" || action == "moveFieldUp" ||
+                              action == "moveFieldDown";
+        if (!is_message && !is_field)
+            return make_error(WorkspaceErrorCode::workspace_operation_failed, "$request.action",
+                              "unknown schema edit action");
+        const bool patch = action.starts_with("add") || action.starts_with("update");
+        if ((!patch && !request.properties.empty()) || request.properties.size() > 9)
+            return make_error(WorkspaceErrorCode::workspace_operation_failed, "$request.properties",
+                              "unexpected properties");
+        std::set<std::string> keys;
+        std::string next_name;
+        for (const auto& [key, value] : request.properties) {
+            const auto allowed = is_message
+                                     ? std::string_view{"|name|displayName|typeId|"}
+                                     : std::string_view{"|name|displayName|type|endian|length|"
+                                                        "offset|lengthOf|elementType|count|"};
+            if (key.empty() || key.find('|') != std::string::npos ||
+                allowed.find("|" + key + "|") == std::string_view::npos ||
+                !keys.insert(key).second || value.size() > 4096)
+                return make_error(WorkspaceErrorCode::workspace_operation_failed,
+                                  "$request.properties",
+                                  "unknown, duplicate or oversized property");
+            if (key == "name")
+                next_name = value;
+        }
+        if ((keys.contains("name") || action.starts_with("add")) &&
+            (next_name.empty() ||
+             std::ranges::all_of(next_name, [](unsigned char c) { return std::isspace(c); }) ||
+             std::ranges::any_of(next_name, [](unsigned char c) { return c < 32; })))
+            return make_error(WorkspaceErrorCode::protocol_schema_invalid, "$request.name",
+                              "a nonblank name is required");
+        const auto yaml = contents.str();
+        ryml::EventHandlerTree handler{loader_callbacks()};
+        ryml::Parser parser(&handler);
+        auto tree = ryml::parse_in_arena(&parser, ryml::to_csubstr(yaml));
+        auto messages = tree.rootref()["messages"];
+        const auto message_key = ryml::to_csubstr(request.message_name);
+        if (action == "addMessage") {
+            if (messages.has_child(ryml::to_csubstr(next_name)))
+                return make_error(WorkspaceErrorCode::protocol_schema_invalid, "$request.name",
+                                  "message name already exists");
+        } else if (!messages.has_child(message_key)) {
+            return make_error(WorkspaceErrorCode::protocol_message_not_found,
+                              "$request.messageName", "message was not found");
+        }
+        auto message = action == "addMessage" ? messages.append_child() : messages[message_key];
+        if (action == "addMessage") {
+            message.set_key_serialized(next_name, ryml::KEY_DQUO);
+            message.set_map();
+            message["fields"].set_seq();
+        }
+        auto target = message;
+        if (is_field) {
+            if (!message.has_child("fields"))
+                message["fields"].set_seq();
+            auto fields = message["fields"];
+            if (action == "addField") {
+                target = fields.append_child();
+                target.set_map();
+            } else {
+                target = ryml::NodeRef{};
+                for (auto field : fields.children()) {
+                    if (field.has_child("name") && scalar(field["name"]) == request.field_name) {
+                        target = field;
+                        break;
+                    }
+                }
+                if (!target.valid())
+                    return make_error(WorkspaceErrorCode::protocol_field_not_found,
+                                      "$request.fieldName", "field was not found");
+            }
+            if (action == "deleteField") {
+                fields.remove_child(target);
+            } else if (action == "moveFieldUp") {
+                const auto previous = target.prev_sibling();
+                if (previous.valid())
+                    target.move(fields, previous.prev_sibling());
+            } else if (action == "moveFieldDown") {
+                const auto next = target.next_sibling();
+                if (next.valid())
+                    target.move(fields, next);
+            }
+        } else if (action == "deleteMessage") {
+            messages.remove_child(message);
+        }
+        if (patch) {
+            for (const auto& [key, value] : request.properties) {
+                if (is_message && key == "name") {
+                    if (value != request.message_name && action != "addMessage" &&
+                        messages.has_child(ryml::to_csubstr(value)))
+                        return make_error(WorkspaceErrorCode::protocol_schema_invalid,
+                                          "$request.name", "message name already exists");
+                    target.set_key_serialized(value, ryml::KEY_DQUO);
+                } else if (value.empty()) {
+                    if (target.has_child(ryml::to_csubstr(key)))
+                        target.remove_child(ryml::to_csubstr(key));
+                } else {
+                    auto property = target[ryml::to_csubstr(key)];
+                    property.save(value);
+                    property.set_val_style(ryml::VAL_DQUO);
+                }
+            }
+            // A field rename must keep the supported intra-message references valid.
+            if (action == "updateField" && keys.contains("name") &&
+                next_name != request.field_name) {
+                for (auto field : message["fields"].children()) {
+                    if (field.has_child("lengthOf") &&
+                        scalar(field["lengthOf"]) == request.field_name) {
+                        field["lengthOf"].save(next_name);
+                        field["lengthOf"].set_val_style(ryml::VAL_DQUO);
+                    }
+                }
+                if (message.has_child("checksum") && message["checksum"].has_child("targetField") &&
+                    scalar(message["checksum"]["targetField"]) == request.field_name) {
+                    message["checksum"]["targetField"].save(next_name);
+                    message["checksum"]["targetField"].set_val_style(ryml::VAL_DQUO);
+                }
+            }
+        }
+        std::string updated;
+        ryml::emitrs_yaml(tree, &updated);
+        // The existing save path validates the complete schema and rolls back failed persistence.
+        return update_protocol(project.root_directory, portable_path, updated);
+    } catch (const std::exception& error) {
+        return make_error(WorkspaceErrorCode::protocol_schema_invalid, "$protocol", error.what());
     }
-    return update_protocol(project.root_directory, portable_path, updated_yaml.value());
 }
 
 std::string_view to_string(const WorkspaceErrorCode code) noexcept {

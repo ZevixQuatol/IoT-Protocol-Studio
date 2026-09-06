@@ -38,6 +38,8 @@ export type WorkspaceField = {
   type: string;
   offset: string;
   length: string | null;
+  declaredOffset: string | null;
+  declaredLength: string | null;
   byteOrder: "big" | "little";
   byteOrderInherited: boolean;
   lengthOf: string | null;
@@ -99,6 +101,23 @@ export type FieldDisplayNameUpdateRequest = {
   messageName: string;
   fieldName: string;
   displayName: string;
+};
+
+export type SchemaEditAction =
+  | "addMessage"
+  | "updateMessage"
+  | "deleteMessage"
+  | "addField"
+  | "updateField"
+  | "deleteField"
+  | "moveFieldUp"
+  | "moveFieldDown";
+export type SchemaEditRequest = {
+  relativePath: string;
+  action: SchemaEditAction;
+  messageName: string;
+  fieldName: string;
+  properties: Record<string, string>;
 };
 
 export type MessageEncodeField = {
@@ -170,6 +189,13 @@ declare global {
       messageName: string,
       fieldName: string,
       displayName: string,
+    ) => Promise<WorkspaceResult>;
+    iotpsWorkspaceEditSchema?: (
+      path: string,
+      action: string,
+      message: string,
+      field: string,
+      ...properties: string[]
     ) => Promise<WorkspaceResult>;
     iotpsEncodeProtocolMessage?: (
       relativePath: string,
@@ -333,6 +359,18 @@ export async function openProject(path = ""): Promise<WorkspaceResult> {
 
 export async function renameProject(name: string): Promise<WorkspaceResult> {
   return window.iotpsWorkspaceRename ? window.iotpsWorkspaceRename(name) : nativeRequired();
+}
+
+export async function editSchema(request: SchemaEditRequest): Promise<WorkspaceResult> {
+  return window.iotpsWorkspaceEditSchema
+    ? window.iotpsWorkspaceEditSchema(
+        request.relativePath,
+        request.action,
+        request.messageName,
+        request.fieldName,
+        ...Object.entries(request.properties).flat(),
+      )
+    : nativeRequired();
 }
 
 export async function createProject(name: string): Promise<WorkspaceResult> {

@@ -35,12 +35,14 @@ import KeyframesIcon from "./icons/keyframes-icon";
 import SparklesIcon from "./icons/sparkles-icon";
 import UnorderedListIcon from "./icons/unordered-list-icon";
 import DebugTools, { type DebugAnnotation, type DebugRange } from "./DebugTools";
+import SchemaEditor, { type SchemaEditTarget } from "./SchemaEditor";
 import {
   closeProject,
   changeFolder,
   createProject,
   createProtocol,
   encodeProtocolMessage,
+  editSchema,
   getCoreInfo,
   getCurrentProject,
   inspectHex,
@@ -55,6 +57,7 @@ import {
   type WorkspaceProject,
   type WorkspaceProtocol,
   type WorkspaceResult,
+  type SchemaEditRequest,
 } from "./bridge";
 import { readRecentProjects, rememberProject, storeRecentProjects } from "./recentProjects";
 import {
@@ -392,6 +395,7 @@ export default function App() {
     fieldName?: string;
   }>();
   const [fieldDisplayNameDraft, setFieldDisplayNameDraft] = useState("");
+  const [schemaEditTarget, setSchemaEditTarget] = useState<SchemaEditTarget | null>(null);
   const [errorMessage, setErrorMessage] = useState<string>();
   const [projectMenuOpen, setProjectMenuOpen] = useState(false);
   const [recentProjects, setRecentProjects] = useState(readRecentProjects);
@@ -777,6 +781,37 @@ export default function App() {
     if (selectedProtocol) {
       void run(() => saveProtocol(selectedProtocol.path, draftContent), selectedProtocol.path);
     }
+  };
+
+  const saveSchemaEdit = async (request: SchemaEditRequest) => {
+    if (busy || isDirty) return false;
+    const ok = await run(() => editSchema(request), selectedProtocolPath);
+    if (ok) {
+      setStructureSelection(
+        request.action === "deleteMessage"
+          ? undefined
+          : {
+              messageName: request.action.endsWith("Message")
+                ? (request.properties.name ?? request.messageName)
+                : request.messageName,
+              fieldName:
+                request.action === "deleteField" || request.action.endsWith("Message")
+                  ? undefined
+                  : (request.properties.name ?? request.fieldName),
+            },
+      );
+    }
+    return ok;
+  };
+
+  const openSchemaEdit = (action: SchemaEditTarget["action"]) => {
+    if (busy || isDirty) return;
+    setErrorMessage(undefined);
+    setSchemaEditTarget({
+      action,
+      message: action === "addMessage" ? undefined : selectedStructureMessage,
+      field: action === "addField" ? undefined : selectedStructureField,
+    });
   };
 
   const submitFieldDisplayName = (event: FormEvent<HTMLFormElement>) => {
@@ -1828,6 +1863,22 @@ export default function App() {
                                 <strong>{selectedProtocol.schema.messages.length}</strong>
                               </span>
                             </div>
+                            <div className="schema-edit-actions">
+                              <button
+                                type="button"
+                                disabled={busy || isDirty}
+                                onClick={() => openSchemaEdit("addMessage")}
+                              >
+                                {translation.structure.addMessage}
+                              </button>
+                              <button
+                                type="button"
+                                disabled={busy || isDirty || !selectedStructureMessage}
+                                onClick={() => openSchemaEdit("addField")}
+                              >
+                                {translation.structure.addField}
+                              </button>
+                            </div>
                             {isDirty && (
                               <div className="structure-notice">
                                 <CircleAlert size={14} />
@@ -1958,6 +2009,61 @@ export default function App() {
                               </div>
                             ) : (
                               <>
+                                <div className="schema-edit-actions">
+                                  <button
+                                    type="button"
+                                    disabled={busy || isDirty}
+                                    onClick={() =>
+                                      openSchemaEdit(
+                                        selectedStructureField ? "updateField" : "updateMessage",
+                                      )
+                                    }
+                                  >
+                                    {selectedStructureField
+                                      ? translation.structure.editField
+                                      : translation.structure.editMessage}
+                                  </button>
+                                  <button
+                                    type="button"
+                                    disabled={busy || isDirty}
+                                    onClick={() =>
+                                      openSchemaEdit(
+                                        selectedStructureField ? "deleteField" : "deleteMessage",
+                                      )
+                                    }
+                                  >
+                                    {selectedStructureField
+                                      ? translation.structure.deleteField
+                                      : translation.structure.deleteMessage}
+                                  </button>
+                                  {selectedStructureField &&
+                                    (["moveFieldUp", "moveFieldDown"] as const).map((action) => (
+                                      <button
+                                        key={action}
+                                        type="button"
+                                        disabled={
+                                          busy ||
+                                          isDirty ||
+                                          selectedStructureMessage.fields.at(
+                                            action === "moveFieldUp" ? 0 : -1,
+                                          )?.name === selectedStructureField.name
+                                        }
+                                        onClick={() =>
+                                          void saveSchemaEdit({
+                                            relativePath: selectedProtocol.path,
+                                            action,
+                                            messageName: selectedStructureMessage.name,
+                                            fieldName: selectedStructureField.name,
+                                            properties: {},
+                                          })
+                                        }
+                                      >
+                                        {action === "moveFieldUp"
+                                          ? translation.structure.moveUp
+                                          : translation.structure.moveDown}
+                                      </button>
+                                    ))}
+                                </div>
                                 {selectedStructureField && (
                                   <form
                                     className="field-property-editor"
@@ -2162,6 +2268,18 @@ export default function App() {
         </section>
       </div>
 
+      {schemaEditTarget && selectedProtocol && (
+        <SchemaEditor
+          key={`${schemaEditTarget.action}:${schemaEditTarget.message?.name}:${schemaEditTarget.field?.name}`}
+          target={schemaEditTarget}
+          protocolPath={selectedProtocol.path}
+          locale={locale}
+          busy={busy}
+          error={errorMessage}
+          onSave={saveSchemaEdit}
+          onClose={() => setSchemaEditTarget(null)}
+        />
+      )}
       <dialog
         ref={treeDialogRef}
         className="protocol-dialog tree-dialog"

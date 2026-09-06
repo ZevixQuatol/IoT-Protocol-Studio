@@ -5,6 +5,7 @@
 #include <fstream>
 #include <iostream>
 #include <iterator>
+#include <limits>
 #include <string_view>
 
 #if defined(_WIN32)
@@ -548,6 +549,107 @@ messages:
         CloseHandle(rename_lock);
     }
 #endif
+
+    // Build a protocol entirely through the structured editor commands, then reopen it.
+    const std::string editor_path = "protocols/designer.protocol.yaml";
+    CHECK(create_protocol(managed, {.relative_path = "designer.protocol.yaml",
+                                    .protocol = {.name = "designer", .version = "1.0"}})
+              .has_value());
+    const auto edit = [&](std::string action, std::string message, std::string field,
+                          std::vector<std::pair<std::string, std::string>> properties = {}) {
+        return edit_schema(managed, {editor_path, std::move(action), std::move(message),
+                                     std::move(field), std::move(properties)});
+    };
+    CHECK(edit("addMessage", "", "",
+               {{"name", "telemetry"}, {"displayName", "遥测"}, {"typeId", "18446744073709551615"}})
+              .has_value());
+    CHECK(edit("addField", "telemetry", "",
+               {{"name", "payload"}, {"type", "bytes"}, {"length", "4"}, {"offset", "8"}})
+              .has_value());
+    CHECK(edit("addField", "telemetry", "",
+               {{"name", "size"}, {"type", "uint8"}, {"lengthOf", "payload"}})
+              .has_value());
+    CHECK(edit("addField", "telemetry", "", {{"name", "enabled"}, {"type", "bool"}}).has_value());
+    CHECK(edit("moveFieldUp", "telemetry", "size").has_value());
+    const auto editor_schema = [&]() {
+        auto reloaded = load_project(managed);
+        CHECK(reloaded.has_value());
+        return reloaded.value().protocols.back().schema;
+    };
+    CHECK(editor_schema().messages[0].fields[0].name == "size");
+    CHECK(edit("moveFieldDown", "telemetry", "size").has_value());
+    CHECK(editor_schema().messages[0].fields[1].name == "size");
+    CHECK(edit("updateField", "telemetry", "payload",
+               {{"name", "body: 数据"},
+                {"length", "3"},
+                {"offset", ""},
+                {"displayName", "Body: \"data\""}})
+              .has_value());
+    auto edited = editor_schema();
+    CHECK(edited.messages[0].fields[1].length_of == "body: 数据");
+    CHECK(!edited.messages[0].fields[0].offset.has_value());
+    CHECK(edited.messages[0].fields[0].display_name == "Body: \"data\"");
+    CHECK(edited.messages[0].type_id == (std::numeric_limits<std::uint64_t>::max)());
+    const auto before_bad_edit = read_file(managed / editor_path);
+    CHECK(!edit("deleteField", "telemetry", "body: 数据").has_value());
+    CHECK(!edit("updateField", "telemetry", "enabled", {{"name", "size"}}).has_value());
+    CHECK(!edit("updateField", "telemetry", "enabled", {{"type", "uint128"}}).has_value());
+    CHECK(!edit("updateField", "telemetry", "enabled", {{"offset", "0"}}).has_value());
+    CHECK(!edit("updateField", "telemetry", "enabled", {{"count", "2"}}).has_value());
+    CHECK(!edit("updateField", "telemetry", "enabled",
+                {{"type", "bytes"}, {"length", "18446744073709551616"}})
+               .has_value());
+    CHECK(!edit("updateField", "telemetry", "enabled", {{"customSetting", "bad"}}).has_value());
+    CHECK(!edit("updateField", "telemetry", "enabled", {{"name", "one"}, {"name", "two"}})
+               .has_value());
+    CHECK(!edit("addMessage", "", "", {{"name", "telemetry"}}).has_value());
+    CHECK(!edit("addMessage", "", "", {{"name", "   "}}).has_value());
+    CHECK(!edit("addMessage", "", "", {{"name", "duplicateId"}, {"typeId", "18446744073709551615"}})
+               .has_value());
+    CHECK(!edit("unknown", "telemetry", "").has_value());
+    CHECK(!edit("deleteField", "telemetry", "enabled", {{"name", "bad"}}).has_value());
+    CHECK(!edit_schema(managed,
+                       {"protocols/orphan.protocol.yaml", "addMessage", "", "", {{"name", "bad"}}})
+               .has_value());
+    CHECK(read_file(managed / editor_path) == before_bad_edit);
+    CHECK(edit("updateField", "telemetry", "size",
+               {{"lengthOf", ""}, {"type", "string"}, {"length", "2"}})
+              .has_value());
+    CHECK(edit("deleteField", "telemetry", "body: 数据").has_value());
+    CHECK(edit("addField", "telemetry", "",
+               {{"name", "samples"},
+                {"type", "array"},
+                {"elementType", "int16"},
+                {"count", "3"},
+                {"endian", "little"}})
+              .has_value());
+    CHECK(edit("updateField", "telemetry", "samples",
+               {{"type", "uint32"}, {"elementType", ""}, {"count", ""}, {"endian", ""}})
+              .has_value());
+    edited = editor_schema();
+    CHECK(!edited.messages[0].fields.back().element_type.has_value());
+    CHECK(!edited.messages[0].fields.back().count.has_value());
+    CHECK(!edited.messages[0].fields.back().byte_order.has_value());
+    CHECK(edit("moveFieldDown", "telemetry", "samples").has_value());
+    CHECK(edit("moveFieldUp", "telemetry", "size").has_value());
+    CHECK(edit("addMessage", "", "", {{"name", "other"}}).has_value());
+    CHECK(!edit("updateMessage", "telemetry", "", {{"name", "other"}}).has_value());
+    CHECK(edit("updateMessage", "telemetry", "",
+               {{"name", "遥测: v2"}, {"displayName", ""}, {"typeId", ""}})
+              .has_value());
+    edited = editor_schema();
+    CHECK(edited.messages[0].name == "遥测: v2");
+    CHECK(edited.messages[0].display_name.empty());
+    CHECK(!edited.messages[0].type_id.has_value());
+    CHECK(edited.messages[0].fields.size() == 3);
+    const auto before_blocked_edit = read_file(managed / editor_path);
+    write_file(managed / (editor_path + ".iotps.tmp"), "reserved");
+    CHECK(!edit("deleteMessage", "遥测: v2", "").has_value());
+    CHECK(read_file(managed / editor_path) == before_blocked_edit);
+    std::filesystem::remove(managed / (editor_path + ".iotps.tmp"));
+    CHECK(edit("deleteMessage", "遥测: v2", "").has_value());
+    CHECK(edit("deleteMessage", "other", "").has_value());
+    CHECK(editor_schema().messages.empty());
 
     std::error_code cleanup_error;
     std::filesystem::remove_all(temporary, cleanup_error);
