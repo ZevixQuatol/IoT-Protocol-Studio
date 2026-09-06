@@ -2100,6 +2100,33 @@ button {
   display: grid;
   gap: 8px;
 }
+
+.recent-projects {
+  display: grid;
+  gap: 8px;
+  max-height: 50vh;
+  overflow-y: auto;
+}
+
+.recent-project {
+  display: flex;
+  gap: 8px;
+}
+
+.recent-project > button:first-child {
+  display: grid;
+  gap: 4px;
+  text-align: left;
+  flex: 1;
+  min-width: 0;
+}
+
+.recent-project strong,
+.recent-project small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 .debug-index-toggle button {
   color: var(--accent);
 }

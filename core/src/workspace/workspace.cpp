@@ -628,6 +628,75 @@ ProjectLoadResult create_project(const std::filesystem::path& parent_directory,
     }
 }
 
+ProjectLoadResult rename_project(const std::filesystem::path& project_directory,
+                                 const std::string_view display_name) {
+    if (display_name.empty() || display_name.size() > 400 ||
+        std::ranges::all_of(display_name, [](const unsigned char c) { return std::isspace(c); }) ||
+        std::ranges::any_of(display_name, [](const unsigned char c) { return c < 32; })) {
+        return make_error(WorkspaceErrorCode::project_name_required, "project.displayName",
+                          "a nonblank project display name is required (maximum 400 UTF-8 bytes)");
+    }
+    auto loaded = load_project(project_directory);
+    if (const auto* error = loaded.error_if())
+        return *error;
+    const auto manifest = loaded.value().root_directory / "project.yaml";
+    auto temporary = manifest;
+    temporary += ".iotps.tmp";
+    auto backup = manifest;
+    backup += ".iotps.bak";
+    try {
+        for (const auto& path : {temporary, backup}) {
+            if (std::filesystem::exists(std::filesystem::symlink_status(path)))
+                throw std::runtime_error("temporary manifest or backup already exists");
+        }
+        std::ifstream input{manifest, std::ios::binary};
+        std::ostringstream contents;
+        contents << input.rdbuf();
+        if (!input.is_open() || input.bad())
+            throw std::runtime_error("cannot read manifest");
+        input.close();
+        const auto yaml = contents.str();
+        ryml::EventHandlerTree event_handler{loader_callbacks()};
+        ryml::Parser parser(&event_handler);
+        auto tree = ryml::parse_in_arena(&parser, ryml::to_csubstr(yaml));
+        auto name = tree.rootref()["project"]["displayName"];
+        name.save(std::string{display_name});
+        name.set_val_style(ryml::VAL_DQUO);
+        std::string updated;
+        ryml::emitrs_yaml(tree, &updated);
+        auto validated = load_manifest(updated, portable(manifest));
+        if (const auto* error = validated.error_if())
+            return *error;
+        if (!write_text_file(temporary, updated)) {
+            remove_file(temporary);
+            throw std::runtime_error("cannot write temporary manifest");
+        }
+        std::error_code error;
+        std::filesystem::copy_file(manifest, backup, std::filesystem::copy_options::none, error);
+        if (error) {
+            remove_file(temporary);
+            throw std::runtime_error(error.message());
+        }
+        if (!atomic_replace_file(temporary, manifest, error)) {
+            remove_file(temporary);
+            remove_file(backup);
+            throw std::runtime_error(error.message());
+        }
+        auto reloaded = load_project(loaded.value().root_directory);
+        if (!reloaded.has_value()) {
+            if (!atomic_replace_file(backup, manifest, error))
+                throw std::runtime_error("project reload and manifest restore failed: " +
+                                         error.message());
+            return reloaded;
+        }
+        remove_file(backup);
+        return reloaded;
+    } catch (const std::exception& error) {
+        return make_error(WorkspaceErrorCode::project_manifest_write_failed, "$manifest",
+                          error.what());
+    }
+}
+
 ProjectLoadResult change_folder(const std::filesystem::path& project_directory,
                                 const std::string_view action, const std::string_view path,
                                 const std::string_view target_parent,
@@ -641,7 +710,7 @@ ProjectLoadResult change_folder(const std::filesystem::path& project_directory,
         const auto source = std::filesystem::u8path(path);
         const auto parent = std::filesystem::u8path(target_parent);
         if (source == "protocols" || !safe_folder_path(root, source) ||
-            (action != "create" && action != "delete" && action != "move")) {
+            (action != "create" && action != "delete" && action != "move" && action != "rename")) {
             return make_error(WorkspaceErrorCode::invalid_folder_path, "$path",
                               "invalid folder path or action");
         }
@@ -686,17 +755,34 @@ ProjectLoadResult change_folder(const std::filesystem::path& project_directory,
                 }
             }
         }
+        if (action == "rename") {
+            if (!valid_name(target_parent) || !before.empty()) {
+                return make_error(WorkspaceErrorCode::invalid_folder_path, "$name",
+                                  "invalid folder name");
+            }
+            destination = source.parent_path() / parent;
+            if (!safe_folder_path(root, destination) ||
+                (destination != source && std::filesystem::exists(root / destination) &&
+                 !std::filesystem::equivalent(root / source, root / destination))) {
+                return make_error(WorkspaceErrorCode::invalid_folder_path, "$name",
+                                  "destination already exists or is invalid");
+            }
+            if (destination == source)
+                return loaded;
+        }
         auto remap = [&](const std::filesystem::path& item) {
-            return action == "move" && is_within(item, source)
+            if (action == "rename" && item == source)
+                return destination;
+            return (action == "move" || action == "rename") && is_within(item, source)
                        ? (destination / item.lexically_relative(source)).lexically_normal()
                        : item;
         };
         std::vector<std::filesystem::path> order;
         for (const auto& folder : project.folders) {
-            if (folder != source)
+            if (folder != source || action == "rename")
                 order.push_back(remap(folder));
         }
-        if (action != "delete") {
+        if (action != "delete" && action != "rename") {
             order.insert(before.empty() ? order.end()
                                         : std::ranges::find(order, std::filesystem::u8path(before)),
                          destination);

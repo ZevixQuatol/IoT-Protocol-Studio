@@ -144,7 +144,8 @@ declare global {
     iotpsInspectHex?: (input: string) => Promise<InspectionResult>;
     iotpsWindowAction?: (action: WindowAction) => Promise<{ ok: boolean }>;
     iotpsWorkspaceCurrent?: () => Promise<WorkspaceResult>;
-    iotpsWorkspaceOpen?: () => Promise<WorkspaceResult>;
+    iotpsWorkspaceOpen?: (path?: string) => Promise<WorkspaceResult>;
+    iotpsWorkspaceRename?: (name: string) => Promise<WorkspaceResult>;
     iotpsWorkspaceCreate?: (name: string) => Promise<WorkspaceResult>;
     iotpsWorkspaceChangeFolder?: (
       action: string,
@@ -326,8 +327,12 @@ export async function getCurrentProject(): Promise<WorkspaceResult> {
   return window.iotpsWorkspaceCurrent ? window.iotpsWorkspaceCurrent() : browserWorkspace;
 }
 
-export async function openProject(): Promise<WorkspaceResult> {
-  return window.iotpsWorkspaceOpen ? window.iotpsWorkspaceOpen() : nativeRequired();
+export async function openProject(path = ""): Promise<WorkspaceResult> {
+  return window.iotpsWorkspaceOpen ? window.iotpsWorkspaceOpen(path) : nativeRequired();
+}
+
+export async function renameProject(name: string): Promise<WorkspaceResult> {
+  return window.iotpsWorkspaceRename ? window.iotpsWorkspaceRename(name) : nativeRequired();
 }
 
 export async function createProject(name: string): Promise<WorkspaceResult> {
@@ -335,7 +340,7 @@ export async function createProject(name: string): Promise<WorkspaceResult> {
 }
 
 export async function changeFolder(
-  action: "create" | "delete" | "move",
+  action: "create" | "delete" | "move" | "rename",
   path: string,
   targetParent = "protocols",
   before = "",

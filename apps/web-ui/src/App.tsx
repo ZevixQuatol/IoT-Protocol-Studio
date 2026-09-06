@@ -45,6 +45,7 @@ import {
   getCurrentProject,
   inspectHex,
   openProject,
+  renameProject,
   performWindowAction,
   saveProtocol,
   updateFieldDisplayName,
@@ -55,6 +56,7 @@ import {
   type WorkspaceProtocol,
   type WorkspaceResult,
 } from "./bridge";
+import { readRecentProjects, rememberProject, storeRecentProjects } from "./recentProjects";
 import {
   detectInitialLocale,
   detectInitialTheme,
@@ -392,9 +394,19 @@ export default function App() {
   const [fieldDisplayNameDraft, setFieldDisplayNameDraft] = useState("");
   const [errorMessage, setErrorMessage] = useState<string>();
   const [projectMenuOpen, setProjectMenuOpen] = useState(false);
+  const [recentProjects, setRecentProjects] = useState(readRecentProjects);
   const projectMenuRef = useRef<HTMLDivElement>(null);
   const [treeDialog, setTreeDialog] = useState<{
-    action: "project" | "actions" | "create" | "delete" | "move" | "removeProject";
+    action:
+      | "project"
+      | "actions"
+      | "create"
+      | "delete"
+      | "move"
+      | "rename"
+      | "renameProject"
+      | "recent"
+      | "removeProject";
     path: string;
   } | null>(null);
   const treeDialogRef = useRef<HTMLDialogElement>(null);
@@ -494,6 +506,10 @@ export default function App() {
     }
     setErrorMessage(undefined);
     setWorkspace(result);
+    const opened = result.project;
+    if (opened) {
+      setRecentProjects((current) => rememberProject(current, opened));
+    }
     const path =
       result.project?.protocols.find((protocol) => protocol.path === preferredPath)?.path ??
       result.project?.protocols[0]?.path;
@@ -505,6 +521,10 @@ export default function App() {
     setExpanded(keys);
     return true;
   };
+
+  useEffect(() => {
+    storeRecentProjects(recentProjects);
+  }, [recentProjects]);
 
   useEffect(() => {
     document.documentElement.lang = locale;
@@ -703,7 +723,7 @@ export default function App() {
     const { action, path } = treeDialog;
     const name = String(data.get("name") ?? "").trim();
     if (
-      (action === "project" || action === "create") &&
+      (action === "project" || action === "create" || action === "rename") &&
       (!name || /[\\/<>:"|?*\u0000-\u001f]/.test(name) || name.endsWith("."))
     ) {
       setErrorMessage(translation.workspace.invalidName);
@@ -711,6 +731,14 @@ export default function App() {
     }
     let ok = false;
     if (action === "project") ok = await run(() => createProject(name));
+    if (action === "renameProject") ok = await run(() => renameProject(name), selectedProtocolPath);
+    if (action === "rename") {
+      const destination = `${path.slice(0, path.lastIndexOf("/"))}/${name}`;
+      const preferred = selectedProtocolPath?.startsWith(`${path}/`)
+        ? destination + selectedProtocolPath.slice(path.length)
+        : selectedProtocolPath;
+      ok = await run(() => changeFolder("rename", path, name), preferred);
+    }
     if (action === "create")
       ok = await run(() => changeFolder("create", `${path}/${name}`), selectedProtocolPath);
     if (action === "delete")
@@ -1123,6 +1151,14 @@ export default function App() {
                         <>
                           <button
                             disabled={busy}
+                            onClick={() => openTreeDialog("renameProject")}
+                            role="menuitem"
+                            type="button"
+                          >
+                            {translation.workspace.renameProject}
+                          </button>
+                          <button
+                            disabled={busy}
                             onClick={() => openTreeDialog("create")}
                             role="menuitem"
                             type="button"
@@ -1173,6 +1209,14 @@ export default function App() {
                           </button>
                         </>
                       )}
+                      <button
+                        disabled={busy}
+                        onClick={() => openTreeDialog("recent")}
+                        role="menuitem"
+                        type="button"
+                      >
+                        {translation.workspace.recentProjects}
+                      </button>
                     </div>
                   )}
                 </div>
@@ -2140,6 +2184,9 @@ export default function App() {
                   create: translation.workspace.newFolder,
                   delete: translation.workspace.deleteFolder,
                   move: translation.workspace.moveFolder,
+                  rename: translation.workspace.renameFolder,
+                  renameProject: translation.workspace.renameProject,
+                  recent: translation.workspace.recentProjects,
                   removeProject: translation.workspace.removeProject,
                 }[treeDialog.action]
               }
@@ -2147,13 +2194,15 @@ export default function App() {
             <p className="tree-dialog-path">
               {treeDialog.action === "project"
                 ? translation.workspace.projectRoot
-                : treeDialog.action === "removeProject"
+                : treeDialog.action === "removeProject" || treeDialog.action === "renameProject"
                   ? project?.rootPath
-                  : treeDialog.path}
+                  : treeDialog.action === "recent"
+                    ? translation.workspace.recentHint
+                    : treeDialog.path}
             </p>
             {treeDialog.action === "actions" ? (
               <div className="tree-dialog-actions">
-                {(["create", "move", "delete"] as const).map((action) => (
+                {(["create", "rename", "move", "delete"] as const).map((action) => (
                   <button
                     type="button"
                     key={action}
@@ -2162,19 +2211,89 @@ export default function App() {
                   >
                     {action === "create"
                       ? translation.workspace.newFolder
-                      : action === "move"
-                        ? translation.workspace.moveFolder
-                        : translation.workspace.deleteFolder}
+                      : action === "rename"
+                        ? translation.workspace.renameFolder
+                        : action === "move"
+                          ? translation.workspace.moveFolder
+                          : translation.workspace.deleteFolder}
                   </button>
                 ))}
               </div>
+            ) : treeDialog.action === "recent" ? (
+              <div className="recent-projects">
+                {recentProjects.length === 0 && <p>{translation.workspace.noRecentProjects}</p>}
+                {recentProjects.map((recent) => (
+                  <div className="recent-project" key={recent.rootPath}>
+                    <button
+                      className="secondary-button"
+                      type="button"
+                      disabled={busy}
+                      title={recent.rootPath}
+                      onClick={() => {
+                        if (isDirty) {
+                          setErrorMessage(translation.structure.saveBlocked);
+                          return;
+                        }
+                        void run(() => openProject(recent.rootPath)).then((ok) => {
+                          if (ok) setTreeDialog(null);
+                        });
+                      }}
+                    >
+                      <strong>{recent.name}</strong>
+                      <small>{recent.rootPath}</small>
+                    </button>
+                    <button
+                      className="secondary-button"
+                      type="button"
+                      disabled={busy}
+                      aria-label={`${translation.workspace.forgetRecentProject}: ${recent.name}`}
+                      title={translation.workspace.forgetRecentProject}
+                      onClick={() =>
+                        setRecentProjects((current) =>
+                          current.filter((item) => item.rootPath !== recent.rootPath),
+                        )
+                      }
+                    >
+                      <X size={14} />
+                    </button>
+                  </div>
+                ))}
+                {recentProjects.length > 0 && (
+                  <button
+                    className="secondary-button"
+                    type="button"
+                    disabled={busy}
+                    onClick={() => setRecentProjects([])}
+                  >
+                    {translation.workspace.clearRecentProjects}
+                  </button>
+                )}
+              </div>
             ) : (
               <>
-                {(treeDialog.action === "project" || treeDialog.action === "create") && (
+                {["project", "create", "rename", "renameProject"].includes(treeDialog.action) && (
                   <label>
-                    {translation.workspace.folderName}
-                    <input autoFocus name="name" required maxLength={100} disabled={busy} />
+                    {treeDialog.action === "renameProject"
+                      ? translation.create.displayName
+                      : translation.workspace.folderName}
+                    <input
+                      autoFocus
+                      name="name"
+                      required
+                      maxLength={100}
+                      disabled={busy}
+                      defaultValue={
+                        treeDialog.action === "renameProject"
+                          ? project?.name
+                          : treeDialog.action === "rename"
+                            ? treeDialog.path.split("/").at(-1)
+                            : ""
+                      }
+                    />
                   </label>
+                )}
+                {treeDialog.action === "renameProject" && (
+                  <p>{translation.workspace.renameProjectHint}</p>
                 )}
                 {treeDialog.action === "move" && (
                   <label>
@@ -2210,15 +2329,17 @@ export default function App() {
               >
                 {translation.create.cancel}
               </button>
-              {treeDialog.action !== "actions" && (
+              {treeDialog.action !== "actions" && treeDialog.action !== "recent" && (
                 <button className="primary-button" type="submit" disabled={busy}>
-                  {treeDialog.action === "delete"
-                    ? translation.workspace.deleteFolder
-                    : treeDialog.action === "removeProject"
-                      ? translation.workspace.removeProject
-                      : treeDialog.action === "move"
-                        ? translation.workspace.moveFolder
-                        : translation.create.submit}
+                  {treeDialog.action === "rename" || treeDialog.action === "renameProject"
+                    ? translation.editor.save
+                    : treeDialog.action === "delete"
+                      ? translation.workspace.deleteFolder
+                      : treeDialog.action === "removeProject"
+                        ? translation.workspace.removeProject
+                        : treeDialog.action === "move"
+                          ? translation.workspace.moveFolder
+                          : translation.create.submit}
                 </button>
               )}
             </footer>

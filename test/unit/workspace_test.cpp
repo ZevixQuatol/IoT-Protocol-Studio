@@ -478,6 +478,77 @@ messages:
     CHECK(change_folder(managed, "create", "protocols/unknown/a").has_value());
     CHECK(!change_folder(managed, "move", "protocols/a", "protocols/unknown").has_value());
 
+    const auto before_rename = load_project(managed);
+    CHECK(before_rename.has_value());
+    const auto renamed = change_folder(managed, "rename", "protocols/a", "设备");
+    CHECK(renamed.has_value());
+    if (const auto* project = renamed.value_if()) {
+        CHECK(project->protocols[0].relative_path ==
+              std::filesystem::path{u8"protocols/设备/nested/sensor.protocol.yaml"});
+        CHECK(project->manifest.folder_order.size() ==
+              before_rename.value().manifest.folder_order.size());
+        for (std::size_t i = 0; i < project->manifest.folder_order.size(); ++i) {
+            const auto& old = before_rename.value().manifest.folder_order[i];
+            if (old == "protocols/a")
+                CHECK(project->manifest.folder_order[i] ==
+                      std::filesystem::path{u8"protocols/设备"});
+        }
+    }
+    CHECK(read_file(managed /
+                    std::filesystem::path{u8"protocols/设备/nested/sensor.protocol.yaml"}) ==
+          protocol_bytes);
+    CHECK(!std::filesystem::exists(managed / "protocols/a"));
+    const auto before_invalid_rename = read_file(managed / "project.yaml");
+    for (const auto name : {"unknown", "../outside", "CON", "trailing.", "a/b", ""})
+        CHECK(!change_folder(managed, "rename", "protocols/设备", name).has_value());
+    CHECK(read_file(managed / "project.yaml") == before_invalid_rename);
+    CHECK(change_folder(managed, "rename", "protocols/设备", "设备").has_value());
+    CHECK(change_folder(managed, "rename", "protocols/设备", "Device").has_value());
+    CHECK(change_folder(managed, "rename", "protocols/Device", "device").has_value());
+    CHECK(load_project(managed).has_value());
+
+    write_file(managed / "project.yaml",
+               read_file(managed / "project.yaml") + "customSetting: preserved\n");
+    const auto renamed_project = rename_project(managed, "设备项目: \"Beta\"");
+    CHECK(renamed_project.has_value());
+    if (const auto* project = renamed_project.value_if()) {
+        CHECK(project->manifest.metadata.display_name == "设备项目: \"Beta\"");
+        CHECK(project->manifest.metadata.name == "managed");
+        CHECK(project->root_directory == std::filesystem::canonical(managed));
+    }
+    CHECK(read_file(managed / "project.yaml").find("customSetting: preserved") !=
+          std::string::npos);
+    const auto renamed_manifest = read_file(managed / "project.yaml");
+    CHECK(!rename_project(managed, "").has_value());
+    CHECK(!rename_project(managed, "   ").has_value());
+    CHECK(!rename_project(managed, "line\nbreak").has_value());
+    CHECK(!rename_project(managed, std::string(401, 'x')).has_value());
+    CHECK(read_file(managed / "project.yaml") == renamed_manifest);
+    for (const auto suffix : {".iotps.tmp", ".iotps.bak"}) {
+        const auto occupied = managed / (std::string{"project.yaml"} + suffix);
+        write_file(occupied, "reserved");
+        CHECK(!rename_project(managed, "Blocked").has_value());
+        CHECK(read_file(occupied) == "reserved");
+        CHECK(read_file(managed / "project.yaml") == renamed_manifest);
+        std::filesystem::remove(occupied);
+    }
+#if defined(_WIN32)
+    const auto rename_lock =
+        CreateFileW((managed / "project.yaml").c_str(), GENERIC_READ, FILE_SHARE_READ, nullptr,
+                    OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
+    CHECK(rename_lock != INVALID_HANDLE_VALUE);
+    if (rename_lock != INVALID_HANDLE_VALUE) {
+        CHECK(!rename_project(managed, "Blocked").has_value());
+        CHECK(!change_folder(managed, "rename", "protocols/device", "blocked").has_value());
+        CHECK(read_file(managed / "project.yaml") == renamed_manifest);
+        CHECK(std::filesystem::is_directory(managed / "protocols/device"));
+        CHECK(!std::filesystem::exists(managed / "protocols/blocked"));
+        CHECK(!std::filesystem::exists(managed / "project.yaml.iotps.tmp"));
+        CHECK(!std::filesystem::exists(managed / "project.yaml.iotps.bak"));
+        CloseHandle(rename_lock);
+    }
+#endif
+
     std::error_code cleanup_error;
     std::filesystem::remove_all(temporary, cleanup_error);
     CHECK(!cleanup_error);

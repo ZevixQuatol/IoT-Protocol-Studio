@@ -29,6 +29,14 @@ export type TranslationMessages = {
     newFolder: string;
     deleteFolder: string;
     moveFolder: string;
+    renameFolder: string;
+    renameProject: string;
+    renameProjectHint: string;
+    recentProjects: string;
+    recentHint: string;
+    noRecentProjects: string;
+    forgetRecentProject: string;
+    clearRecentProjects: string;
     folderActions: string;
     folderName: string;
     invalidName: string;
@@ -182,6 +190,14 @@ export const messages: Record<Locale, TranslationMessages> = {
       newFolder: "新建文件夹",
       deleteFolder: "删除文件夹",
       moveFolder: "移动文件夹",
+      renameFolder: "重命名文件夹",
+      renameProject: "重命名项目",
+      renameProjectHint: "修改项目显示名称，项目标识和磁盘目录保持原值。",
+      recentProjects: "最近项目",
+      recentHint: "保留最近打开的 10 个项目；移除记录不会删除磁盘文件。",
+      noRecentProjects: "暂无最近项目。",
+      forgetRecentProject: "移除最近记录",
+      clearRecentProjects: "清空最近记录",
       folderActions: "文件夹操作",
       folderName: "名称",
       invalidName: "请输入有效名称，不可包含路径分隔符或以句点结尾。",
@@ -331,6 +347,14 @@ export const messages: Record<Locale, TranslationMessages> = {
       newFolder: "New folder",
       deleteFolder: "Delete folder",
       moveFolder: "Move folder",
+      renameFolder: "Rename folder",
+      renameProject: "Rename project",
+      renameProjectHint: "Change the display name. The project ID and directory stay the same.",
+      recentProjects: "Recent projects",
+      recentHint: "The last 10 projects opened. Removing an entry keeps its files on disk.",
+      noRecentProjects: "No recent projects yet.",
+      forgetRecentProject: "Remove recent entry",
+      clearRecentProjects: "Clear recent entries",
       folderActions: "Folder actions",
       folderName: "Name",
       invalidName: "Enter a valid name without path separators or a trailing period.",

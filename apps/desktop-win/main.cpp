@@ -415,6 +415,17 @@ select_project_directory(const HWND owner,
     return result;
 }
 
+[[nodiscard]] std::string load_workspace(const std::filesystem::path& path,
+                                         std::optional<std::filesystem::path>& current_project) {
+    auto loaded = iotps::core::workspace::load_project(path);
+    if (!loaded.has_value())
+        return workspace_result_response(loaded);
+    // Commit the active project only after its full UI response can be read successfully.
+    auto response = workspace_project_response(loaded.value());
+    current_project = loaded.value().root_directory;
+    return response;
+}
+
 [[nodiscard]] std::string open_workspace(const HWND owner,
                                          std::optional<std::filesystem::path>& current_project) {
     try {
@@ -422,11 +433,7 @@ select_project_directory(const HWND owner,
         if (!selected.has_value()) {
             return empty_workspace_response(true);
         }
-        auto loaded = iotps::core::workspace::load_project(*selected);
-        if (loaded.has_value()) {
-            current_project = loaded.value().root_directory;
-        }
-        return workspace_result_response(loaded);
+        return load_workspace(*selected, current_project);
     } catch (const std::exception& error) {
         return workspace_error_response("directory_picker_failed", error.what());
     }
@@ -958,7 +965,7 @@ window.addEventListener("DOMContentLoaded", () => {
         window.iotpsDebugFile("invalid", ""),
         window.iotpsSmokeDecodeFixture(),
       ])
-        .then(([current, createResult, saveResult, fieldResult, closed, windowResult, folderResult, projectResult, converted, checksum, decoded, file, fixture]) => {
+        .then(async ([current, createResult, saveResult, fieldResult, closed, windowResult, folderResult, projectResult, converted, checksum, decoded, file, fixture]) => {
           if (!fixture?.ok || fixture.fields?.[0]?.value !== "4660" || fixture.fields[0].offset !== 0 || fixture.fields[0].length !== 2) {
             report("debug-decode-fixture-failed"); return;
           }
@@ -978,6 +985,18 @@ window.addEventListener("DOMContentLoaded", () => {
               projectResult?.error?.code !== "invalid_request") {
             report("workspace-bridge-failed");
             return;
+          }
+          const noProjectRename = await window.iotpsWorkspaceRename("Smoke");
+          const fixturePath = await window.iotpsSmokeProjectPath();
+          const reopened = await window.iotpsWorkspaceOpen(fixturePath);
+          const invalidRename = await window.iotpsWorkspaceRename("");
+          const failedOpen = await window.iotpsWorkspaceOpen(fixturePath + "/missing-project");
+          const retained = await window.iotpsWorkspaceCurrent();
+          await window.iotpsWorkspaceClose();
+          if (noProjectRename?.error?.code !== "project_not_open" || !reopened?.ok ||
+              reopened.project?.protocols.length !== 1 || invalidRename?.error?.code !== "project_name_required" ||
+              failedOpen?.ok || retained.project?.rootPath !== reopened.project?.rootPath) {
+            report("project-management-bridge-failed"); return;
           }
           debug.click();
           window.setTimeout(() => {
@@ -1302,8 +1321,33 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR command_line, int) {
         window.bind("iotpsWorkspaceCurrent", [&current_project](const std::string&) {
             return current_workspace(current_project);
         });
-        window.bind("iotpsWorkspaceOpen", [window_handle, &current_project](const std::string&) {
-            return open_workspace(window_handle, current_project);
+        window.bind("iotpsWorkspaceOpen", [window_handle,
+                                           &current_project](const std::string& request) {
+            const auto arguments = string_arguments(request);
+            if (!arguments || arguments->size() > 1)
+                return workspace_error_response("invalid_request",
+                                                "openProject expects an optional path");
+            if (arguments->empty() || (*arguments)[0].empty())
+                return open_workspace(window_handle, current_project);
+            try {
+                const auto& utf8 = (*arguments)[0];
+                const auto path = std::filesystem::path{std::u8string{utf8.begin(), utf8.end()}};
+                if (!path.is_absolute())
+                    return workspace_error_response("invalid_request",
+                                                    "an absolute project path is required");
+                return load_workspace(path, current_project);
+            } catch (const std::exception& error) {
+                return workspace_error_response("workspace_operation_failed", error.what());
+            }
+        });
+        window.bind("iotpsWorkspaceRename", [&current_project](const std::string& request) {
+            const auto arguments = string_arguments(request);
+            if (!arguments || arguments->size() != 1)
+                return workspace_error_response("invalid_request", "renameProject expects a name");
+            if (!current_project)
+                return workspace_error_response("project_not_open", "Open a project first");
+            return workspace_result_response(
+                iotps::core::workspace::rename_project(*current_project, (*arguments)[0]));
         });
         window.bind("iotpsWorkspaceCreate", [window_handle,
                                              &current_project](const std::string& request) {
@@ -1360,6 +1404,9 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR command_line, int) {
         std::atomic_bool smoke_test_passed = false;
         if (smoke_test) {
 #if defined(IOTPS_TEST_PROJECT)
+            window.bind("iotpsSmokeProjectPath", [](const std::string&) {
+                return json_string(path_utf8(std::filesystem::path{IOTPS_TEST_PROJECT}));
+            });
             window.bind("iotpsSmokeDecodeFixture", [](const std::string&) {
                 return decode_debug_message(
                     R"(["protocols/smart-sensor.protocol.yaml","telemetry","34 12"])",

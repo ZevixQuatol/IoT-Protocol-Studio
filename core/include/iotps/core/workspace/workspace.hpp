@@ -85,6 +85,9 @@ using ProjectLoadResult = Result<Project, WorkspaceDiagnostic>;
 [[nodiscard]] ProjectLoadResult load_project(const std::filesystem::path& project_directory);
 [[nodiscard]] ProjectLoadResult create_project(const std::filesystem::path& parent_directory,
                                                std::string_view name);
+[[nodiscard]] ProjectLoadResult rename_project(const std::filesystem::path& project_directory,
+                                               std::string_view display_name);
+// For rename, target_parent is the new single folder name; the parent stays unchanged.
 [[nodiscard]] ProjectLoadResult change_folder(const std::filesystem::path& project_directory,
                                               std::string_view action, std::string_view path,
                                               std::string_view target_parent = "protocols",
