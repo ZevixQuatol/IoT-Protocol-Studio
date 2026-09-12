@@ -938,7 +938,15 @@ constexpr auto missing_ui_html = R"html(
 constexpr auto smoke_test_script = R"js(
 window.addEventListener("DOMContentLoaded", () => {
   let attemptsRemaining = 50;
-  const report = (result) => window.iotpsSmokeResult(result);
+  const originalTheme = window.localStorage.getItem("iotps.theme");
+  const report = (result) => {
+    if (originalTheme === null) {
+      window.localStorage.removeItem("iotps.theme");
+    } else {
+      window.localStorage.setItem("iotps.theme", originalTheme);
+    }
+    window.iotpsSmokeResult(result);
+  };
   const verify = () => {
     const shell = document.querySelector(".app-shell");
     const titlebar = document.querySelector(".titlebar");

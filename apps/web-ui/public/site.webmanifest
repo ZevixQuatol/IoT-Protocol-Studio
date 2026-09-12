@@ -4,8 +4,8 @@
   "description": "IoT protocol schema, codec, and message workbench.",
   "start_url": ".",
   "display": "standalone",
-  "background_color": "#101820",
-  "theme_color": "#101820",
+  "background_color": "#edf2f5",
+  "theme_color": "#e8eef2",
   "icons": [
     {
       "src": "./icon-192.png",
