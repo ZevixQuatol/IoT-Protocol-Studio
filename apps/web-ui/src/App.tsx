@@ -36,6 +36,7 @@ import SparklesIcon from "./icons/sparkles-icon";
 import UnorderedListIcon from "./icons/unordered-list-icon";
 import DebugTools, { type DebugAnnotation, type DebugRange } from "./DebugTools";
 import SchemaEditor, { type SchemaEditTarget } from "./SchemaEditor";
+import MessageTemplates from "./MessageTemplates";
 import {
   closeProject,
   changeFolder,
@@ -372,6 +373,7 @@ export default function App() {
   const [messageName, setMessageName] = useState("");
   const [messageFieldValues, setMessageFieldValues] = useState<Record<string, string>>({});
   const [messageEncodeResult, setMessageEncodeResult] = useState<MessageEncodeResult>();
+  const [messageActionStatus, setMessageActionStatus] = useState("");
   const [debugInput, setDebugInput] = useState("");
   const debugContentRef = useRef("");
   const [debugFormatted, setDebugFormatted] = useState(false);
@@ -980,6 +982,37 @@ export default function App() {
     setMessageEncodeResult(undefined);
   };
 
+  useEffect(() => {
+    setMessageEncodeResult(undefined);
+    setMessageActionStatus("");
+  }, [messageFieldValues]);
+
+  const copyMessageHex = async () => {
+    if (!messageEncodeResult?.ok || isDirty) return;
+    try {
+      await navigator.clipboard.writeText(messageEncodeResult.normalizedHex);
+      setMessageActionStatus(translation.messageStudio.copied);
+    } catch (error) {
+      setMessageActionStatus(String(error));
+    }
+  };
+
+  const openMessageInDebug = () => {
+    if (!messageEncodeResult?.ok || isDirty || debugBusy) return;
+    const hex = messageEncodeResult.normalizedHex;
+    if (
+      debugInput.trim() &&
+      debugContentRef.current !== hex.replace(/\s/g, "") &&
+      !window.confirm(translation.messageStudio.toDebugHint)
+    )
+      return;
+    updateDebugInput(hex);
+    setDebugFormatted(true);
+    setDebugToolRange(null);
+    setDebugByteOffset(null);
+    navigate("debug");
+  };
+
   const toggleExpanded = (key: string) => {
     setExpanded((current) => {
       const next = new Set(current);
@@ -1284,6 +1317,7 @@ export default function App() {
                       expanded={expanded}
                       nodes={buildTree(project)}
                       onSelect={(protocol) => {
+                        if (busy) return;
                         if (isDirty) {
                           setErrorMessage(translation.structure.saveBlocked);
                           return;
@@ -2134,7 +2168,7 @@ export default function App() {
                             <label className="message-selector">
                               <span>{translation.messageStudio.selectMessage}</span>
                               <select
-                                disabled={selectedProtocol.schema.messages.length === 0}
+                                disabled={busy || selectedProtocol.schema.messages.length === 0}
                                 onChange={(event) => selectMessage(event.target.value)}
                                 value={messageName}
                               >
@@ -2154,6 +2188,28 @@ export default function App() {
                             </div>
                           ) : (
                             <>
+                              <MessageTemplates
+                                key={`${project?.rootPath}:${selectedProtocol.path}:${selectedMessage.name}:${selectedProtocol.content}`}
+                                path={selectedProtocol.path}
+                                message={selectedMessage.name}
+                                fields={selectedMessage.fields
+                                  .filter((field) => !field.lengthOf)
+                                  .map((field) => ({
+                                    name: field.name,
+                                    value: messageFieldValues[field.name] ?? "",
+                                  }))}
+                                busy={busy}
+                                disabled={isDirty}
+                                locale={locale}
+                                onBusy={setBusy}
+                                onLoad={(fields) =>
+                                  setMessageFieldValues(
+                                    Object.fromEntries(
+                                      fields.map((field) => [field.name, field.value]),
+                                    ),
+                                  )
+                                }
+                              />
                               <div className="message-field-grid">
                                 <div className="message-field-row message-field-heading">
                                   <span>{translation.structure.name}</span>
@@ -2189,6 +2245,7 @@ export default function App() {
                                       ) : (
                                         <label className="message-value-input">
                                           <input
+                                            disabled={busy}
                                             aria-label={`${translation.messageStudio.fieldValue}: ${field.name}`}
                                             onChange={(event) =>
                                               setMessageFieldValues((current) => ({
@@ -2233,6 +2290,25 @@ export default function App() {
                                   </div>
                                   {messageEncodeResult.ok ? (
                                     <>
+                                      <div className="message-studio-actions">
+                                        <button
+                                          type="button"
+                                          disabled={busy || isDirty}
+                                          onClick={() => void copyMessageHex()}
+                                        >
+                                          {translation.messageStudio.copyHex}
+                                        </button>
+                                        <button
+                                          type="button"
+                                          disabled={busy || isDirty || debugBusy}
+                                          onClick={openMessageInDebug}
+                                        >
+                                          {translation.messageStudio.toDebug}
+                                        </button>
+                                        {messageActionStatus && (
+                                          <span role="status">{messageActionStatus}</span>
+                                        )}
+                                      </div>
                                       <code className="message-preview-hex">
                                         {messageEncodeResult.normalizedHex}
                                       </code>

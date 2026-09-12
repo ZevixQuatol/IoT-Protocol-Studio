@@ -1015,6 +1015,18 @@ window.addEventListener("DOMContentLoaded", () => {
           await edit("addField", "packet", "", "name", "value", "type", "uint16", "endian", "little");
           await edit("addField", "packet", "", "name", "flag", "type", "uint8");
           const renamed = await edit("updateField", "packet", "value", "name", "reading", "displayName", "Reading");
+          const savedTemplate = await window.iotpsMessageTemplates("save", path, "packet", "Smoke", "reading", "4660", "flag", "1");
+          const duplicateTemplate = await window.iotpsMessageTemplates("save", path, "packet", "Smoke", "reading", "0", "flag", "0");
+          await window.iotpsWorkspaceClose();
+          await window.iotpsWorkspaceOpen(editable.project.rootPath);
+          const loadedTemplate = await window.iotpsMessageTemplates("load", path, "packet", "Smoke");
+          const encodedTemplate = await window.iotpsEncodeProtocolMessage(path, "packet", ...(loadedTemplate.templates?.[0]?.fields ?? []).flatMap((field) => [field.name, field.value]));
+          const deletedTemplate = await window.iotpsMessageTemplates("delete", path, "packet", "Smoke");
+          if (!savedTemplate?.ok || duplicateTemplate.error?.code !== "message_template_conflict" ||
+              !loadedTemplate?.ok || !encodedTemplate?.ok || encodedTemplate.normalizedHex !== "34 12 01" ||
+              !deletedTemplate?.ok || deletedTemplate.templates.length !== 0) {
+            report("message-template-bridge-failed"); return;
+          }
           const parsedField = renamed.schema.messages[0].fields[1];
           const invalid = await window.iotpsWorkspaceEditSchema(path, "updateField", "packet", "reading", "type", "uint128");
           const encoded = await window.iotpsEncodeProtocolMessage(path, "packet", "reading", "4660", "flag", "1");
@@ -1445,6 +1457,45 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR command_line, int) {
         });
         window.bind("iotpsEncodeProtocolMessage", [&current_project](const std::string& request) {
             return encode_protocol_message(request, current_project);
+        });
+        window.bind("iotpsMessageTemplates", [&current_project](const std::string& request) {
+            const auto args = string_arguments(request);
+            if (!args || args->size() < 4 || args->size() > 2004 || args->size() % 2 != 0)
+                return workspace_error_response(
+                    "invalid_request",
+                    "templates expect action, protocol, message, name and field pairs");
+            if (!current_project)
+                return workspace_error_response("project_not_open", "Open a project first");
+            std::vector<std::pair<std::string, std::string>> values;
+            for (std::size_t i = 4; i < args->size(); i += 2)
+                values.emplace_back((*args)[i], (*args)[i + 1]);
+            const auto result = iotps::core::workspace::message_templates(
+                *current_project, (*args)[0], (*args)[1], (*args)[2], (*args)[3], values);
+            if (const auto* error = result.error_if())
+                return workspace_error_response(iotps::core::workspace::to_string(error->code),
+                                                error->detail, error->path);
+            std::ostringstream json;
+            json << "{\"ok\":true,\"templates\":[";
+            bool first = true;
+            for (const auto& item : result.value()) {
+                if (!first)
+                    json << ',';
+                first = false;
+                json << "{\"name\":" << json_string(item.name)
+                     << ",\"compatible\":" << (item.compatible ? "true" : "false")
+                     << ",\"fields\":[";
+                bool first_field = true;
+                for (const auto& field : item.fields) {
+                    if (!first_field)
+                        json << ',';
+                    first_field = false;
+                    json << "{\"name\":" << json_string(field.name)
+                         << ",\"value\":" << json_string(field.value) << '}';
+                }
+                json << "]}";
+            }
+            json << "]}";
+            return json.str();
         });
         window.bind("iotpsWorkspaceClose", [&current_project](const std::string&) {
             current_project.reset();

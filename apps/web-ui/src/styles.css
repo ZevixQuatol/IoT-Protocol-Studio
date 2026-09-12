@@ -685,6 +685,60 @@ button {
   font-size: 11px;
 }
 
+.message-templates {
+  padding: 14px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+}
+.message-templates button {
+  font: inherit;
+  font-size: 11px;
+}
+.message-templates form,
+.message-template-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: end;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+.message-templates label {
+  display: grid;
+  flex: 1;
+  min-width: 180px;
+  gap: 5px;
+  font-size: 11px;
+  color: var(--muted);
+}
+.message-templates input,
+.message-templates select {
+  min-width: 0;
+  width: 100%;
+  min-height: 30px;
+  padding: 5px 8px;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  color: var(--text);
+  background: var(--surface-deep);
+  font: inherit;
+}
+.message-template-hint,
+.message-templates > p {
+  margin: 4px 0 0;
+  font-size: 11px;
+  line-height: 1.5;
+}
+.template-dialog {
+  margin: auto;
+  color: var(--text);
+}
+.template-dialog:not([open]) {
+  display: none;
+}
+.template-dialog::backdrop {
+  background: rgb(3 8 12 / 55%);
+}
+
 .schema-edit-dialog {
   margin: auto;
   color: var(--text);
@@ -1963,6 +2017,7 @@ button {
 
 .workspace-empty button,
 .language-options button,
+.message-templates button,
 .schema-edit-actions button,
 .protocol-dialog button {
   display: inline-flex;
@@ -1980,6 +2035,7 @@ button {
 
 .workspace-empty button:hover:not(:disabled),
 .language-options button:hover,
+.message-templates button:hover:not(:disabled),
 .schema-edit-actions button:hover:not(:disabled),
 .protocol-dialog button:hover:not(:disabled) {
   border-color: #47725f;
@@ -1987,6 +2043,7 @@ button {
 }
 
 .workspace-empty button:disabled,
+.message-templates button:disabled,
 .schema-edit-actions button:disabled,
 .protocol-dialog button:disabled {
   opacity: 0.55;
@@ -2564,6 +2621,7 @@ button {
 :root[data-theme="light"] .source-actions button,
 :root[data-theme="light"] .workspace-empty button,
 :root[data-theme="light"] .language-options button,
+:root[data-theme="light"] .message-templates button,
 :root[data-theme="light"] .schema-edit-actions button,
 :root[data-theme="light"] .protocol-dialog button {
   border-color: #c6d2da;
@@ -2575,6 +2633,7 @@ button {
 :root[data-theme="light"] .source-actions button:hover:not(:disabled),
 :root[data-theme="light"] .workspace-empty button:hover:not(:disabled),
 :root[data-theme="light"] .language-options button:hover,
+:root[data-theme="light"] .message-templates button:hover:not(:disabled),
 :root[data-theme="light"] .schema-edit-actions button:hover:not(:disabled),
 :root[data-theme="light"] .protocol-dialog button:hover:not(:disabled) {
   border-color: #88bba7;
@@ -2586,6 +2645,10 @@ button {
   border-color: #b8dfcc;
   background: #effaf5;
   color: #176a50;
+}
+:root[data-theme="light"] .message-preview-hex {
+  background: #f7fffb;
+  border-color: #b8dfcc;
 }
 
 :root[data-theme="light"] .message-preview.error,

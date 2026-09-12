@@ -651,6 +651,70 @@ messages:
     CHECK(edit("deleteMessage", "other", "").has_value());
     CHECK(editor_schema().messages.empty());
 
+    // Template drafts round-trip exactly; schema compatibility and persistence failures are safe.
+    CHECK(edit("addMessage", "", "", {{"name", "saved"}}).has_value());
+    CHECK(edit("addField", "saved", "", {{"name", "number"}, {"type", "uint64"}}).has_value());
+    CHECK(edit("addField", "saved", "", {{"name", "text"}, {"type", "string"}, {"length", "4"}})
+              .has_value());
+    CHECK(
+        edit("addField", "saved", "", {{"name", "length"}, {"type", "uint8"}, {"lengthOf", "text"}})
+            .has_value());
+    const auto templates = [&](std::string_view action, std::string_view name = "draft",
+                               std::vector<std::pair<std::string, std::string>> fields = {}) {
+        return message_templates(managed, action, editor_path, "saved", name, fields);
+    };
+    const auto templates_path = managed / "message-templates.yaml";
+    CHECK(templates("list").value().empty());
+    CHECK(!std::filesystem::exists(templates_path));
+    CHECK(templates("save", "草稿: v1",
+                    {{"number", "18446744073709551615"}, {"text", "值: \"hi\"\n"}})
+              .has_value());
+    auto template_list = templates("list");
+    if (const auto* error = template_list.error_if()) {
+        std::cerr << "template round trip: " << error->detail << '\n';
+        return 1;
+    }
+    CHECK(template_list.has_value() && template_list.value().size() == 1);
+    CHECK(template_list.value()[0].compatible);
+    CHECK(templates("load", "草稿: v1").value()[0].fields[0].value == "18446744073709551615");
+    CHECK(templates("load", "草稿: v1").value()[0].fields[1].value == "值: \"hi\"\n");
+    const auto saved_templates = read_file(templates_path);
+    CHECK(!templates("save", "草稿: v1", {{"number", "0"}, {"text", ""}}).has_value());
+    CHECK(!templates("save", "bad", {{"number", "0"}, {"number", "1"}}).has_value());
+    CHECK(!templates("save", "bad", {{"number", "0"}, {"length", "1"}}).has_value());
+    CHECK(!templates("save", "bad", {{"number", "0"}}).has_value());
+    CHECK(!templates("delete", "missing").has_value());
+    CHECK(!templates("load", "missing").has_value());
+    CHECK(!templates("unknown").has_value());
+    CHECK(!templates("save", " ", {{"number", "0"}, {"text", ""}}).has_value());
+    CHECK(read_file(templates_path) == saved_templates);
+    CHECK(edit("updateField", "saved", "number", {{"type", "uint32"}}).has_value());
+    CHECK(!templates("list").value()[0].compatible);
+    CHECK(!templates("load", "草稿: v1").has_value());
+    CHECK(read_file(templates_path) == saved_templates);
+    CHECK(templates("replace", "草稿: v1", {{"number", ""}, {"text", std::string{"a\0b", 3}}})
+              .has_value());
+    CHECK(templates("load", "草稿: v1").value()[0].fields[0].value.empty());
+    CHECK(templates("load", "草稿: v1").value()[0].fields[1].value == std::string("a\0b", 3));
+    const auto replaced_templates = read_file(templates_path);
+    write_file(managed / "message-templates.yaml.iotps.tmp", "reserved");
+    CHECK(!templates("delete", "草稿: v1").has_value());
+    CHECK(read_file(templates_path) == replaced_templates);
+    std::filesystem::remove(managed / "message-templates.yaml.iotps.tmp");
+    write_file(templates_path, "version: 99\ntemplates: []\n");
+    CHECK(!templates("save", "new", {{"number", "0"}, {"text", ""}}).has_value());
+    CHECK(read_file(templates_path) == "version: 99\ntemplates: []\n");
+    write_file(templates_path, "version: 1\ntemplates: [broken]\n");
+    CHECK(!templates("list").has_value());
+    write_file(templates_path, replaced_templates);
+    CHECK(edit("addMessage", "", "", {{"name", "other"}}).has_value());
+    CHECK(message_templates(managed, "save", editor_path, "other", "草稿: v1").has_value());
+    CHECK(templates("list").value().size() == 1);
+    CHECK(!message_templates(managed, "list", "protocols/missing.yaml", "saved").has_value());
+    CHECK(templates("delete", "草稿: v1").has_value());
+    CHECK(templates("list").value().empty());
+    CHECK(message_templates(managed, "list", editor_path, "other").value().size() == 1);
+
     std::error_code cleanup_error;
     std::filesystem::remove_all(temporary, cleanup_error);
     CHECK(!cleanup_error);

@@ -1228,6 +1228,217 @@ ProjectLoadResult edit_schema(const std::filesystem::path& project_directory,
     }
 }
 
+MessageTemplateResult
+message_templates(const std::filesystem::path& project_directory, const std::string_view action,
+                  const std::string_view protocol_path, const std::string_view message_name,
+                  const std::string_view name,
+                  const std::vector<std::pair<std::string, std::string>>& values) {
+    const auto fail = [](WorkspaceErrorCode code, std::string detail) -> MessageTemplateResult {
+        return make_error(code, "message-templates.yaml", std::move(detail));
+    };
+    try {
+        if (action != "list" && action != "load" && action != "save" && action != "replace" &&
+            action != "delete")
+            return fail(WorkspaceErrorCode::message_template_invalid, "unknown template action");
+        const bool saving = action == "save" || action == "replace";
+        if ((!saving && !values.empty()) || values.size() > 1000)
+            return fail(WorkspaceErrorCode::message_template_invalid, "unexpected template values");
+        if (action != "list" &&
+            (name.empty() || name.size() > 200 ||
+             std::ranges::all_of(name, [](unsigned char c) { return std::isspace(c); }) ||
+             std::ranges::any_of(name, [](unsigned char c) { return c < 32; })))
+            return fail(WorkspaceErrorCode::message_template_invalid,
+                        "a nonblank template name is required");
+        const auto loaded = load_project(project_directory);
+        if (!loaded.has_value())
+            return *loaded.error_if();
+        const auto& project = loaded.value();
+        const auto protocol = std::ranges::find_if(project.protocols, [&](const auto& item) {
+            return portable(item.relative_path) == protocol_path;
+        });
+        if (protocol == project.protocols.end())
+            return fail(WorkspaceErrorCode::protocol_not_referenced,
+                        "protocol is not in this project");
+        const auto message = std::ranges::find_if(
+            protocol->schema.messages, [&](const auto& item) { return item.name == message_name; });
+        if (message == protocol->schema.messages.end())
+            return fail(WorkspaceErrorCode::protocol_message_not_found, "message was not found");
+        std::vector<MessageTemplateField> expected;
+        for (const auto& field : message->fields) {
+            if (field.length_of)
+                continue;
+            // Fixed value shape only: display names, order, offsets and byte order may change.
+            auto type = std::string{schema::to_string(field.type)};
+            if (field.element_type)
+                type += ":" + std::string{schema::to_string(*field.element_type)};
+            if (field.count)
+                type += ":" + std::to_string(*field.count);
+            if (field.length)
+                type += ":length=" + std::to_string(*field.length);
+            expected.push_back({field.name, std::move(type), ""});
+        }
+        const auto destination = project.root_directory / "message-templates.yaml";
+        if (linked_directory(destination) || std::filesystem::is_symlink(destination))
+            return fail(WorkspaceErrorCode::message_template_invalid,
+                        "template file must not be a link");
+        std::vector<MessageTemplate> templates;
+        constexpr std::size_t max_bytes = 1024 * 1024;
+        if (std::filesystem::exists(destination)) {
+            std::ifstream input{destination, std::ios::binary};
+            std::string content(max_bytes + 1, '\0');
+            input.read(content.data(), static_cast<std::streamsize>(content.size()));
+            content.resize(static_cast<std::size_t>(input.gcount()));
+            if (input.bad() || !input.eof() || content.size() > max_bytes)
+                return fail(WorkspaceErrorCode::message_template_invalid,
+                            "cannot read template file or size exceeds 1 MiB");
+            ryml::EventHandlerTree handler{loader_callbacks()};
+            ryml::Parser parser(&handler);
+            auto tree = ryml::parse_in_arena(&parser, ryml::to_csubstr(content));
+            const auto root = tree.crootref();
+            const auto text = [](ryml::ConstNodeRef node, const char* key) {
+                if (!node.is_map() || !node.has_child(key) || !node[key].has_val() ||
+                    node[key].is_container() || node[key].val_is_null())
+                    throw std::runtime_error("invalid template property: " + std::string{key});
+                return scalar(node[key]);
+            };
+            if (text(root, "version") != "1" || root.num_children() != 2 ||
+                !root.has_child("templates") || !root["templates"].is_seq() ||
+                root["templates"].num_children() > 100)
+                return fail(WorkspaceErrorCode::message_template_invalid,
+                            "unsupported template format");
+            for (const auto node : root["templates"].children()) {
+                MessageTemplate item{
+                    text(node, "name"), text(node, "protocol"), text(node, "message"), {}};
+                if (node.num_children() != 4 || item.name.empty() || item.name.size() > 200 ||
+                    !node.has_child("fields") || !node["fields"].is_seq() ||
+                    node["fields"].num_children() > 1000)
+                    return fail(WorkspaceErrorCode::message_template_invalid,
+                                "invalid template fields");
+                std::set<std::string> names;
+                for (const auto value : node["fields"].children()) {
+                    MessageTemplateField field{text(value, "name"), text(value, "type"),
+                                               text(value, "value")};
+                    if (value.num_children() != 3 || field.name.empty() ||
+                        !names.insert(field.name).second || field.value.size() > 65536)
+                        return fail(WorkspaceErrorCode::message_template_invalid,
+                                    "duplicate or oversized template field");
+                    item.fields.push_back(std::move(field));
+                }
+                if (std::ranges::any_of(templates, [&](const auto& previous) {
+                        return previous.name == item.name &&
+                               previous.protocol_path == item.protocol_path &&
+                               previous.message_name == item.message_name;
+                    }))
+                    return fail(WorkspaceErrorCode::message_template_invalid,
+                                "duplicate template name");
+                templates.push_back(std::move(item));
+            }
+        }
+        // ponytail: path/name scope; add reference migration when supporting template-aware renames.
+        const auto matches = [&](const auto& item) {
+            return item.protocol_path == protocol_path && item.message_name == message_name;
+        };
+        const auto compatible = [&](const auto& item) {
+            return item.fields.size() == expected.size() &&
+                   std::ranges::all_of(expected, [&](const auto& field) {
+                       return std::ranges::any_of(item.fields, [&](const auto& saved) {
+                           return field.name == saved.name && field.type == saved.type;
+                       });
+                   });
+        };
+        const auto selected = std::ranges::find_if(
+            templates, [&](const auto& item) { return matches(item) && item.name == name; });
+        if (action == "load" || action == "replace" || action == "delete") {
+            if (selected == templates.end())
+                return fail(WorkspaceErrorCode::message_template_not_found,
+                            "template was not found");
+        }
+        if (action == "load") {
+            if (!compatible(*selected))
+                return fail(WorkspaceErrorCode::message_template_incompatible,
+                            "field definitions changed; save a new template");
+            return std::vector<MessageTemplate>{*selected};
+        }
+        if (saving) {
+            if (action == "save" && selected != templates.end())
+                return fail(WorkspaceErrorCode::message_template_conflict,
+                            "template name already exists; use replace");
+            if (values.size() != expected.size())
+                return fail(WorkspaceErrorCode::message_template_invalid,
+                            "template must contain every editable field");
+            std::set<std::string> names;
+            for (const auto& [key, value] : values) {
+                const auto field = std::ranges::find(expected, key, &MessageTemplateField::name);
+                if (field == expected.end() || !names.insert(key).second || value.size() > 65536)
+                    return fail(WorkspaceErrorCode::message_template_invalid,
+                                "unknown, duplicate or oversized field");
+                field->value = value;
+            }
+            MessageTemplate item{std::string{name}, std::string{protocol_path},
+                                 std::string{message_name}, expected};
+            if (selected == templates.end())
+                templates.push_back(std::move(item));
+            else
+                *selected = std::move(item);
+        }
+        if (action == "delete")
+            templates.erase(selected);
+        if (action != "list") {
+            if (templates.size() > 100)
+                return fail(WorkspaceErrorCode::message_template_invalid,
+                            "a project supports up to 100 templates");
+            ryml::Tree tree;
+            auto root = tree.rootref();
+            root.set_map();
+            const auto put = [](ryml::NodeRef node, const char* key, const std::string& value) {
+                node[key].save(value);
+                node[key].set_val_style(ryml::VAL_DQUO);
+            };
+            put(root, "version", "1");
+            root["templates"].set_seq();
+            for (const auto& item : templates) {
+                auto node = root["templates"].append_child();
+                node.set_map();
+                put(node, "name", item.name);
+                put(node, "protocol", item.protocol_path);
+                put(node, "message", item.message_name);
+                node["fields"].set_seq();
+                for (const auto& field : item.fields) {
+                    auto value = node["fields"].append_child();
+                    value.set_map();
+                    put(value, "name", field.name);
+                    put(value, "type", field.type);
+                    put(value, "value", field.value);
+                }
+            }
+            std::string output;
+            ryml::emitrs_yaml(tree, &output);
+            if (output.size() > max_bytes)
+                return fail(WorkspaceErrorCode::message_template_invalid,
+                            "template file exceeds 1 MiB");
+            auto temporary = destination;
+            temporary += ".iotps.tmp";
+            if (std::filesystem::exists(temporary) || std::filesystem::is_symlink(temporary) ||
+                linked_directory(temporary))
+                return fail(WorkspaceErrorCode::protocol_file_write_failed,
+                            "temporary template file already exists");
+            std::error_code error;
+            if (!write_text_file(temporary, output) ||
+                !atomic_replace_file(temporary, destination, error)) {
+                remove_file(temporary);
+                return fail(WorkspaceErrorCode::protocol_file_write_failed,
+                            "cannot save template file: " + error.message());
+            }
+        }
+        std::erase_if(templates, [&](const auto& item) { return !matches(item); });
+        for (auto& item : templates)
+            item.compatible = compatible(item);
+        return templates;
+    } catch (const std::exception& error) {
+        return fail(WorkspaceErrorCode::message_template_invalid, error.what());
+    }
+}
+
 std::string_view to_string(const WorkspaceErrorCode code) noexcept {
     switch (code) {
     case WorkspaceErrorCode::project_directory_not_found:
@@ -1282,6 +1493,14 @@ std::string_view to_string(const WorkspaceErrorCode code) noexcept {
         return "folder_not_empty";
     case WorkspaceErrorCode::workspace_operation_failed:
         return "workspace_operation_failed";
+    case WorkspaceErrorCode::message_template_invalid:
+        return "message_template_invalid";
+    case WorkspaceErrorCode::message_template_conflict:
+        return "message_template_conflict";
+    case WorkspaceErrorCode::message_template_not_found:
+        return "message_template_not_found";
+    case WorkspaceErrorCode::message_template_incompatible:
+        return "message_template_incompatible";
     }
     return "unknown";
 }

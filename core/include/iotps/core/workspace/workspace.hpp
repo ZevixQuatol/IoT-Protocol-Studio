@@ -62,6 +62,20 @@ struct SchemaEditRequest {
     std::vector<std::pair<std::string, std::string>> properties;
 };
 
+struct MessageTemplateField {
+    std::string name;
+    std::string type;
+    std::string value;
+};
+
+struct MessageTemplate {
+    std::string name;
+    std::string protocol_path;
+    std::string message_name;
+    std::vector<MessageTemplateField> fields;
+    bool compatible{true};
+};
+
 enum class WorkspaceErrorCode {
     project_directory_not_found,
     project_manifest_open_failed,
@@ -89,10 +103,23 @@ enum class WorkspaceErrorCode {
     invalid_folder_path,
     folder_not_empty,
     workspace_operation_failed,
+    message_template_invalid,
+    message_template_conflict,
+    message_template_not_found,
+    message_template_incompatible,
 };
 
 using WorkspaceDiagnostic = Error<WorkspaceErrorCode>;
 using ProjectLoadResult = Result<Project, WorkspaceDiagnostic>;
+using MessageTemplateResult = Result<std::vector<MessageTemplate>, WorkspaceDiagnostic>;
+
+// Templates store editable text, including incomplete drafts. Core validates their shape and
+// field definitions; encoding still validates values. All templates live in the project folder.
+[[nodiscard]] MessageTemplateResult
+message_templates(const std::filesystem::path& project_directory, std::string_view action,
+                  std::string_view protocol_path, std::string_view message_name,
+                  std::string_view name = {},
+                  const std::vector<std::pair<std::string, std::string>>& values = {});
 
 [[nodiscard]] ProjectLoadResult load_project(const std::filesystem::path& project_directory);
 [[nodiscard]] ProjectLoadResult create_project(const std::filesystem::path& parent_directory,

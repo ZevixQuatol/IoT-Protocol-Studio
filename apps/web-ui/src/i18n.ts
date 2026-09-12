@@ -106,6 +106,24 @@ export type TranslationMessages = {
     saveBlocked: string;
   };
   messageStudio: {
+    templates: string;
+    templateName: string;
+    saveTemplate: string;
+    loadTemplate: string;
+    replaceTemplate: string;
+    deleteTemplate: string;
+    chooseTemplate: string;
+    templateSaved: string;
+    templateLoaded: string;
+    templateDeleted: string;
+    templateHint: string;
+    incompatible: string;
+    templateConflict: string;
+    confirmTemplate: string;
+    copyHex: string;
+    copied: string;
+    toDebug: string;
+    toDebugHint: string;
     title: string;
     selectMessage: string;
     fieldValue: string;
@@ -282,6 +300,24 @@ export const messages: Record<Locale, TranslationMessages> = {
       saveBlocked: "请先保存或放弃 Code 视图中的修改。",
     },
     messageStudio: {
+      templates: "报文模板",
+      templateName: "模板名称",
+      saveTemplate: "保存为新模板",
+      loadTemplate: "加载模板",
+      replaceTemplate: "覆盖模板",
+      deleteTemplate: "删除模板",
+      chooseTemplate: "选择当前消息的模板",
+      templateSaved: "模板已保存到项目",
+      templateLoaded: "模板已加载，请重新生成报文",
+      templateDeleted: "模板已删除",
+      templateHint: "模板保存当前字段输入，可保留草稿；加载后由生成报文操作校验数值。",
+      incompatible: "字段定义已变化，请保存新模板",
+      templateConflict: "名称已存在，请更换名称或使用覆盖模板",
+      confirmTemplate: "确认执行此操作？",
+      copyHex: "复制 HEX",
+      copied: "HEX 已复制",
+      toDebug: "在调试页打开",
+      toDebugHint: "将替换调试页当前报文并清除已有结果和标注。",
       title: "Message Studio",
       selectMessage: "选择 Message",
       fieldValue: "字段值",
@@ -456,6 +492,25 @@ export const messages: Record<Locale, TranslationMessages> = {
       saveBlocked: "Save or discard the Code view changes first.",
     },
     messageStudio: {
+      templates: "Message templates",
+      templateName: "Template name",
+      saveTemplate: "Save new template",
+      loadTemplate: "Load template",
+      replaceTemplate: "Replace template",
+      deleteTemplate: "Delete template",
+      chooseTemplate: "Choose a template for this message",
+      templateSaved: "Template saved in project",
+      templateLoaded: "Template loaded; encode to refresh the preview",
+      templateDeleted: "Template deleted",
+      templateHint:
+        "Templates save current field inputs, including drafts. Encode validates values after loading.",
+      incompatible: "Field definitions changed; save a new template",
+      templateConflict: "Name already exists; use another name or Replace template",
+      confirmTemplate: "Confirm this operation?",
+      copyHex: "Copy HEX",
+      copied: "HEX copied",
+      toDebug: "Open in Debug",
+      toDebugHint: "This replaces the current Debug input and clears its results and annotations.",
       title: "Message Studio",
       selectMessage: "Select Message",
       fieldValue: "Field value",

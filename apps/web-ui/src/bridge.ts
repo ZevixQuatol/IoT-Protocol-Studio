@@ -125,6 +125,37 @@ export type MessageEncodeField = {
   value: string;
 };
 
+export type MessageTemplate = { name: string; compatible: boolean; fields: MessageEncodeField[] };
+export type TemplateAction = "list" | "load" | "save" | "replace" | "delete";
+export type MessageTemplateResult =
+  | { ok: true; templates: MessageTemplate[] }
+  | { ok: false; error: { code: string; message: string; path: string } };
+
+export async function messageTemplates(
+  action: TemplateAction,
+  path: string,
+  message: string,
+  name = "",
+  fields: MessageEncodeField[] = [],
+): Promise<MessageTemplateResult> {
+  return window.iotpsMessageTemplates
+    ? window.iotpsMessageTemplates(
+        action,
+        path,
+        message,
+        name,
+        ...fields.flatMap((field) => [field.name, field.value]),
+      )
+    : {
+        ok: false,
+        error: {
+          code: "native_host_required",
+          message: "Open the desktop app to use project templates.",
+          path: "",
+        },
+      };
+}
+
 export type MessageEncodeRequest = {
   relativePath: string;
   messageName: string;
@@ -152,6 +183,13 @@ export type MessageEncodeResult =
 
 declare global {
   interface Window {
+    iotpsMessageTemplates?: (
+      action: string,
+      path: string,
+      message: string,
+      name: string,
+      ...fields: string[]
+    ) => Promise<MessageTemplateResult>;
     iotpsDebugTool?: (operation: string, ...args: string[]) => Promise<DebugToolResult>;
     iotpsDebugDecode?: (
       protocol: string,
