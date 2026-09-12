@@ -2174,13 +2174,6 @@ button {
 .folder-row[data-drop="inside"] {
   background: color-mix(in srgb, var(--accent) 20%, transparent);
 }
-.folder-actions {
-  padding: 4px;
-  border: 0;
-  background: transparent;
-  color: var(--text);
-  cursor: pointer;
-}
 .tree-dialog:not([open]) {
   display: none;
 }
@@ -2197,10 +2190,6 @@ button {
 }
 .tree-dialog-path {
   overflow-wrap: anywhere;
-}
-.tree-dialog-actions {
-  display: grid;
-  gap: 8px;
 }
 
 .recent-projects {
@@ -2357,6 +2346,155 @@ button {
 }
 
 /* Light theme overrides keep the workbench hierarchy while inverting the tonal scale. */
+.project-title,
+.folder-row,
+.protocol-row {
+  position: relative;
+}
+
+.protocol-row {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+}
+.protocol-row > input {
+  margin: 0 0 0 8px;
+  flex-shrink: 0;
+}
+.row-actions {
+  display: flex;
+  position: absolute;
+  right: 3px;
+  top: 3px;
+  gap: 1px;
+  padding-left: 3px;
+  background: var(--chrome);
+  opacity: 0;
+  pointer-events: none;
+  border-radius: 4px;
+}
+.row-actions button {
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: 0;
+  border-radius: 3px;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+}
+.row-actions button:hover:not(:disabled),
+.row-actions button[aria-pressed="true"] {
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+.row-actions button:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+.row-actions button:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+.folder-row:hover > .row-actions,
+.folder-row:focus-within > .row-actions,
+.protocol-row:hover > .row-actions,
+.protocol-row:focus-within > .row-actions,
+.project-title:hover > .row-actions,
+.project-title:focus-within > .row-actions {
+  opacity: 1;
+  pointer-events: auto;
+}
+.project-count {
+  margin-left: auto;
+  color: var(--muted);
+  font-size: 10px;
+}
+.project-title {
+  color: var(--text);
+}
+.project-title > svg,
+.folder-item > svg {
+  flex-shrink: 0;
+}
+.project-title:hover,
+.project-title:focus-within {
+  padding-right: 156px;
+}
+.folder-row > .tree-item {
+  width: calc(100% - 130px);
+  flex: none;
+  padding-right: 4px;
+}
+.protocol-row > .tree-item {
+  width: calc(100% - 55px);
+  flex: 1;
+  padding-right: 55px;
+}
+.project-title:hover > .project-count,
+.project-title:focus-within > .project-count {
+  display: none;
+}
+.batch-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  padding: 8px;
+  font-size: 11px;
+  border-block: 1px solid var(--line);
+}
+.batch-actions label {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.batch-actions button {
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  padding: 4px 6px;
+  background: var(--surface);
+  color: var(--text);
+  cursor: pointer;
+}
+.batch-actions button:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+.history-actions {
+  display: flex;
+  gap: 8px;
+}
+.history-actions button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.history-import-hint {
+  color: var(--muted);
+  font-size: 12px;
+}
+.delete-targets {
+  max-height: 220px;
+  overflow: auto;
+  overflow-wrap: anywhere;
+  padding-left: 20px;
+}
+@media (hover: none) {
+  .row-actions {
+    position: static;
+    opacity: 1;
+    pointer-events: auto;
+    flex-wrap: wrap;
+  }
+  .folder-row,
+  .project-title {
+    flex-wrap: wrap;
+  }
+}
+
 :root[data-theme="light"] {
   color: #17242d;
   background: #edf2f5;

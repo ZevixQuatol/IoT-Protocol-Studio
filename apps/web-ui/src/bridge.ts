@@ -183,6 +183,7 @@ export type MessageEncodeResult =
 
 declare global {
   interface Window {
+    iotpsWorkspaceProtocols?: (action: string, ...args: string[]) => Promise<WorkspaceResult>;
     iotpsMessageTemplates?: (
       action: string,
       path: string,
@@ -397,6 +398,15 @@ export async function openProject(path = ""): Promise<WorkspaceResult> {
 
 export async function renameProject(name: string): Promise<WorkspaceResult> {
   return window.iotpsWorkspaceRename ? window.iotpsWorkspaceRename(name) : nativeRequired();
+}
+
+export async function changeProtocols(
+  action: "rename" | "delete",
+  ...args: string[]
+): Promise<WorkspaceResult> {
+  return window.iotpsWorkspaceProtocols
+    ? window.iotpsWorkspaceProtocols(action, ...args)
+    : nativeRequired();
 }
 
 export async function editSchema(request: SchemaEditRequest): Promise<WorkspaceResult> {

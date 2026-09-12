@@ -8,6 +8,12 @@ import {
   FileCode2,
   Folder,
   FolderOpen,
+  FolderPlus,
+  FilePlus2,
+  Pencil,
+  Trash2,
+  ListChecks,
+  Import,
   HardDrive,
   Languages,
   ListTree,
@@ -39,6 +45,7 @@ import SchemaEditor, { type SchemaEditTarget } from "./SchemaEditor";
 import MessageTemplates from "./MessageTemplates";
 import {
   closeProject,
+  changeProtocols,
   changeFolder,
   createProject,
   createProtocol,
@@ -70,6 +77,7 @@ import {
   translateWorkspaceError,
   type Locale,
   type Theme,
+  type TranslationMessages,
 } from "./i18n";
 
 type Page = "schema" | "debug" | "settings";
@@ -117,7 +125,7 @@ const ANNOTATION_COLORS = {
   ],
 };
 
-const SIDEBAR_MIN_WIDTH = 210;
+const SIDEBAR_MIN_WIDTH = 280;
 
 function getSidebarMaxWidth() {
   return Math.max(SIDEBAR_MIN_WIDTH, Math.floor(window.innerWidth / 5));
@@ -238,10 +246,23 @@ type TreeItemsProps = {
   selectedPath?: string;
   onToggle: (key: string) => void;
   onSelect: (protocol: WorkspaceProtocol) => void;
-  onFolderMenu: (path: string) => void;
+  onAction: (
+    action:
+      | "create"
+      | "rename"
+      | "move"
+      | "delete"
+      | "renameProtocol"
+      | "deleteProtocol"
+      | "createProtocol",
+    path: string,
+  ) => void;
   onDragFolder: (path: string | null) => void;
   onDropFolder: (path: string, placement: "before" | "inside" | "after") => void;
-  folderActionsLabel: string;
+  labels: TranslationMessages["workspace"];
+  disabled: boolean;
+  selection: Set<string> | null;
+  onCheck: (path: string) => void;
 };
 
 function TreeItems(props: TreeItemsProps) {
@@ -252,10 +273,11 @@ function TreeItems(props: TreeItemsProps) {
     selectedPath,
     onToggle,
     onSelect,
-    onFolderMenu,
+    onAction,
     onDragFolder,
     onDropFolder,
-    folderActionsLabel,
+    labels,
+    disabled,
   } = props;
   const [dropTarget, setDropTarget] = useState<string>();
   return nodes.map((node) => {
@@ -268,14 +290,11 @@ function TreeItems(props: TreeItemsProps) {
             data-drop={
               dropTarget?.startsWith(`${node.path}:`) ? dropTarget.split(":").at(-1) : undefined
             }
-            onContextMenu={(event) => {
-              event.preventDefault();
-              onFolderMenu(node.path);
-            }}
           >
             <button
               aria-expanded={isOpen}
               className="tree-item folder-item"
+              title={node.path}
               onClick={() => onToggle(node.key)}
               style={{ paddingLeft: 14 + depth * 16 }}
               type="button"
@@ -313,14 +332,28 @@ function TreeItems(props: TreeItemsProps) {
               {isOpen ? <FolderOpen size={15} /> : <Folder size={15} />}
               <span>{node.name}</span>
             </button>
-            <button
-              className="folder-actions"
-              aria-label={`${folderActionsLabel}: ${node.name}`}
-              type="button"
-              onClick={() => onFolderMenu(node.path)}
-            >
-              <DotsHorizontalIcon size={14} />
-            </button>
+            <div className="row-actions">
+              {(
+                [
+                  ["create", labels.newFolder, FolderPlus],
+                  ["createProtocol", labels.createProtocol, FilePlus2],
+                  ["rename", labels.renameFolder, Pencil],
+                  ["move", labels.moveFolder, ArrowRight],
+                  ["delete", labels.deleteFolder, Trash2],
+                ] as const
+              ).map(([action, label, Icon]) => (
+                <button
+                  key={action}
+                  type="button"
+                  disabled={disabled}
+                  title={label}
+                  aria-label={`${label}: ${node.name}`}
+                  onClick={() => onAction(action, node.path)}
+                >
+                  <Icon size={13} />
+                </button>
+              ))}
+            </div>
           </div>
           {isOpen && (
             <TreeItems
@@ -337,17 +370,48 @@ function TreeItems(props: TreeItemsProps) {
       );
     }
     return (
-      <button
-        aria-current={selectedPath === node.path ? "page" : undefined}
-        className={`tree-item protocol-item ${selectedPath === node.path ? "active" : ""}`}
-        key={node.key}
-        onClick={() => node.protocol && onSelect(node.protocol)}
-        style={{ paddingLeft: 32 + depth * 16 }}
-        type="button"
-      >
-        <FileCode2 size={15} />
-        <span>{node.name}</span>
-      </button>
+      <div className="protocol-row" key={node.key}>
+        {props.selection && (
+          <input
+            type="checkbox"
+            aria-label={`${labels.selectProtocol}: ${node.name}`}
+            checked={props.selection.has(node.path)}
+            disabled={disabled}
+            onChange={() => props.onCheck(node.path)}
+          />
+        )}
+        <button
+          aria-current={selectedPath === node.path ? "page" : undefined}
+          className={`tree-item protocol-item ${selectedPath === node.path ? "active" : ""}`}
+          title={`${node.name}\n${node.path}`}
+          onClick={() => node.protocol && onSelect(node.protocol)}
+          style={{ paddingLeft: 32 + depth * 16 }}
+          type="button"
+        >
+          <FileCode2 size={15} />
+          <span>{node.name}</span>
+        </button>
+        <div className="row-actions">
+          <button
+            type="button"
+            disabled={disabled}
+            title={labels.renameProtocol}
+            aria-label={`${labels.renameProtocol}: ${node.name}`}
+            onClick={() => onAction("renameProtocol", node.path)}
+          >
+            <Pencil size={13} />
+          </button>
+          <button
+            type="button"
+            disabled={disabled}
+            title={labels.deleteProtocol}
+            aria-label={`${labels.deleteProtocol}: ${node.name}`}
+            onClick={() => onAction("deleteProtocol", node.path)}
+          >
+            <Trash2 size={13} />
+          </button>
+        </div>
+      </div>
     );
   });
 }
@@ -401,11 +465,15 @@ export default function App() {
   const [errorMessage, setErrorMessage] = useState<string>();
   const [projectMenuOpen, setProjectMenuOpen] = useState(false);
   const [recentProjects, setRecentProjects] = useState(readRecentProjects);
+  const [protocolSelection, setProtocolSelection] = useState<Set<string> | null>(null);
+  const [createParent, setCreateParent] = useState("protocols");
   const projectMenuRef = useRef<HTMLDivElement>(null);
   const [treeDialog, setTreeDialog] = useState<{
     action:
       | "project"
-      | "actions"
+      | "renameProtocol"
+      | "deleteProtocol"
+      | "deleteProtocols"
       | "create"
       | "delete"
       | "move"
@@ -512,6 +580,7 @@ export default function App() {
     }
     setErrorMessage(undefined);
     setWorkspace(result);
+    setProtocolSelection(null);
     const opened = result.project;
     if (opened) {
       setRecentProjects((current) => rememberProject(current, opened));
@@ -693,6 +762,20 @@ export default function App() {
     setErrorMessage(undefined);
   };
 
+  const treeAction = (
+    action: NonNullable<typeof treeDialog>["action"] | "createProtocol",
+    path: string,
+  ) => {
+    if (busy || isDirty) {
+      if (isDirty) setErrorMessage(translation.structure.saveBlocked);
+      return;
+    }
+    if (action === "createProtocol") {
+      setCreateParent(path);
+      setCreateOpen(true);
+    } else openTreeDialog(action, path);
+  };
+
   const moveFolder = async (source: string, target: string, before = "") => {
     if (busy || isDirty) {
       if (isDirty) setErrorMessage(translation.structure.saveBlocked);
@@ -751,7 +834,24 @@ export default function App() {
       ok = await run(() => changeFolder("delete", path), selectedProtocolPath);
     if (action === "move")
       ok = await moveFolder(path, String(data.get("parent")), String(data.get("before") ?? ""));
-    if (action === "removeProject") ok = await run(closeProject);
+    if (action === "renameProtocol")
+      ok = await run(() => changeProtocols("rename", path, name), path);
+    if (action === "deleteProtocol" || action === "deleteProtocols") {
+      ok = await run(
+        () =>
+          changeProtocols(
+            "delete",
+            ...(action === "deleteProtocol" ? [path] : [...(protocolSelection ?? [])]),
+          ),
+        selectedProtocolPath,
+      );
+      if (ok) setProtocolSelection(null);
+    }
+    if (action === "removeProject") {
+      const root = project?.rootPath;
+      ok = await run(closeProject);
+      if (ok) setRecentProjects((items) => items.filter((item) => item.rootPath !== root));
+    }
     if (ok) setTreeDialog(null);
   };
 
@@ -1198,7 +1298,7 @@ export default function App() {
                             setErrorMessage(translation.structure.saveBlocked);
                             return;
                           }
-                          void run(openProject);
+                          openTreeDialog("recent");
                         }}
                         role="menuitem"
                         type="button"
@@ -1214,76 +1314,6 @@ export default function App() {
                       >
                         <SparklesIcon size={15} />
                         {translation.workspace.newProject}
-                      </button>
-                      {project && (
-                        <>
-                          <button
-                            disabled={busy}
-                            onClick={() => openTreeDialog("renameProject")}
-                            role="menuitem"
-                            type="button"
-                          >
-                            {translation.workspace.renameProject}
-                          </button>
-                          <button
-                            disabled={busy}
-                            onClick={() => openTreeDialog("create")}
-                            role="menuitem"
-                            type="button"
-                          >
-                            <Folder size={15} />
-                            {translation.workspace.newFolder}
-                          </button>
-                          <button
-                            disabled={busy}
-                            onClick={() => {
-                              setProjectMenuOpen(false);
-                              if (isDirty) {
-                                setErrorMessage(translation.structure.saveBlocked);
-                                return;
-                              }
-                              setCreateOpen(true);
-                            }}
-                            role="menuitem"
-                            type="button"
-                          >
-                            <SparklesIcon size={15} />
-                            {translation.workspace.createProtocol}
-                          </button>
-                          <button
-                            disabled={busy}
-                            onClick={() => {
-                              setProjectMenuOpen(false);
-                              if (isDirty) {
-                                setErrorMessage(translation.structure.saveBlocked);
-                                return;
-                              }
-                              void run(closeProject);
-                            }}
-                            role="menuitem"
-                            type="button"
-                          >
-                            <X size={15} />
-                            {translation.workspace.closeProject}
-                          </button>
-                          <button
-                            disabled={busy}
-                            onClick={() => openTreeDialog("removeProject")}
-                            role="menuitem"
-                            type="button"
-                          >
-                            <X size={15} />
-                            {translation.workspace.removeProject}
-                          </button>
-                        </>
-                      )}
-                      <button
-                        disabled={busy}
-                        onClick={() => openTreeDialog("recent")}
-                        role="menuitem"
-                        type="button"
-                      >
-                        {translation.workspace.recentProjects}
                       </button>
                     </div>
                   )}
@@ -1301,7 +1331,7 @@ export default function App() {
                   <>
                     <div
                       className="project-title"
-                      title={translation.workspace.dropAtRoot}
+                      title={`${project.name}\n${translation.workspace.dropAtRoot}`}
                       onDragOver={(event) => event.preventDefault()}
                       onDrop={(event) => {
                         event.preventDefault();
@@ -1310,8 +1340,86 @@ export default function App() {
                     >
                       <FolderOpen size={15} />
                       <span>{project.name}</span>
-                      <span>{project.protocols.length}</span>
+                      <span className="project-count">{project.protocols.length}</span>
+                      <div className="row-actions project-row-actions">
+                        {(
+                          [
+                            ["create", translation.workspace.newFolder, FolderPlus],
+                            ["createProtocol", translation.workspace.createProtocol, FilePlus2],
+                            ["renameProject", translation.workspace.renameProject, Pencil],
+                            ["removeProject", translation.workspace.removeProject, Trash2],
+                          ] as const
+                        ).map(([action, label, Icon]) => (
+                          <button
+                            key={action}
+                            type="button"
+                            disabled={busy || isDirty}
+                            title={label}
+                            aria-label={label}
+                            onClick={() => treeAction(action, "protocols")}
+                          >
+                            <Icon size={13} />
+                          </button>
+                        ))}
+                        <button
+                          type="button"
+                          disabled={busy || isDirty || project.protocols.length === 0}
+                          aria-pressed={protocolSelection !== null}
+                          title={translation.workspace.batchDelete}
+                          aria-label={translation.workspace.batchDelete}
+                          onClick={() =>
+                            setProtocolSelection((current) => (current ? null : new Set()))
+                          }
+                        >
+                          <ListChecks size={13} />
+                        </button>
+                        <button
+                          type="button"
+                          disabled={busy || isDirty}
+                          title={translation.workspace.closeProject}
+                          aria-label={translation.workspace.closeProject}
+                          onClick={() => void run(closeProject)}
+                        >
+                          <X size={13} />
+                        </button>
+                      </div>
                     </div>
+                    {protocolSelection && (
+                      <div className="batch-actions">
+                        <label>
+                          <input
+                            type="checkbox"
+                            disabled={busy || isDirty}
+                            checked={protocolSelection.size === project.protocols.length}
+                            onChange={(event) =>
+                              setProtocolSelection(
+                                new Set(
+                                  event.target.checked
+                                    ? project.protocols.map((item) => item.path)
+                                    : [],
+                                ),
+                              )
+                            }
+                          />
+                          {translation.workspace.selectAll}
+                        </label>
+                        <span>{protocolSelection.size}</span>
+                        <button
+                          type="button"
+                          disabled={protocolSelection.size === 0 || busy || isDirty}
+                          onClick={() => openTreeDialog("deleteProtocols")}
+                        >
+                          {translation.workspace.deleteSelected}
+                        </button>
+                        <button
+                          type="button"
+                          disabled={busy}
+                          onClick={() => setProtocolSelection(null)}
+                        >
+                          {translation.create.cancel}
+                        </button>
+                      </div>
+                    )}
                     <TreeItems
                       depth={0}
                       expanded={expanded}
@@ -1327,12 +1435,22 @@ export default function App() {
                       }}
                       onToggle={toggleExpanded}
                       selectedPath={selectedProtocolPath}
-                      onFolderMenu={(path) => openTreeDialog("actions", path)}
+                      onAction={treeAction}
                       onDragFolder={(path) => {
                         draggedFolder.current = path;
                       }}
                       onDropFolder={dropFolder}
-                      folderActionsLabel={translation.workspace.folderActions}
+                      labels={translation.workspace}
+                      disabled={busy || isDirty}
+                      selection={protocolSelection}
+                      onCheck={(path) =>
+                        setProtocolSelection((current) => {
+                          const next = new Set(current);
+                          if (next.has(path)) next.delete(path);
+                          else next.add(path);
+                          return next;
+                        })
+                      }
                     />
                   </>
                 )}
@@ -2374,7 +2492,9 @@ export default function App() {
               {
                 {
                   project: translation.workspace.newProject,
-                  actions: translation.workspace.folderActions,
+                  renameProtocol: translation.workspace.renameProtocol,
+                  deleteProtocol: translation.workspace.deleteProtocol,
+                  deleteProtocols: translation.workspace.deleteSelected,
                   create: translation.workspace.newFolder,
                   delete: translation.workspace.deleteFolder,
                   move: translation.workspace.moveFolder,
@@ -2394,27 +2514,29 @@ export default function App() {
                     ? translation.workspace.recentHint
                     : treeDialog.path}
             </p>
-            {treeDialog.action === "actions" ? (
-              <div className="tree-dialog-actions">
-                {(["create", "rename", "move", "delete"] as const).map((action) => (
-                  <button
-                    type="button"
-                    key={action}
-                    className="secondary-button"
-                    onClick={() => setTreeDialog({ ...treeDialog, action })}
-                  >
-                    {action === "create"
-                      ? translation.workspace.newFolder
-                      : action === "rename"
-                        ? translation.workspace.renameFolder
-                        : action === "move"
-                          ? translation.workspace.moveFolder
-                          : translation.workspace.deleteFolder}
-                  </button>
-                ))}
-              </div>
-            ) : treeDialog.action === "recent" ? (
+            {treeDialog.action === "recent" ? (
               <div className="recent-projects">
+                <div className="history-actions">
+                  <button
+                    className="secondary-button"
+                    type="button"
+                    disabled={busy}
+                    onClick={() => openTreeDialog("project")}
+                  >
+                    <FolderPlus size={15} />
+                    {translation.workspace.newProject}
+                  </button>
+                  <button
+                    className="secondary-button"
+                    type="button"
+                    disabled
+                    title={translation.workspace.importHint}
+                  >
+                    <Import size={15} />
+                    {translation.workspace.importProject}
+                  </button>
+                </div>
+                <p className="history-import-hint">{translation.workspace.importHint}</p>
                 {recentProjects.length === 0 && <p>{translation.workspace.noRecentProjects}</p>}
                 {recentProjects.map((recent) => (
                   <div className="recent-project" key={recent.rootPath}>
@@ -2452,22 +2574,14 @@ export default function App() {
                     </button>
                   </div>
                 ))}
-                {recentProjects.length > 0 && (
-                  <button
-                    className="secondary-button"
-                    type="button"
-                    disabled={busy}
-                    onClick={() => setRecentProjects([])}
-                  >
-                    {translation.workspace.clearRecentProjects}
-                  </button>
-                )}
               </div>
             ) : (
               <>
-                {["project", "create", "rename", "renameProject"].includes(treeDialog.action) && (
+                {["project", "create", "rename", "renameProject", "renameProtocol"].includes(
+                  treeDialog.action,
+                ) && (
                   <label>
-                    {treeDialog.action === "renameProject"
+                    {["renameProject", "renameProtocol"].includes(treeDialog.action)
                       ? translation.create.displayName
                       : translation.workspace.folderName}
                     <input
@@ -2477,17 +2591,35 @@ export default function App() {
                       maxLength={100}
                       disabled={busy}
                       defaultValue={
-                        treeDialog.action === "renameProject"
-                          ? project?.name
-                          : treeDialog.action === "rename"
-                            ? treeDialog.path.split("/").at(-1)
-                            : ""
+                        treeDialog.action === "renameProtocol"
+                          ? project?.protocols.find((item) => item.path === treeDialog.path)?.name
+                          : treeDialog.action === "renameProject"
+                            ? project?.name
+                            : treeDialog.action === "rename"
+                              ? treeDialog.path.split("/").at(-1)
+                              : ""
                       }
                     />
                   </label>
                 )}
                 {treeDialog.action === "renameProject" && (
                   <p>{translation.workspace.renameProjectHint}</p>
+                )}
+                {treeDialog.action === "renameProtocol" && (
+                  <p>{translation.workspace.renameProtocolHint}</p>
+                )}
+                {["deleteProtocol", "deleteProtocols"].includes(treeDialog.action) && (
+                  <>
+                    <p>{translation.workspace.deleteProtocolsHint}</p>
+                    <ul className="delete-targets">
+                      {(treeDialog.action === "deleteProtocol"
+                        ? [treeDialog.path]
+                        : [...(protocolSelection ?? [])]
+                      ).map((path) => (
+                        <li key={path}>{path}</li>
+                      ))}
+                    </ul>
+                  </>
                 )}
                 {treeDialog.action === "move" && (
                   <label>
@@ -2523,17 +2655,19 @@ export default function App() {
               >
                 {translation.create.cancel}
               </button>
-              {treeDialog.action !== "actions" && treeDialog.action !== "recent" && (
+              {treeDialog.action !== "recent" && (
                 <button className="primary-button" type="submit" disabled={busy}>
-                  {treeDialog.action === "rename" || treeDialog.action === "renameProject"
+                  {["rename", "renameProject", "renameProtocol"].includes(treeDialog.action)
                     ? translation.editor.save
-                    : treeDialog.action === "delete"
-                      ? translation.workspace.deleteFolder
-                      : treeDialog.action === "removeProject"
-                        ? translation.workspace.removeProject
-                        : treeDialog.action === "move"
-                          ? translation.workspace.moveFolder
-                          : translation.create.submit}
+                    : ["deleteProtocol", "deleteProtocols"].includes(treeDialog.action)
+                      ? translation.workspace.deleteSelected
+                      : treeDialog.action === "delete"
+                        ? translation.workspace.deleteFolder
+                        : treeDialog.action === "removeProject"
+                          ? translation.workspace.removeProject
+                          : treeDialog.action === "move"
+                            ? translation.workspace.moveFolder
+                            : translation.create.submit}
                 </button>
               )}
             </footer>
@@ -2556,6 +2690,7 @@ export default function App() {
               {translation.create.relativePath}
               <input
                 name="relativePath"
+                defaultValue={createParent === "protocols" ? "" : `${createParent.slice(10)}/`}
                 pattern=".+\.protocol\.ya?ml"
                 placeholder="vendors/acme/telemetry.protocol.yaml"
                 required

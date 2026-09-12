@@ -661,6 +661,133 @@ ProjectLoadResult rename_project(const std::filesystem::path& project_directory,
     }
 }
 
+ProjectLoadResult rename_protocol(const std::filesystem::path& project_directory,
+                                  const std::string_view path, const std::string_view name) {
+    auto loaded = load_project(project_directory);
+    if (const auto* error = loaded.error_if())
+        return *error;
+    if (name.empty() || name.size() > 400 ||
+        std::ranges::all_of(name, [](unsigned char c) { return std::isspace(c); }) ||
+        std::ranges::any_of(name, [](unsigned char c) { return c < 32; }))
+        return make_error(WorkspaceErrorCode::protocol_schema_invalid, "$name",
+                          "invalid display name");
+    const auto& project = loaded.value();
+    if (std::ranges::none_of(project.protocols, [&](const auto& item) {
+            return portable(item.relative_path) == path;
+        }))
+        return make_error(WorkspaceErrorCode::protocol_not_referenced, "$path",
+                          "protocol not referenced");
+    try {
+        if (!safe_folder_path(project.root_directory, std::filesystem::u8path(path)))
+            throw std::runtime_error("linked or invalid protocol path");
+        std::ifstream input{project.root_directory / std::filesystem::u8path(path),
+                            std::ios::binary};
+        std::ostringstream contents;
+        contents << input.rdbuf();
+        if (!input.is_open() || input.bad())
+            throw std::runtime_error("cannot read protocol");
+        input.close();
+        const auto yaml = contents.str();
+        ryml::EventHandlerTree handler{loader_callbacks()};
+        ryml::Parser parser(&handler);
+        auto tree = ryml::parse_in_arena(&parser, ryml::to_csubstr(yaml));
+        auto display = tree.rootref()["protocol"]["displayName"];
+        display.save(std::string{name});
+        display.set_val_style(ryml::VAL_DQUO);
+        std::string updated;
+        ryml::emitrs_yaml(tree, &updated);
+        return update_protocol(project_directory, path, updated);
+    } catch (const std::exception& error) {
+        return make_error(WorkspaceErrorCode::workspace_operation_failed, "$path", error.what());
+    }
+}
+
+ProjectLoadResult delete_protocols(const std::filesystem::path& project_directory,
+                                   const std::vector<std::string>& paths) {
+    auto loaded = load_project(project_directory);
+    if (const auto* error = loaded.error_if())
+        return *error;
+    const auto& project = loaded.value();
+    const auto& root = project.root_directory;
+    const auto manifest = root / "project.yaml";
+    auto temporary = manifest;
+    temporary += ".iotps.tmp";
+    std::vector<std::pair<std::filesystem::path, std::filesystem::path>> staged;
+    bool owns_temporary = false;
+    try {
+        std::set<std::string> selected;
+        if (paths.empty() || paths.size() > 1000)
+            throw std::runtime_error("select 1 to 1000 protocols");
+        if (linked_directory(manifest) ||
+            std::filesystem::exists(std::filesystem::symlink_status(temporary)))
+            throw std::runtime_error("linked manifest or occupied temporary file");
+        for (const auto& path : paths) {
+            const auto relative = std::filesystem::u8path(path);
+            if (!selected.insert(path).second || !safe_folder_path(root, relative) ||
+                std::ranges::none_of(project.protocols, [&](const auto& item) {
+                    return portable(item.relative_path) == path;
+                }))
+                throw std::runtime_error("duplicate, invalid or unreferenced protocol path");
+            auto backup = root / relative;
+            backup += ".iotps.deleted";
+            if (std::filesystem::exists(std::filesystem::symlink_status(backup)))
+                throw std::runtime_error("a protocol deletion backup already exists");
+        }
+        std::ifstream input{manifest, std::ios::binary};
+        std::ostringstream contents;
+        contents << input.rdbuf();
+        if (!input.is_open() || input.bad())
+            throw std::runtime_error("cannot read manifest");
+        input.close();
+        const auto yaml = contents.str();
+        ryml::EventHandlerTree handler{loader_callbacks()};
+        ryml::Parser parser(&handler);
+        auto tree = ryml::parse_in_arena(&parser, ryml::to_csubstr(yaml));
+        auto protocols = tree.rootref()["protocols"];
+        protocols.clear_children();
+        for (const auto& path : project.manifest.protocol_files) {
+            if (!selected.contains(portable(path))) {
+                auto item = protocols.append_child();
+                item.save(portable(path));
+                item.set_val_style(ryml::VAL_DQUO);
+            }
+        }
+        std::string updated;
+        ryml::emitrs_yaml(tree, &updated);
+        auto validated = load_manifest(updated, portable(manifest));
+        if (const auto* error = validated.error_if())
+            return *error;
+        owns_temporary = true;
+        if (!write_text_file(temporary, updated))
+            throw std::runtime_error("cannot write manifest");
+        for (const auto& path : paths) {
+            const auto source = root / std::filesystem::u8path(path);
+            auto backup = source;
+            backup += ".iotps.deleted";
+            std::filesystem::rename(source, backup);
+            staged.emplace_back(source, backup);
+        }
+        std::error_code error;
+        if (!atomic_replace_file(temporary, manifest, error))
+            throw std::runtime_error(error.message());
+    } catch (const std::exception& error) {
+        std::string detail = error.what();
+        for (auto it = staged.rbegin(); it != staged.rend(); ++it) {
+            std::error_code restore;
+            std::filesystem::rename(it->second, it->first, restore);
+            if (restore)
+                detail += "; restore failed, recover from " + portable(it->second);
+        }
+        if (owns_temporary)
+            remove_file(temporary);
+        return make_error(WorkspaceErrorCode::workspace_operation_failed, "$protocols", detail);
+    }
+    // Once the manifest commits, a locked backup stays recoverable as .iotps.deleted.
+    for (const auto& [source, backup] : staged)
+        remove_file(backup);
+    return load_project(root);
+}
+
 ProjectLoadResult change_folder(const std::filesystem::path& project_directory,
                                 const std::string_view action, const std::string_view path,
                                 const std::string_view target_parent,
@@ -1334,7 +1461,8 @@ message_templates(const std::filesystem::path& project_directory, const std::str
                 templates.push_back(std::move(item));
             }
         }
-        // ponytail: path/name scope; add reference migration when supporting template-aware renames.
+        // ponytail: path/name scope; add reference migration when supporting template-aware
+        // renames.
         const auto matches = [&](const auto& item) {
             return item.protocol_path == protocol_path && item.message_name == message_name;
         };

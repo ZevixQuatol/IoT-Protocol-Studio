@@ -126,6 +126,10 @@ message_templates(const std::filesystem::path& project_directory, std::string_vi
                                                std::string_view name);
 [[nodiscard]] ProjectLoadResult rename_project(const std::filesystem::path& project_directory,
                                                std::string_view display_name);
+[[nodiscard]] ProjectLoadResult rename_protocol(const std::filesystem::path& project_directory,
+                                                std::string_view path, std::string_view name);
+[[nodiscard]] ProjectLoadResult delete_protocols(const std::filesystem::path& project_directory,
+                                                 const std::vector<std::string>& paths);
 // For rename, target_parent is the new single folder name; the parent stays unchanged.
 [[nodiscard]] ProjectLoadResult change_folder(const std::filesystem::path& project_directory,
                                               std::string_view action, std::string_view path,

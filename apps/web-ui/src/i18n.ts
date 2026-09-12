@@ -44,6 +44,15 @@ export type TranslationMessages = {
     removeProject: string;
     removeProjectHint: string;
     deleteFolderHint: string;
+    renameProtocol: string;
+    deleteProtocol: string;
+    batchDelete: string;
+    selectAll: string;
+    deleteSelected: string;
+    renameProtocolHint: string;
+    deleteProtocolsHint: string;
+    importProject: string;
+    importHint: string;
     dropAtRoot: string;
   };
   create: {
@@ -207,6 +216,16 @@ export const messages: Record<Locale, TranslationMessages> = {
     workspace: {
       project: "项目",
       projectActions: "项目操作",
+      renameProtocol: "重命名协议",
+      deleteProtocol: "删除协议",
+      batchDelete: "批量删除",
+      selectAll: "全选",
+      deleteSelected: "删除所选",
+      renameProtocolHint: "仅修改显示名称，文件路径和模板关联保持不变。",
+      deleteProtocolsHint: "将删除以下协议文件并更新项目清单，请确认所选内容。",
+      importProject: "导入项目",
+      importHint: "导入入口预留，导入功能开放后，项目将自动加入此列表。",
+
       resizeSidebar: "调整项目栏宽度",
       loading: "正在读取项目",
       noProject: "尚未打开项目",
@@ -225,7 +244,7 @@ export const messages: Record<Locale, TranslationMessages> = {
       renameFolder: "重命名文件夹",
       renameProject: "重命名项目",
       renameProjectHint: "修改项目显示名称，项目标识和磁盘目录保持原值。",
-      recentProjects: "最近项目",
+      recentProjects: "打开项目",
       recentHint: "保留最近打开的 10 个项目；移除记录不会删除磁盘文件。",
       noRecentProjects: "暂无最近项目。",
       forgetRecentProject: "移除最近记录",
@@ -235,7 +254,7 @@ export const messages: Record<Locale, TranslationMessages> = {
       invalidName: "请输入有效名称，不可包含路径分隔符或以句点结尾。",
       targetFolder: "目标文件夹",
       removeProject: "移除项目",
-      removeProjectHint: "从当前工作区移除项目，磁盘文件将保留。",
+      removeProjectHint: "关闭项目并从历史列表移除，磁盘文件将保留。",
       deleteFolderHint: "仅可删除空文件夹，请先清理文件夹中的所有内容。",
       dropAtRoot: "拖到这里移至项目根级；拖到文件夹上下边缘排序，中间移入。",
     },
@@ -396,6 +415,17 @@ export const messages: Record<Locale, TranslationMessages> = {
     workspace: {
       project: "PROJECT",
       projectActions: "Project actions",
+      renameProtocol: "Rename protocol",
+      deleteProtocol: "Delete protocol",
+      batchDelete: "Bulk delete",
+      selectAll: "Select all",
+      deleteSelected: "Delete selected",
+      renameProtocolHint: "Change the display name; keep the file path and template associations.",
+      deleteProtocolsHint:
+        "Delete the following protocol files and update the project manifest. Review your selection.",
+      importProject: "Import project",
+      importHint: "Import is coming later. Imported projects will appear in this list.",
+
       resizeSidebar: "Resize project sidebar",
       loading: "Loading project",
       noProject: "No project is open",
@@ -415,7 +445,7 @@ export const messages: Record<Locale, TranslationMessages> = {
       renameFolder: "Rename folder",
       renameProject: "Rename project",
       renameProjectHint: "Change the display name. The project ID and directory stay the same.",
-      recentProjects: "Recent projects",
+      recentProjects: "Open project",
       recentHint: "The last 10 projects opened. Removing an entry keeps its files on disk.",
       noRecentProjects: "No recent projects yet.",
       forgetRecentProject: "Remove recent entry",
@@ -425,7 +455,7 @@ export const messages: Record<Locale, TranslationMessages> = {
       invalidName: "Enter a valid name without path separators or a trailing period.",
       targetFolder: "Target folder",
       removeProject: "Remove project",
-      removeProjectHint: "Remove this project from the workspace; keep its files on disk.",
+      removeProjectHint: "Close this project and remove it from history; keep its files on disk.",
       deleteFolderHint: "Only empty folders can be deleted. Clear all contents first.",
       dropAtRoot:
         "Drop here to move to the project root; drop on folder edges to reorder or the center to move inside.",

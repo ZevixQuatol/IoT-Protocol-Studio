@@ -715,6 +715,53 @@ messages:
     CHECK(templates("list").value().empty());
     CHECK(message_templates(managed, "list", editor_path, "other").value().size() == 1);
 
+    // Protocol display renames retain paths; batch deletion validates the entire set first.
+    CHECK(rename_protocol(managed, editor_path, "重命名: 协议").has_value());
+    CHECK(editor_schema().protocol.display_name == "重命名: 协议");
+    CHECK(!rename_protocol(managed, editor_path, " ").has_value());
+    CHECK(!rename_protocol(managed, "protocols/missing.yaml", "name").has_value());
+    const auto before_delete = read_file(managed / "project.yaml");
+    const auto before_protocol_delete = read_file(managed / editor_path);
+    CHECK(!delete_protocols(managed, {}).has_value());
+    CHECK(!delete_protocols(managed, {editor_path, editor_path}).has_value());
+    CHECK(!delete_protocols(managed, {editor_path, "../outside.yaml"}).has_value());
+    CHECK(!delete_protocols(managed, {editor_path, "protocols/missing.yaml"}).has_value());
+    CHECK(read_file(managed / "project.yaml") == before_delete);
+    CHECK(read_file(managed / editor_path) == before_protocol_delete);
+    write_file(managed / "project.yaml.iotps.tmp", "reserved");
+    CHECK(!delete_protocols(managed, {editor_path}).has_value());
+    CHECK(read_file(managed / editor_path) == before_protocol_delete);
+    std::filesystem::remove(managed / "project.yaml.iotps.tmp");
+    CHECK(create_protocol(managed, {.relative_path = "delete-second.protocol.yaml",
+                                    .protocol = {.name = "second", .version = "1.0"}})
+              .has_value());
+    write_file(managed / "protocols/delete-second.protocol.yaml.iotps.deleted", "reserved");
+    CHECK(!delete_protocols(managed, {editor_path, "protocols/delete-second.protocol.yaml"})
+               .has_value());
+    CHECK(read_file(managed / editor_path) == before_protocol_delete);
+    std::filesystem::remove(managed / "protocols/delete-second.protocol.yaml.iotps.deleted");
+#if defined(_WIN32)
+    const auto delete_manifest = read_file(managed / "project.yaml");
+    const auto delete_lock =
+        CreateFileW((managed / "project.yaml").c_str(), GENERIC_READ, FILE_SHARE_READ, nullptr,
+                    OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
+    CHECK(delete_lock != INVALID_HANDLE_VALUE);
+    if (delete_lock != INVALID_HANDLE_VALUE) {
+        CHECK(!delete_protocols(managed, {editor_path, "protocols/delete-second.protocol.yaml"})
+                   .has_value());
+        CHECK(read_file(managed / "project.yaml") == delete_manifest);
+        CHECK(read_file(managed / editor_path) == before_protocol_delete);
+        CHECK(std::filesystem::exists(managed / "protocols/delete-second.protocol.yaml"));
+        CHECK(!std::filesystem::exists(managed / (editor_path + ".iotps.deleted")));
+        CloseHandle(delete_lock);
+    }
+#endif
+    CHECK(delete_protocols(managed, {editor_path, "protocols/delete-second.protocol.yaml"})
+              .has_value());
+    CHECK(!std::filesystem::exists(managed / editor_path));
+    CHECK(!std::filesystem::exists(managed / "protocols/delete-second.protocol.yaml"));
+    CHECK(load_project(managed).has_value());
+
     std::error_code cleanup_error;
     std::filesystem::remove_all(temporary, cleanup_error);
     CHECK(!cleanup_error);

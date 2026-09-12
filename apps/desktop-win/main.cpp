@@ -1051,6 +1051,13 @@ window.addEventListener("DOMContentLoaded", () => {
           await edit("updateMessage", "packet", "", "name", "updated");
           const empty = await edit("deleteMessage", "updated", "");
           if (empty.schema.messages.length !== 0) { report("schema-delete-bridge-failed"); return; }
+          const renamedProtocol = await window.iotpsWorkspaceProtocols("rename", path, "Renamed protocol");
+          const rejectedDelete = await window.iotpsWorkspaceProtocols("delete", path, "../outside.yaml");
+          const deletedProtocol = await window.iotpsWorkspaceProtocols("delete", path);
+          if (!renamedProtocol?.ok || renamedProtocol.project.protocols[0].name !== "Renamed protocol" ||
+              rejectedDelete?.ok || !deletedProtocol?.ok || deletedProtocol.project.protocols.length !== 0) {
+            report("protocol-management-bridge-failed"); return;
+          }
           await window.iotpsWorkspaceClose();
           debug.click();
           window.setTimeout(() => {
@@ -1402,6 +1409,21 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR command_line, int) {
                 return workspace_error_response("project_not_open", "Open a project first");
             return workspace_result_response(
                 iotps::core::workspace::rename_project(*current_project, (*arguments)[0]));
+        });
+        window.bind("iotpsWorkspaceProtocols", [&current_project](const std::string& request) {
+            const auto args = string_arguments(request);
+            if (!args || args->size() < 2 || args->size() > 1001)
+                return workspace_error_response("invalid_request",
+                                                "protocol operation expects targets");
+            if (!current_project)
+                return workspace_error_response("project_not_open", "Open a project first");
+            if ((*args)[0] == "rename" && args->size() == 3)
+                return workspace_result_response(iotps::core::workspace::rename_protocol(
+                    *current_project, (*args)[1], (*args)[2]));
+            if ((*args)[0] == "delete")
+                return workspace_result_response(iotps::core::workspace::delete_protocols(
+                    *current_project, {args->begin() + 1, args->end()}));
+            return workspace_error_response("invalid_request", "unknown protocol operation");
         });
         window.bind("iotpsWorkspaceCreate", [window_handle,
                                              &current_project](const std::string& request) {
