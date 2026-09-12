@@ -30,6 +30,15 @@ async function checkProjectActions(page) {
     const result = () =>
       structuredClone({ ok: true, source: "native-workspace", cancelled: false, project });
     window.projectCalls = [];
+    window.createCalls = [];
+    window.iotpsWorkspaceCreateProtocol = async (...args) => {
+      window.createCalls.push(args);
+      return {
+        ok: false,
+        source: "native-workspace",
+        error: { code: "protocol_file_already_exists", message: "Already exists", path: args[0] },
+      };
+    };
     window.iotpsWorkspaceCurrent = async () => result();
     window.iotpsWorkspaceOpen = async (path) => {
       window.projectCalls.push(["open", path]);
@@ -108,11 +117,41 @@ async function checkProjectActions(page) {
   );
   await page.locator(".folder-row").hover();
   await more("设备", "创建协议");
+  const createDialog = page.locator('form[role="dialog"]');
   check(
-    (await page.locator('input[name="relativePath"]').inputValue()) === "设备/",
-    "Folder creation action prefills protocol path",
+    (await createDialog
+      .locator('[name="relativePath"], [name="displayName"], [name="version"]')
+      .count()) === 0,
+    "Create hides path, display name and version",
   );
-  await page.getByRole("button", { name: "取消", exact: true }).click();
+  await createDialog.locator('[name="name"]').fill("../outside");
+  await createDialog.getByRole("button", { name: "创建", exact: true }).click();
+  check(
+    (await page.evaluate(() => window.createCalls.length)) === 0,
+    "Invalid filename never submits",
+  );
+  await createDialog.locator('[name="name"]').fill("新协议");
+  await createDialog.locator('[name="byteOrder"]').selectOption("little");
+  await createDialog.locator('[name="description"]').fill("说明");
+  await createDialog.getByRole("button", { name: "创建", exact: true }).click();
+  check(
+    (await page.evaluate(() => window.createCalls.at(-1))).join("|") ===
+      "设备/新协议.protocol.yaml|新协议|新协议|1.0|说明|little",
+    "Path and display name derive from name and selected folder",
+  );
+  check(
+    (await createDialog.locator('[name="name"]').inputValue()) === "新协议",
+    "Create failure preserves input",
+  );
+  await createDialog.getByRole("button", { name: "取消", exact: true }).last().click();
+  await more("现场设备", "创建协议");
+  await createDialog.locator('[name="name"]').fill("根协议");
+  await createDialog.getByRole("button", { name: "创建", exact: true }).click();
+  check(
+    (await page.evaluate(() => window.createCalls.at(-1)))[0] === "根协议.protocol.yaml",
+    "Project creation resets parent to root",
+  );
+  await createDialog.getByRole("button", { name: "取消", exact: true }).last().click();
   await page.locator(".project-title").hover();
   check(
     (await page.getByRole("button", { name: "批量删除", exact: true }).count()) === 0,

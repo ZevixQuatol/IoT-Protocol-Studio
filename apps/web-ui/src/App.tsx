@@ -811,14 +811,20 @@ export default function App() {
     event.preventDefault();
     const form = event.currentTarget;
     const data = new FormData(form);
-    const relativePath = String(data.get("relativePath") ?? "").trim();
+    if (busy || isDirty) return;
+    const name = String(data.get("name") ?? "").trim();
+    if (!name || /[\\/<>:"|?*\u0000-\u001f]/.test(name) || name.endsWith(".")) {
+      setErrorMessage(translation.workspace.invalidName);
+      return;
+    }
+    const relativePath = `${createParent === "protocols" ? "" : `${createParent.slice(10)}/`}${name}.protocol.yaml`;
     void run(
       () =>
         createProtocol({
           relativePath,
-          name: String(data.get("name") ?? "").trim(),
-          displayName: String(data.get("displayName") ?? "").trim(),
-          version: String(data.get("version") ?? "").trim(),
+          name,
+          displayName: name,
+          version: "1.0",
           description: String(data.get("description") ?? "").trim(),
           byteOrder: data.get("byteOrder") === "little" ? "little" : "big",
         }),
@@ -2603,48 +2609,40 @@ export default function App() {
                 <span>{translation.workspace.project}</span>
                 <h2>{translation.create.title}</h2>
               </div>
-              <button onClick={() => setCreateOpen(false)} type="button">
+              <button
+                disabled={busy}
+                aria-label={translation.create.cancel}
+                onClick={() => setCreateOpen(false)}
+                type="button"
+              >
                 <X size={16} />
               </button>
             </header>
             <label>
-              {translation.create.relativePath}
-              <input
-                name="relativePath"
-                defaultValue={createParent === "protocols" ? "" : `${createParent.slice(10)}/`}
-                pattern=".+\.protocol\.ya?ml"
-                placeholder="vendors/acme/telemetry.protocol.yaml"
-                required
-              />
-              <small>{translation.create.relativePathHint}</small>
-            </label>
-            <label>
               {translation.create.name}
-              <input name="name" placeholder="acme-telemetry" required />
+              <input
+                name="name"
+                placeholder="acme-telemetry"
+                required
+                maxLength={100}
+                disabled={busy}
+                autoFocus
+              />
             </label>
             <label>
-              {translation.create.displayName}
-              <input name="displayName" />
+              {translation.create.byteOrder}
+              <select defaultValue="big" name="byteOrder" disabled={busy}>
+                <option value="big">Big Endian</option>
+                <option value="little">Little Endian</option>
+              </select>
             </label>
-            <div className="form-row">
-              <label>
-                {translation.create.version}
-                <input defaultValue="1.0" name="version" required />
-              </label>
-              <label>
-                {translation.create.byteOrder}
-                <select defaultValue="big" name="byteOrder">
-                  <option value="big">Big Endian</option>
-                  <option value="little">Little Endian</option>
-                </select>
-              </label>
-            </div>
             <label>
               {translation.create.description}
-              <textarea name="description" rows={3} />
+              <textarea name="description" rows={3} disabled={busy} />
             </label>
+            {errorMessage && <p role="alert">{errorMessage}</p>}
             <footer>
-              <button onClick={() => setCreateOpen(false)} type="button">
+              <button disabled={busy} onClick={() => setCreateOpen(false)} type="button">
                 {translation.create.cancel}
               </button>
               <button className="primary" disabled={busy} type="submit">
