@@ -62,6 +62,11 @@ async function checkProjectActions(page) {
   await page.locator(".project-title").waitFor();
   const dialog = page.locator(".tree-dialog");
   const cancel = () => dialog.getByRole("button", { name: "取消", exact: true }).click();
+  const more = async (name, action) => {
+    await page.getByRole("button", { name: `更多操作: ${name}`, exact: true }).focus();
+    await page.getByRole("button", { name: `更多操作: ${name}`, exact: true }).click();
+    await dialog.getByRole("button", { name: action, exact: true }).click();
+  };
   const openHistory = async () => {
     await page.getByRole("button", { name: "项目操作", exact: true }).click();
     check(
@@ -83,7 +88,7 @@ async function checkProjectActions(page) {
     "History opens explicit path without picker",
   );
   await page.locator(".project-title").hover();
-  await page.getByRole("button", { name: "重命名项目", exact: true }).click();
+  await more("历史项目", "重命名项目");
   await dialog.getByRole("textbox").fill("现场设备");
   await dialog.getByRole("button", { name: "保存", exact: true }).click();
   await dialog.waitFor({ state: "hidden" });
@@ -93,7 +98,7 @@ async function checkProjectActions(page) {
     "Rename updates history",
   );
   await page.locator(".protocol-row").first().hover();
-  await page.getByRole("button", { name: "重命名协议: 温度", exact: true }).click();
+  await more("温度", "重命名协议");
   await dialog.getByRole("textbox").fill("环境温度");
   await dialog.getByRole("button", { name: "保存", exact: true }).click();
   await dialog.waitFor({ state: "hidden" });
@@ -102,40 +107,39 @@ async function checkProjectActions(page) {
     "Protocol name refreshed",
   );
   await page.locator(".folder-row").hover();
-  await page.getByRole("button", { name: "创建协议: 设备", exact: true }).click();
+  await more("设备", "创建协议");
   check(
     (await page.locator('input[name="relativePath"]').inputValue()) === "设备/",
     "Folder creation action prefills protocol path",
   );
   await page.getByRole("button", { name: "取消", exact: true }).click();
   await page.locator(".project-title").hover();
-  await page.getByRole("button", { name: "批量删除", exact: true }).click();
-  await page.getByRole("checkbox", { name: "全选", exact: true }).check();
-  await page.getByRole("button", { name: "删除所选", exact: true }).click();
   check(
-    (await dialog.locator(".delete-targets li").count()) === 2,
-    "Confirmation lists exact targets",
+    (await page.getByRole("button", { name: "批量删除", exact: true }).count()) === 0,
+    "No bulk delete entry",
+  );
+  check((await page.locator(".row-actions button").count()) === 4, "Only one more button per row");
+  await more("环境温度", "删除协议");
+  check(
+    (await dialog.locator(".delete-targets li").count()) === 1,
+    "Confirm only current protocol",
   );
   await cancel();
   check((await page.locator(".protocol-item").count()) === 2, "Cancel preserves protocols");
   await page.evaluate(() => (window.rejectDelete = true));
-  await page.getByRole("button", { name: "删除所选", exact: true }).click();
-  await dialog.getByRole("button", { name: "删除所选", exact: true }).click();
+  await more("环境温度", "删除协议");
+  await dialog.getByRole("button", { name: "删除协议", exact: true }).click();
   await dialog.getByRole("alert").waitFor();
-  check(
-    (await page.locator(".protocol-item").count()) === 2,
-    "Failure preserves tree and selection",
-  );
+  check((await page.locator(".protocol-item").count()) === 2, "Delete failure preserves protocols");
   await page.evaluate(() => (window.rejectDelete = false));
-  await dialog.getByRole("button", { name: "删除所选", exact: true }).click();
+  await dialog.getByRole("button", { name: "删除协议", exact: true }).click();
   await dialog.waitFor({ state: "hidden" });
-  check((await page.locator(".protocol-item").count()) === 0, "Batch removes selected protocols");
   check(
-    (await page.locator(".batch-actions").count()) === 0,
-    "Successful delete exits selection mode",
+    (await page.locator(".protocol-item").count()) === 1,
+    "Delete removes only current protocol",
   );
   await page.locator(".project-title").hover();
-  await page.getByRole("button", { name: "移除项目", exact: true }).click();
+  await more("现场设备", "移除项目");
   check(
     (await dialog.textContent()).includes("磁盘文件将保留"),
     "Project removal explains disk retention",
@@ -147,8 +151,8 @@ async function checkProjectActions(page) {
   await dialog.getByRole("button").filter({ hasText: "设备项目" }).first().click();
   await dialog.waitFor({ state: "hidden" });
   await page.locator(".protocol-row").first().hover();
-  await page.getByRole("button", { name: "删除协议: 温度", exact: true }).click();
-  await dialog.getByRole("button", { name: "删除所选", exact: true }).click();
+  await more("温度", "删除协议");
+  await dialog.getByRole("button", { name: "删除协议", exact: true }).click();
   await dialog.waitFor({ state: "hidden" });
   check(
     (await page.locator(".protocol-item").count()) === 1,
@@ -158,5 +162,5 @@ async function checkProjectActions(page) {
     await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth),
     "No horizontal page overflow",
   );
-  return "PASS: row actions, history open without picker, rename, nested create path, single/bulk delete, cancellation, failure, project removal";
+  return "PASS: more dialogs, history open without picker, rename, nested create path, single delete, cancellation, failure, project removal";
 }

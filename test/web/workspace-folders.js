@@ -52,7 +52,8 @@ async function checkWorkspaceFolders(page) {
   const menu = async (name) => {
     if (name !== "新建项目") {
       await page.locator(".project-title").hover();
-      await page.getByRole("button", { name, exact: true }).click();
+      await page.getByRole("button", { name: "更多操作: Folders", exact: true }).click();
+      await dialog.getByRole("button", { name, exact: true }).click();
       return;
     }
     await page.getByRole("button", { name: "项目操作", exact: true }).click();
@@ -64,7 +65,8 @@ async function checkWorkspaceFolders(page) {
       .filter({ has: page.locator(".folder-item", { hasText: name }) })
       .first()
       .hover();
-    await page.getByRole("button", { name: `${action}: ${name}`, exact: true }).click();
+    await page.getByRole("button", { name: `更多操作: ${name}`, exact: true }).click();
+    await dialog.getByRole("button", { name: action, exact: true }).click();
   };
   const create = async (name) => {
     await dialog.getByRole("textbox").fill(name);

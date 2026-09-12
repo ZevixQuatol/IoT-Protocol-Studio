@@ -2421,47 +2421,21 @@ button {
 }
 .project-title:hover,
 .project-title:focus-within {
-  padding-right: 156px;
+  padding-right: 34px;
 }
 .folder-row > .tree-item {
-  width: calc(100% - 130px);
+  width: calc(100% - 34px);
   flex: none;
   padding-right: 4px;
 }
 .protocol-row > .tree-item {
-  width: calc(100% - 55px);
+  width: calc(100% - 34px);
   flex: 1;
-  padding-right: 55px;
+  padding-right: 34px;
 }
 .project-title:hover > .project-count,
 .project-title:focus-within > .project-count {
   display: none;
-}
-.batch-actions {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 6px;
-  padding: 8px;
-  font-size: 11px;
-  border-block: 1px solid var(--line);
-}
-.batch-actions label {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-}
-.batch-actions button {
-  border: 1px solid var(--line);
-  border-radius: 4px;
-  padding: 4px 6px;
-  background: var(--surface);
-  color: var(--text);
-  cursor: pointer;
-}
-.batch-actions button:disabled {
-  opacity: 0.45;
-  cursor: default;
 }
 .history-actions {
   display: flex;
@@ -2908,4 +2882,42 @@ button {
   .settings-core-value {
     align-items: flex-start;
   }
+}
+
+.tree-dialog-actions {
+  display: grid;
+  gap: 4px;
+}
+.tree-actions-dialog {
+  width: min(280px, calc(100vw - 32px));
+}
+.tree-actions-dialog form {
+  gap: 8px;
+}
+.tree-actions-dialog h2 {
+  margin: 0;
+  font-size: 14px;
+}
+.tree-actions-dialog .tree-dialog-path {
+  margin: 0 0 4px;
+  font-size: 11px;
+  color: var(--muted);
+}
+.tree-dialog-actions button {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 34px;
+  padding: 6px 10px;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--text);
+  text-align: left;
+  cursor: pointer;
+}
+.tree-dialog-actions button:hover,
+.tree-dialog-actions button:focus-visible {
+  background: var(--accent-soft);
+  color: var(--accent);
 }

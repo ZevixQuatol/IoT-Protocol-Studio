@@ -46,7 +46,7 @@ export type TranslationMessages = {
     deleteFolderHint: string;
     renameProtocol: string;
     deleteProtocol: string;
-    batchDelete: string;
+    moreActions: string;
     selectAll: string;
     deleteSelected: string;
     renameProtocolHint: string;
@@ -218,7 +218,7 @@ export const messages: Record<Locale, TranslationMessages> = {
       projectActions: "项目操作",
       renameProtocol: "重命名协议",
       deleteProtocol: "删除协议",
-      batchDelete: "批量删除",
+      moreActions: "更多操作",
       selectAll: "全选",
       deleteSelected: "删除所选",
       renameProtocolHint: "仅修改显示名称，文件路径和模板关联保持不变。",
@@ -417,7 +417,7 @@ export const messages: Record<Locale, TranslationMessages> = {
       projectActions: "Project actions",
       renameProtocol: "Rename protocol",
       deleteProtocol: "Delete protocol",
-      batchDelete: "Bulk delete",
+      moreActions: "More actions",
       selectAll: "Select all",
       deleteSelected: "Delete selected",
       renameProtocolHint: "Change the display name; keep the file path and template associations.",
