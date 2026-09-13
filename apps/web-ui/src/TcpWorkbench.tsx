@@ -21,11 +21,13 @@ const empty: TcpSnapshot = {
 };
 
 export default function TcpWorkbench({
+  session,
   visible,
   locale,
   draft,
   onDebug,
 }: {
+  session: string;
   visible: boolean;
   locale: Locale;
   draft: { id: number; hex: string } | null;
@@ -72,7 +74,7 @@ export default function TcpWorkbench({
     const poll = async () => {
       const version = generation.current;
       try {
-        const result = await tcpCommand("poll", String(cursor.current));
+        const result = await tcpCommand(session, "poll", String(cursor.current));
         if (!alive) return;
         if (!result.ok) {
           setError(result.error.message);
@@ -105,12 +107,20 @@ export default function TcpWorkbench({
         if (alive) timer = setTimeout(() => void poll(), visible ? 250 : 1000);
       }
     };
-    void poll();
+    void tcpCommand(session, "create")
+      .then((result) => {
+        if (!alive) return;
+        if (result.ok) void poll();
+        else setError(result.error.message);
+      })
+      .catch((failure) => {
+        if (alive) setError(String(failure));
+      });
     return () => {
       alive = false;
       clearTimeout(timer);
     };
-  }, [visible]);
+  }, [visible, session]);
   useEffect(() => {
     if (visible && follow && table.current) table.current.scrollTop = table.current.scrollHeight;
   }, [records, visible, follow]);
@@ -121,7 +131,7 @@ export default function TcpWorkbench({
     setError("");
     setNotice("");
     try {
-      const result = await tcpCommand(action, ...args);
+      const result = await tcpCommand(session, action, ...args);
       if (!result.ok) {
         setError(result.error.message);
         return false;
@@ -152,7 +162,8 @@ export default function TcpWorkbench({
       );
   };
   const clear = async () => {
-    if (!window.confirm(t("清空当前收发记录？", "Clear traffic records?"))) return;
+    const owner = dialog.current?.ownerDocument.defaultView ?? window;
+    if (!owner.confirm(t("清空当前收发记录？", "Clear traffic records?"))) return;
     ++generation.current;
     if (await act("clear")) {
       ++generation.current;
@@ -438,8 +449,9 @@ export default function TcpWorkbench({
             <button
               type="button"
               disabled={!selected.hex}
-              onClick={() => {
-                void navigator.clipboard
+              onClick={(event) => {
+                const owner = event.currentTarget.ownerDocument.defaultView ?? window;
+                void owner.navigator.clipboard
                   .writeText(selected.hex)
                   .then(() => setNotice(t("HEX 已复制", "HEX copied")))
                   .catch(() => setError(t("复制失败", "Copy failed")));

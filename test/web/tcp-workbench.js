@@ -25,7 +25,7 @@ async function checkTcp(page) {
       records: [],
     };
     window.tcpCalls = [];
-    window.iotpsTcp = async (action, ...args) => {
+    window.iotpsTcp = async (_session, action, ...args) => {
       if (action === "poll")
         return structuredClone({
           ...state,

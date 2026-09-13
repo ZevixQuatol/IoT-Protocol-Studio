@@ -37,6 +37,8 @@ iotps_enable_warnings(iotps_desktop)
 if(BUILD_TESTING AND IOTPS_BUILD_WEB_UI)
   target_compile_definitions(iotps_desktop PRIVATE IOTPS_TEST_PROJECT="${PROJECT_SOURCE_DIR}/test/vectors/project/smart-sensor")
   add_test(NAME iotps_desktop_ui_smoke_test COMMAND iotps_desktop --smoke-test)
+  add_test(NAME iotps_tcp_windows_smoke_test COMMAND iotps_desktop --smoke-test --tcp-windows)
+  set_tests_properties(iotps_tcp_windows_smoke_test PROPERTIES TIMEOUT 45)
   set_tests_properties(iotps_desktop_ui_smoke_test PROPERTIES TIMEOUT 15)
 endif()
 

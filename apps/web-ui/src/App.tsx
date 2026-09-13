@@ -43,7 +43,7 @@ import UnorderedListIcon from "./icons/unordered-list-icon";
 import DebugTools, { type DebugAnnotation, type DebugRange } from "./DebugTools";
 import SchemaEditor, { type SchemaEditTarget } from "./SchemaEditor";
 import MessageTemplates from "./MessageTemplates";
-import TcpWorkbench from "./TcpWorkbench";
+import TcpWorkspace from "./TcpWorkspace";
 import {
   closeProject,
   changeProtocols,
@@ -1221,7 +1221,7 @@ export default function App() {
           <button
             aria-current={page === "tcp" ? "page" : undefined}
             aria-label={locale === "zh-CN" ? "通信连接" : "Connections"}
-            className={`nav-button ${page === "tcp" ? "active" : ""}`}
+            className={`nav-button tcp-button ${page === "tcp" ? "active" : ""}`}
             onClick={() => navigate("tcp")}
             title={locale === "zh-CN" ? "通信连接" : "Connections"}
             type="button"
@@ -1396,7 +1396,7 @@ export default function App() {
                 </button>
               </div>
             )}
-            <TcpWorkbench
+            <TcpWorkspace
               visible={page === "tcp"}
               locale={locale}
               draft={tcpDraft}

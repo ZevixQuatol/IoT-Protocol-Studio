@@ -59,9 +59,13 @@ export type TcpSnapshot = {
 };
 type TcpResult =
   TcpSnapshot | { ok: true } | { ok: false; error: { code: string; message: string } };
-export async function tcpCommand(action: string, ...args: string[]): Promise<TcpResult> {
+export async function tcpCommand(
+  session: string,
+  action: string,
+  ...args: string[]
+): Promise<TcpResult> {
   return window.iotpsTcp
-    ? window.iotpsTcp(action, ...args)
+    ? window.iotpsTcp(session, action, ...args)
     : {
         ok: false,
         error: {
@@ -222,7 +226,7 @@ export type MessageEncodeResult =
 
 declare global {
   interface Window {
-    iotpsTcp?: (action: string, ...args: string[]) => Promise<TcpResult>;
+    iotpsTcp?: (session: string, action: string, ...args: string[]) => Promise<TcpResult>;
     iotpsWorkspaceProtocols?: (action: string, ...args: string[]) => Promise<WorkspaceResult>;
     iotpsMessageTemplates?: (
       action: string,

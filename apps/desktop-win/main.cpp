@@ -6,6 +6,8 @@
 #include "iotps/core/version.hpp"
 #include "iotps/core/workspace/workspace.hpp"
 #include "resource.h"
+#include "tcp_smoke.hpp"
+#include "tcp_windows.hpp"
 #include "webview/webview.h"
 
 #include <algorithm>
@@ -17,6 +19,7 @@
 #include <filesystem>
 #include <fstream>
 #include <limits>
+#include <map>
 #include <memory>
 #include <optional>
 #include <shobjidl.h>
@@ -979,9 +982,11 @@ window.addEventListener("DOMContentLoaded", () => {
         window.iotpsSmokeDecodeFixture(),
       ])
         .then(async ([current, createResult, saveResult, fieldResult, closed, windowResult, folderResult, projectResult, converted, checksum, decoded, file, fixture]) => {
-          const tcpPoll = await window.iotpsTcp("poll", "0");
-          const tcpInvalid = await window.iotpsTcp("start", "client", "bad-ip", "9000");
-          const tcpHex = await window.iotpsTcp("send", "1", "GG");
+          await window.iotpsTcp("smoke", "create");
+          const tcpPoll = await window.iotpsTcp("smoke", "poll", "0");
+          const tcpInvalid = await window.iotpsTcp("smoke", "start", "client", "bad-ip", "9000");
+          const tcpHex = await window.iotpsTcp("smoke", "send", "1", "GG");
+          await window.iotpsTcp("smoke", "destroy");
           if (!tcpPoll?.ok || tcpPoll.state !== "closed" || !Array.isArray(tcpPoll.records) || tcpInvalid?.ok || tcpHex?.ok) {
             report("tcp-bridge-failed"); return;
           }
@@ -1374,11 +1379,34 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR command_line, int) {
         window.set_size(960, 640, WEBVIEW_HINT_MIN);
         const auto smoke_test_frame_ready = !smoke_test || custom_resize_frame_ready(window_handle);
         std::optional<std::filesystem::path> current_project;
-        iotps::core::transport::TcpSession tcp;
-        window.bind("iotpsTcp", [&tcp](const std::string& request) {
-            const auto args = string_arguments(request);
-            if (!args || args->empty() || args->size() > 4)
+        std::map<std::string, std::unique_ptr<iotps::core::transport::TcpSession>> tcp_sessions;
+        TcpWindows tcp_windows(window, [&tcp_sessions] { tcp_sessions.clear(); });
+        window.bind("iotpsTcp", [&tcp_sessions](const std::string& request) {
+            auto args = string_arguments(request);
+            if (!args || args->size() < 2 || args->size() > 5 || (*args)[0].empty() ||
+                (*args)[0].size() > 64)
                 return workspace_error_response("invalid_request", "invalid TCP command");
+            const auto session_id = (*args)[0];
+            args->erase(args->begin());
+            if ((*args)[0] == "create" && args->size() == 1) {
+                if (!tcp_sessions.contains(session_id)) {
+                    if (tcp_sessions.size() >= 16)
+                        return workspace_error_response("session_limit",
+                                                        "At most 16 communication sessions");
+                    tcp_sessions.emplace(session_id,
+                                         std::make_unique<iotps::core::transport::TcpSession>());
+                }
+                return std::string{"{\"ok\":true}"};
+            }
+            if ((*args)[0] == "destroy" && args->size() == 1) {
+                tcp_sessions.erase(session_id);
+                return std::string{"{\"ok\":true}"};
+            }
+            const auto found = tcp_sessions.find(session_id);
+            if (found == tcp_sessions.end())
+                return workspace_error_response("session_not_found",
+                                                "Communication session is closed");
+            auto& tcp = *found->second;
             const auto number = [](const std::string& text) -> std::optional<std::uint64_t> {
                 std::uint64_t value = 0;
                 const auto [end, error] =
@@ -1636,6 +1664,11 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR command_line, int) {
         std::atomic_bool smoke_test_passed = false;
         std::optional<std::filesystem::path> smoke_schema_project;
         if (smoke_test) {
+            window.bind("iotpsSmokeTcpWindows", [&tcp_windows](const std::string& request) {
+                if (first_string_argument(request) == "close")
+                    tcp_windows.close_first();
+                return std::to_string(tcp_windows.count());
+            });
             window.bind("iotpsSmokeSchemaFixture", [&smoke_schema_project](const std::string&) {
                 auto project = iotps::core::workspace::create_project(
                     std::filesystem::temp_directory_path(),
@@ -1661,13 +1694,18 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR command_line, int) {
             window.bind("iotpsSmokeResult", [&window, &smoke_test_passed,
                                              smoke_test_frame_ready](const std::string& request) {
                 const auto result = first_string_argument(request);
+                std::ofstream(executable_directory() / "smoke-result.txt")
+                    << result.value_or("no result") << "; frame=" << smoke_test_frame_ready;
                 smoke_test_passed.store(smoke_test_frame_ready && result.has_value() &&
                                             *result == "pass",
                                         std::memory_order_release);
                 window.dispatch([&window] { window.terminate(); });
                 return "null";
             });
-            window.init(smoke_test_script);
+            window.init(std::string_view{command_line}.find("--tcp-windows") !=
+                                std::string_view::npos
+                            ? tcp_smoke_script
+                            : smoke_test_script);
         }
 
         if (const auto url = smoke_test ? std::nullopt : development_url(); url.has_value()) {

@@ -3196,3 +3196,121 @@ button {
 .tcp-page {
   overflow: auto;
 }
+.tcp-workspace {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+}
+.tcp-workspace[hidden],
+.tcp-session-slot[hidden] {
+  display: none;
+}
+.tcp-tabs {
+  display: flex;
+  flex-shrink: 0;
+  gap: 4px;
+  overflow-x: auto;
+  padding: 8px 12px 0;
+  border-bottom: 1px solid var(--line);
+  background: var(--chrome);
+}
+.tcp-tabs button,
+.tcp-popup-toolbar button,
+.tcp-detached-placeholder button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 5px;
+  padding: 7px 10px;
+  color: var(--text);
+  font: inherit;
+  cursor: pointer;
+}
+.tcp-tabs button:focus-visible,
+.tcp-popup-toolbar button:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+.tcp-tab {
+  display: flex;
+  flex-shrink: 0;
+  border: 1px solid var(--line);
+  border-bottom: 0;
+  border-radius: 5px 5px 0 0;
+}
+.tcp-tab button {
+  border: 0;
+  background: transparent;
+  border-radius: 0;
+  white-space: nowrap;
+  font-size: 12px;
+}
+.tcp-tab button[role="tab"] {
+  max-width: 200px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.tcp-tab.active {
+  background: var(--surface);
+  border-top: 2px solid var(--accent);
+}
+.tcp-tabs .tcp-add {
+  padding: 6px;
+  margin: 0 0 4px 4px;
+  background: transparent;
+  border: 0;
+}
+.tcp-tabs .tcp-add:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+.tcp-session-slot,
+.tcp-session-container {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+}
+.tcp-session-container > .tcp-workbench {
+  flex: 1;
+}
+.tcp-detached-placeholder {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-direction: column;
+  gap: 12px;
+  flex: 1;
+  color: var(--muted);
+}
+.tcp-detached-placeholder p {
+  margin: 0;
+}
+body.tcp-popup {
+  margin: 0;
+  height: 100vh;
+  width: 100vw;
+  overflow: hidden;
+  background: var(--surface);
+  color: var(--text);
+}
+.tcp-popup > .tcp-session-container {
+  height: 100%;
+}
+.tcp-popup-toolbar {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: space-between;
+  padding: 6px 16px;
+  border-bottom: 1px solid var(--line);
+  background: var(--chrome);
+  font-size: 12px;
+}
+.tcp-popup .tcp-workbench {
+  height: auto;
+  overflow: auto;
+}
