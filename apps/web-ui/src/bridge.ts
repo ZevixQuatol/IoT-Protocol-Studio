@@ -32,6 +32,45 @@ export type InspectionResult = InspectionSuccess | InspectionFailure;
 
 export type WindowAction = "drag" | "minimize" | "maximize" | "close";
 
+export type TcpRecord = {
+  id: number;
+  time: number;
+  direction: "TX" | "RX" | "SYS";
+  peer: number;
+  address: string;
+  hex: string;
+  size: number;
+  detail: string;
+};
+export type TcpSnapshot = {
+  ok: true;
+  state: "closed" | "opening" | "open" | "faulted";
+  server: boolean;
+  host: string;
+  port: number;
+  error: string;
+  sent: number;
+  received: number;
+  queued: number;
+  dropped: number;
+  cursor: number;
+  peers: { id: number; address: string }[];
+  records: TcpRecord[];
+};
+type TcpResult =
+  TcpSnapshot | { ok: true } | { ok: false; error: { code: string; message: string } };
+export async function tcpCommand(action: string, ...args: string[]): Promise<TcpResult> {
+  return window.iotpsTcp
+    ? window.iotpsTcp(action, ...args)
+    : {
+        ok: false,
+        error: {
+          code: "native_host_required",
+          message: "TCP requires the desktop app / TCP 通信需要桌面客户端",
+        },
+      };
+}
+
 export type WorkspaceField = {
   name: string;
   displayName: string;
@@ -183,6 +222,7 @@ export type MessageEncodeResult =
 
 declare global {
   interface Window {
+    iotpsTcp?: (action: string, ...args: string[]) => Promise<TcpResult>;
     iotpsWorkspaceProtocols?: (action: string, ...args: string[]) => Promise<WorkspaceResult>;
     iotpsMessageTemplates?: (
       action: string,

@@ -18,6 +18,7 @@ import {
   ListTree,
   LoaderCircle,
   Moon,
+  Network,
   Minus,
   Palette,
   Send,
@@ -42,6 +43,7 @@ import UnorderedListIcon from "./icons/unordered-list-icon";
 import DebugTools, { type DebugAnnotation, type DebugRange } from "./DebugTools";
 import SchemaEditor, { type SchemaEditTarget } from "./SchemaEditor";
 import MessageTemplates from "./MessageTemplates";
+import TcpWorkbench from "./TcpWorkbench";
 import {
   closeProject,
   changeProtocols,
@@ -79,7 +81,7 @@ import {
   type TranslationMessages,
 } from "./i18n";
 
-type Page = "schema" | "debug" | "settings";
+type Page = "schema" | "debug" | "tcp" | "settings";
 type DesignerView = "code" | "visual" | "message";
 
 type TreeNode = {
@@ -1055,9 +1057,9 @@ export default function App() {
     }
   };
 
-  const openMessageInDebug = () => {
-    if (!messageEncodeResult?.ok || isDirty || debugBusy) return;
-    const hex = messageEncodeResult.normalizedHex;
+  const [tcpDraft, setTcpDraft] = useState<{ id: number; hex: string } | null>(null);
+  const openHexInDebug = (hex: string) => {
+    if (debugBusy) return;
     if (
       debugInput.trim() &&
       debugContentRef.current !== hex.replace(/\s/g, "") &&
@@ -1069,6 +1071,9 @@ export default function App() {
     setDebugToolRange(null);
     setDebugByteOffset(null);
     navigate("debug");
+  };
+  const openMessageInDebug = () => {
+    if (messageEncodeResult?.ok && !isDirty) openHexInDebug(messageEncodeResult.normalizedHex);
   };
 
   const toggleExpanded = (key: string) => {
@@ -1212,6 +1217,16 @@ export default function App() {
             type="button"
           >
             <BugIcon size={17} />
+          </button>
+          <button
+            aria-current={page === "tcp" ? "page" : undefined}
+            aria-label={locale === "zh-CN" ? "通信连接" : "Connections"}
+            className={`nav-button ${page === "tcp" ? "active" : ""}`}
+            onClick={() => navigate("tcp")}
+            title={locale === "zh-CN" ? "通信连接" : "Connections"}
+            type="button"
+          >
+            <Network size={17} />
           </button>
           <button
             aria-current={page === "settings" ? "page" : undefined}
@@ -1367,7 +1382,9 @@ export default function App() {
                 ? "settings-page"
                 : page === "debug"
                   ? "debug-page"
-                  : "schema-page"
+                  : page === "tcp"
+                    ? "tcp-page"
+                    : "schema-page"
             }`}
           >
             {errorMessage && (
@@ -1379,7 +1396,13 @@ export default function App() {
                 </button>
               </div>
             )}
-            {page === "settings" ? (
+            <TcpWorkbench
+              visible={page === "tcp"}
+              locale={locale}
+              draft={tcpDraft}
+              onDebug={openHexInDebug}
+            />
+            {page === "tcp" ? null : page === "settings" ? (
               <>
                 <header className="content-header">
                   <div className="content-heading-icon">
@@ -2305,6 +2328,19 @@ export default function App() {
                                           onClick={openMessageInDebug}
                                         >
                                           {translation.messageStudio.toDebug}
+                                        </button>
+                                        <button
+                                          type="button"
+                                          disabled={busy || isDirty}
+                                          onClick={() => {
+                                            setTcpDraft({
+                                              id: Date.now(),
+                                              hex: messageEncodeResult.normalizedHex,
+                                            });
+                                            navigate("tcp");
+                                          }}
+                                        >
+                                          {locale === "zh-CN" ? "送入通信" : "Open in Connections"}
                                         </button>
                                         {messageActionStatus && (
                                           <span role="status">{messageActionStatus}</span>

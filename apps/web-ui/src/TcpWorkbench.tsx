@@ -1,0 +1,496 @@
+import { useEffect, useRef, useState } from "react";
+import { ArrowDown, ArrowUp, Network, PlugZap, Send, Trash2, X } from "lucide-react";
+import DotsHorizontalIcon from "./icons/dots-horizontal-icon";
+import { tcpCommand, type TcpRecord, type TcpSnapshot } from "./bridge";
+import type { Locale } from "./i18n";
+
+const empty: TcpSnapshot = {
+  ok: true,
+  state: "closed",
+  server: false,
+  host: "",
+  port: 0,
+  error: "",
+  sent: 0,
+  received: 0,
+  queued: 0,
+  dropped: 0,
+  cursor: 0,
+  peers: [],
+  records: [],
+};
+
+export default function TcpWorkbench({
+  visible,
+  locale,
+  draft,
+  onDebug,
+}: {
+  visible: boolean;
+  locale: Locale;
+  draft: { id: number; hex: string } | null;
+  onDebug: (hex: string) => void;
+}) {
+  const zh = locale === "zh-CN";
+  const t = (cn: string, en: string) => (zh ? cn : en);
+  const [mode, setMode] = useState("client");
+  const [host, setHost] = useState("127.0.0.1");
+  const [port, setPort] = useState("9000");
+  const [status, setStatus] = useState(empty);
+  const [records, setRecords] = useState<TcpRecord[]>([]);
+  const [peer, setPeer] = useState("");
+  const [input, setInput] = useState("");
+  const [encoding, setEncoding] = useState("hex");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const [notice, setNotice] = useState("");
+  const [direction, setDirection] = useState("all");
+  const [search, setSearch] = useState("");
+  const [selected, setSelected] = useState<TcpRecord | null>(null);
+  const [follow, setFollow] = useState(true);
+  const [peerMenu, setPeerMenu] = useState<{ id: number; address: string } | null>(null);
+  const dialog = useRef<HTMLDialogElement>(null);
+  const table = useRef<HTMLDivElement>(null);
+  const cursor = useRef(0);
+  const generation = useRef(0);
+  const connected = status.state === "open";
+  const active = connected || status.state === "opening";
+
+  useEffect(() => {
+    if (draft) {
+      setInput(draft.hex);
+      setEncoding("hex");
+    }
+  }, [draft]);
+  useEffect(() => {
+    if (peerMenu) dialog.current?.showModal();
+    else dialog.current?.close();
+  }, [peerMenu]);
+  useEffect(() => {
+    let alive = true;
+    let timer: ReturnType<typeof setTimeout>;
+    const poll = async () => {
+      const version = generation.current;
+      try {
+        const result = await tcpCommand("poll", String(cursor.current));
+        if (!alive) return;
+        if (!result.ok) {
+          setError(result.error.message);
+          return;
+        }
+        if (!("state" in result) || generation.current !== version) return;
+        cursor.current = result.cursor;
+        setStatus(result);
+        setPeer((current) =>
+          result.peers.some((item) => String(item.id) === current)
+            ? current
+            : String(result.peers[0]?.id ?? ""),
+        );
+        if (result.records.length)
+          setRecords((current) => {
+            const combined = [...current, ...result.records];
+            let size = 0;
+            let start = combined.length;
+            while (
+              start > 0 &&
+              combined.length - start < 1000 &&
+              size + combined[start - 1].size <= 4 * 1024 * 1024
+            )
+              size += combined[--start].size;
+            return combined.slice(start);
+          });
+      } catch (failure) {
+        if (alive) setError(String(failure));
+      } finally {
+        if (alive) timer = setTimeout(() => void poll(), visible ? 250 : 1000);
+      }
+    };
+    void poll();
+    return () => {
+      alive = false;
+      clearTimeout(timer);
+    };
+  }, [visible]);
+  useEffect(() => {
+    if (visible && follow && table.current) table.current.scrollTop = table.current.scrollHeight;
+  }, [records, visible, follow]);
+
+  const act = async (action: string, ...args: string[]) => {
+    if (busy) return false;
+    setBusy(true);
+    setError("");
+    setNotice("");
+    try {
+      const result = await tcpCommand(action, ...args);
+      if (!result.ok) {
+        setError(result.error.message);
+        return false;
+      }
+      if (action === "start") setStatus((current) => ({ ...current, state: "opening", error: "" }));
+      if (action === "stop") setStatus((current) => ({ ...current, state: "closed", peers: [] }));
+      return true;
+    } catch (failure) {
+      setError(String(failure));
+      return false;
+    } finally {
+      setBusy(false);
+    }
+  };
+  const send = async () => {
+    const hex =
+      encoding === "hex"
+        ? input
+        : Array.from(new TextEncoder().encode(input), (byte) =>
+            byte.toString(16).padStart(2, "0"),
+          ).join(" ");
+    if (await act("send", peer, hex))
+      setNotice(
+        t(
+          "已加入发送队列，实际发送字节见 TX 记录。",
+          "Queued. TX records show bytes actually sent.",
+        ),
+      );
+  };
+  const clear = async () => {
+    if (!window.confirm(t("清空当前收发记录？", "Clear traffic records?"))) return;
+    ++generation.current;
+    if (await act("clear")) {
+      ++generation.current;
+      setRecords([]);
+      setSelected(null);
+    }
+  };
+  const filtered = records.filter(
+    (item) =>
+      (direction === "all" || item.direction === direction) &&
+      `${item.hex} ${item.address} ${item.detail}`.toLowerCase().includes(search.toLowerCase()),
+  );
+  const stateLabel =
+    status.state === "open"
+      ? status.server
+        ? t("监听中", "Listening")
+        : t("已连接", "Connected")
+      : status.state === "opening"
+        ? t("连接中", "Opening")
+        : status.state === "faulted"
+          ? t("连接错误", "Faulted")
+          : t("未连接", "Disconnected");
+  return (
+    <div className="tcp-workbench" hidden={!visible}>
+      <header className="content-header">
+        <div className="content-heading-icon">
+          <Network size={20} />
+        </div>
+        <div>
+          <h1>{t("通信连接", "Connections")}</h1>
+          <p>{t("TCP 客户端 / 服务端 · 实时收发记录", "TCP client / server · live traffic")}</p>
+        </div>
+        <span className={`tcp-state ${connected ? "connected" : ""}`} role="status">
+          {stateLabel}
+        </span>
+      </header>
+      <form
+        className="tcp-connect"
+        onSubmit={(event) => {
+          event.preventDefault();
+          if (!active) void act("start", mode, host.trim(), port);
+        }}
+      >
+        <label>
+          {t("模式", "Mode")}
+          <select
+            aria-label={t("TCP 模式", "TCP mode")}
+            value={mode}
+            disabled={busy || active}
+            onChange={(event) => {
+              setMode(event.target.value);
+              setHost(event.target.value === "server" ? "0.0.0.0" : "127.0.0.1");
+            }}
+          >
+            <option value="client">TCP {t("客户端", "client")}</option>
+            <option value="server">TCP {t("服务端", "server")}</option>
+          </select>
+        </label>
+        <label>
+          {mode === "server" ? t("监听 IP", "Bind IP") : t("目标 IP", "Remote IP")}
+          <input
+            aria-label="IP"
+            value={host}
+            maxLength={64}
+            required
+            disabled={busy || active}
+            onChange={(event) => setHost(event.target.value)}
+          />
+        </label>
+        <label>
+          {t("端口", "Port")}
+          <input
+            aria-label={t("端口", "Port")}
+            type="number"
+            min={1}
+            max={65535}
+            value={port}
+            required
+            disabled={busy || active}
+            onChange={(event) => setPort(event.target.value)}
+          />
+        </label>
+        {active ? (
+          <button
+            type="button"
+            disabled={busy}
+            onClick={(event) => {
+              event.preventDefault();
+              void act("stop");
+            }}
+          >
+            <X size={14} />
+            {status.server ? t("停止监听", "Stop") : t("断开", "Disconnect")}
+          </button>
+        ) : (
+          <button type="submit" disabled={busy}>
+            <PlugZap size={14} />
+            {mode === "server" ? t("开始监听", "Listen") : t("连接", "Connect")}
+          </button>
+        )}
+      </form>
+      {(error || status.error) && (
+        <p className="tcp-error" role="alert">
+          {error || status.error}
+        </p>
+      )}
+      <div className="tcp-peers">
+        <span>
+          {t("连接", "Peers")} ({status.peers.length})
+        </span>
+        {status.peers.map((item) => (
+          <div className={`tcp-peer ${String(item.id) === peer ? "active" : ""}`} key={item.id}>
+            <button
+              type="button"
+              onClick={() => setPeer(String(item.id))}
+              aria-pressed={String(item.id) === peer}
+            >
+              {item.address} <small>#{item.id}</small>
+            </button>
+            <button
+              type="button"
+              aria-label={`${t("更多操作", "More actions")}: ${item.address}`}
+              onClick={() => setPeerMenu(item)}
+            >
+              <DotsHorizontalIcon size={14} />
+            </button>
+          </div>
+        ))}
+        {status.peers.length === 0 && (
+          <small>
+            {connected && status.server
+              ? t("等待客户端连接", "Waiting for clients")
+              : t("暂无连接", "No connected peer")}
+          </small>
+        )}
+      </div>
+      <div className="tcp-send">
+        <div className="tcp-send-heading">
+          <strong>{t("发送数据", "Send data")}</strong>
+          <select
+            aria-label={t("数据格式", "Data format")}
+            value={encoding}
+            onChange={(event) => setEncoding(event.target.value)}
+          >
+            <option value="hex">HEX</option>
+            <option value="text">UTF-8</option>
+          </select>
+          <select
+            aria-label={t("发送目标", "Send target")}
+            value={peer}
+            onChange={(event) => setPeer(event.target.value)}
+          >
+            <option value="">{t("选择连接", "Select peer")}</option>
+            {status.peers.map((item) => (
+              <option key={item.id} value={item.id}>
+                {item.address} #{item.id}
+              </option>
+            ))}
+          </select>
+        </div>
+        <textarea
+          aria-label={t("发送内容", "Payload")}
+          value={input}
+          onChange={(event) => setInput(event.target.value)}
+          rows={3}
+          maxLength={262144}
+          placeholder={encoding === "hex" ? "01 03 00 00 00 02" : "UTF-8"}
+        />
+        <div className="tcp-send-footer">
+          <small role="status">
+            {notice ||
+              t(
+                "单次最多 64 KiB；不自动添加换行或校验码。",
+                "Up to 64 KiB; no automatic newline or checksum.",
+              )}
+          </small>
+          <button
+            type="button"
+            disabled={
+              busy || !connected || !peer || (encoding === "hex" ? !input.trim() : !input.length)
+            }
+            onClick={() => void send()}
+          >
+            <Send size={14} />
+            {t("发送", "Send")}
+          </button>
+        </div>
+      </div>
+      <div className="tcp-log-toolbar">
+        <strong>{t("收发记录", "Traffic")}</strong>
+        <span>
+          <ArrowUp size={12} /> {status.sent} B <ArrowDown size={12} /> {status.received} B ·{" "}
+          {t("排队", "Queued")} {status.queued} B
+        </span>
+        <select
+          aria-label={t("记录方向", "Direction")}
+          value={direction}
+          onChange={(event) => setDirection(event.target.value)}
+        >
+          <option value="all">{t("全部", "All")}</option>
+          <option>TX</option>
+          <option>RX</option>
+          <option>SYS</option>
+        </select>
+        <input
+          aria-label={t("筛选记录", "Filter records")}
+          placeholder={t("搜索 HEX / 地址 / 事件", "Search HEX / address / event")}
+          value={search}
+          onChange={(event) => setSearch(event.target.value)}
+        />
+        <label>
+          <input
+            type="checkbox"
+            checked={follow}
+            onChange={(event) => setFollow(event.target.checked)}
+          />
+          {t("跟随", "Follow")}
+        </label>
+        <button
+          type="button"
+          disabled={busy || records.length === 0}
+          title={t("清空记录", "Clear records")}
+          aria-label={t("清空记录", "Clear records")}
+          onClick={() => void clear()}
+        >
+          <Trash2 size={14} />
+        </button>
+      </div>
+      <p className="tcp-log-hint">
+        {t(
+          "TCP 是字节流，RX 按接收块记录，不代表完整协议帧。最多保留 1000 条 / 4 MiB，关闭应用后不保留。",
+          "TCP is a byte stream: RX chunks are not protocol frames. Up to 1000 entries / 4 MiB, in memory only.",
+        )}{" "}
+        {status.dropped > 0 && `${t("已淘汰", "Evicted")}: ${status.dropped}`}
+      </p>
+      <div className="tcp-log" ref={table}>
+        <table>
+          <thead>
+            <tr>
+              <th>{t("时间", "Time")}</th>
+              <th>{t("方向", "Dir")}</th>
+              <th>{t("连接", "Peer")}</th>
+              <th>{t("字节", "Bytes")}</th>
+              <th>{t("数据 / 事件", "Data / event")}</th>
+            </tr>
+          </thead>
+          <tbody>
+            {filtered.map((item) => (
+              <tr key={item.id} className={selected?.id === item.id ? "selected" : ""}>
+                <td>
+                  {new Date(item.time).toLocaleTimeString(locale, { hour12: false })}.
+                  {String(item.time % 1000).padStart(3, "0")}
+                </td>
+                <td className={`tcp-dir-${item.direction}`}>{item.direction}</td>
+                <td>
+                  {item.address} {item.peer > 0 && `#${item.peer}`}
+                </td>
+                <td>{item.size}</td>
+                <td>
+                  <button
+                    type="button"
+                    onClick={() => setSelected(item)}
+                    title={item.detail || item.hex.slice(0, 200)}
+                  >
+                    {item.detail || item.hex.slice(0, 150)}
+                    {item.hex.length > 150 ? "…" : ""}
+                  </button>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+        {filtered.length === 0 && (
+          <p className="tcp-empty">{t("暂无收发记录", "No traffic records")}</p>
+        )}
+      </div>
+      {selected && (
+        <div className="tcp-record-detail">
+          <div>
+            <strong>
+              {selected.direction} · {selected.address} · {selected.size} B
+            </strong>
+            <button
+              type="button"
+              disabled={!selected.hex}
+              onClick={() => {
+                void navigator.clipboard
+                  .writeText(selected.hex)
+                  .then(() => setNotice(t("HEX 已复制", "HEX copied")))
+                  .catch(() => setError(t("复制失败", "Copy failed")));
+              }}
+            >
+              {t("复制 HEX", "Copy HEX")}
+            </button>
+            <button type="button" disabled={!selected.hex} onClick={() => onDebug(selected.hex)}>
+              {t("送入调试", "Open in Debug")}
+            </button>
+            <button
+              type="button"
+              aria-label={t("关闭详情", "Close details")}
+              onClick={() => setSelected(null)}
+            >
+              <X size={14} />
+            </button>
+          </div>
+          <pre>{selected.hex || selected.detail}</pre>
+        </div>
+      )}
+      <dialog
+        ref={dialog}
+        className="protocol-dialog tree-dialog tree-actions-dialog"
+        onCancel={() => setPeerMenu(null)}
+      >
+        <h2>{peerMenu?.address}</h2>
+        {error && (
+          <p className="tcp-error" role="alert">
+            {error}
+          </p>
+        )}
+        <div className="tree-dialog-actions">
+          <button
+            type="button"
+            disabled={busy}
+            onClick={() => {
+              if (peerMenu)
+                void act("disconnect", String(peerMenu.id)).then((ok) => {
+                  if (ok) setPeerMenu(null);
+                });
+            }}
+          >
+            <X size={15} />
+            {t("断开连接", "Disconnect peer")}
+          </button>
+          <button type="button" onClick={() => setPeerMenu(null)}>
+            {t("取消", "Cancel")}
+          </button>
+        </div>
+      </dialog>
+    </div>
+  );
+}

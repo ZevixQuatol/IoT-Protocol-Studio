@@ -7,6 +7,8 @@ function(iotps_add_test target source module)
 endfunction()
 
 iotps_add_test(iotps_hex_unit_test unit/hex_test.cpp iotps::codec)
+iotps_add_test(iotps_tcp_integration_test integration/tcp_test.cpp iotps::transport)
+set_tests_properties(iotps_tcp_integration_test PROPERTIES TIMEOUT 30)
 iotps_add_test(iotps_checksum_unit_test unit/checksum_test.cpp iotps::codec)
 iotps_add_test(iotps_debug_unit_test unit/debug_test.cpp iotps::codec)
 iotps_add_test(iotps_result_unit_test unit/result_test.cpp iotps::common)

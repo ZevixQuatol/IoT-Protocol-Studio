@@ -2,6 +2,7 @@
 #include "iotps/core/debug.hpp"
 #include "iotps/core/engine.hpp"
 #include "iotps/core/hex.hpp"
+#include "iotps/core/transport/tcp.hpp"
 #include "iotps/core/version.hpp"
 #include "iotps/core/workspace/workspace.hpp"
 #include "resource.h"
@@ -978,6 +979,12 @@ window.addEventListener("DOMContentLoaded", () => {
         window.iotpsSmokeDecodeFixture(),
       ])
         .then(async ([current, createResult, saveResult, fieldResult, closed, windowResult, folderResult, projectResult, converted, checksum, decoded, file, fixture]) => {
+          const tcpPoll = await window.iotpsTcp("poll", "0");
+          const tcpInvalid = await window.iotpsTcp("start", "client", "bad-ip", "9000");
+          const tcpHex = await window.iotpsTcp("send", "1", "GG");
+          if (!tcpPoll?.ok || tcpPoll.state !== "closed" || !Array.isArray(tcpPoll.records) || tcpInvalid?.ok || tcpHex?.ok) {
+            report("tcp-bridge-failed"); return;
+          }
           if (!fixture?.ok || fixture.fields?.[0]?.value !== "4660" || fixture.fields[0].offset !== 0 || fixture.fields[0].length !== 2) {
             report("debug-decode-fixture-failed"); return;
           }
@@ -1064,7 +1071,7 @@ window.addEventListener("DOMContentLoaded", () => {
             if (!document.querySelector(".debug-page") ||
                 !document.querySelector("#debug-hex-input") ||
                 !document.querySelector(".debug-format-button") ||
-                document.querySelector(".debug-page .content-header") ||
+                document.querySelector(".debug-page > .content-header") ||
                 document.querySelector(".schema-sidebar") ||
                 document.querySelector(".sidebar-resize-handle")) {
               report("debug-navigation-failed");
@@ -1367,6 +1374,97 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR command_line, int) {
         window.set_size(960, 640, WEBVIEW_HINT_MIN);
         const auto smoke_test_frame_ready = !smoke_test || custom_resize_frame_ready(window_handle);
         std::optional<std::filesystem::path> current_project;
+        iotps::core::transport::TcpSession tcp;
+        window.bind("iotpsTcp", [&tcp](const std::string& request) {
+            const auto args = string_arguments(request);
+            if (!args || args->empty() || args->size() > 4)
+                return workspace_error_response("invalid_request", "invalid TCP command");
+            const auto number = [](const std::string& text) -> std::optional<std::uint64_t> {
+                std::uint64_t value = 0;
+                const auto [end, error] =
+                    std::from_chars(text.data(), text.data() + text.size(), value);
+                if (error != std::errc{} || end != text.data() + text.size())
+                    return std::nullopt;
+                return value;
+            };
+            iotps::core::transport::TransportResult result = std::monostate{};
+            const auto& action = (*args)[0];
+            if (action == "start" && args->size() == 4) {
+                const auto port = number((*args)[3]);
+                if (!port || *port == 0 || *port > 65535 ||
+                    ((*args)[1] != "client" && (*args)[1] != "server"))
+                    return workspace_error_response("invalid_configuration",
+                                                    "invalid TCP mode or port");
+                result = tcp.start((*args)[1] == "server", (*args)[2],
+                                   static_cast<std::uint16_t>(*port));
+            } else if (action == "stop" && args->size() == 1)
+                tcp.stop();
+            else if (action == "clear" && args->size() == 1)
+                tcp.clear_records();
+            else if (action == "disconnect" && args->size() == 2) {
+                const auto peer = number((*args)[1]);
+                if (!peer)
+                    return workspace_error_response("invalid_request", "invalid peer");
+                result = tcp.disconnect(*peer);
+            } else if (action == "send" && args->size() == 3) {
+                const auto peer = number((*args)[1]);
+                if (!peer || (*args)[2].size() > 262144)
+                    return workspace_error_response("invalid_request",
+                                                    "invalid peer or HEX exceeds limit");
+                const auto parsed = iotps::core::parse_hex((*args)[2]);
+                if (const auto* error = parsed.error_if())
+                    return workspace_error_response("invalid_hex", error->detail);
+                result = tcp.send(*peer, parsed.value());
+            } else if (action == "poll" && args->size() == 2) {
+                const auto cursor = number((*args)[1]);
+                if (!cursor)
+                    return workspace_error_response("invalid_request", "invalid cursor");
+                const auto state = tcp.snapshot(*cursor);
+                using iotps::core::transport::TransportState;
+                const char* label = state.state == TransportState::open      ? "open"
+                                    : state.state == TransportState::opening ? "opening"
+                                    : state.state == TransportState::faulted ? "faulted"
+                                                                             : "closed";
+                std::ostringstream out;
+                out << "{\"ok\":true,\"state\":" << json_string(label)
+                    << ",\"server\":" << (state.server ? "true" : "false")
+                    << ",\"host\":" << json_string(state.host) << ",\"port\":" << state.port
+                    << ",\"error\":" << json_string(state.error)
+                    << ",\"sent\":" << state.statistics.bytes_sent
+                    << ",\"received\":" << state.statistics.bytes_received
+                    << ",\"queued\":" << state.queued_bytes << ",\"dropped\":" << state.dropped
+                    << ",\"cursor\":" << state.cursor << ",\"peers\":[";
+                bool first = true;
+                for (const auto& peer : state.peers) {
+                    if (!first)
+                        out << ',';
+                    first = false;
+                    out << "{\"id\":" << peer.id << ",\"address\":" << json_string(peer.address)
+                        << '}';
+                }
+                out << "],\"records\":[";
+                first = true;
+                for (const auto& record : state.records) {
+                    if (!first)
+                        out << ',';
+                    first = false;
+                    out << "{\"id\":" << record.id << ",\"time\":" << record.time_ms
+                        << ",\"direction\":" << json_string(record.direction)
+                        << ",\"peer\":" << record.peer
+                        << ",\"address\":" << json_string(record.address)
+                        << ",\"hex\":" << json_string(iotps::core::format_hex(record.data))
+                        << ",\"size\":" << record.data.size()
+                        << ",\"detail\":" << json_string(record.detail) << '}';
+                }
+                out << "]}";
+                return out.str();
+            } else
+                return workspace_error_response("invalid_request", "unknown TCP command");
+            if (const auto* error = result.error_if())
+                return workspace_error_response(
+                    std::string{iotps::core::transport::to_string(error->code)}, error->detail);
+            return std::string{"{\"ok\":true}"};
+        });
 
         window.bind("iotpsCoreInfo", [](const std::string&) { return core_info(); });
         window.bind("iotpsInspectHex",

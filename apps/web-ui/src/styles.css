@@ -2921,3 +2921,278 @@ button {
   background: var(--accent-soft);
   color: var(--accent);
 }
+.tcp-workbench {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+  gap: 12px;
+  padding-bottom: 16px;
+}
+.tcp-workbench[hidden] {
+  display: none;
+}
+.tcp-workbench .content-header {
+  flex-shrink: 0;
+}
+.tcp-workbench > :not(.content-header):not(dialog) {
+  margin-left: 22px;
+  margin-right: 22px;
+}
+.tcp-workbench button,
+.tcp-workbench input,
+.tcp-workbench select,
+.tcp-workbench textarea {
+  color: var(--text);
+  background: var(--surface-deep);
+  border: 1px solid var(--line);
+  border-radius: 5px;
+  font: inherit;
+}
+.tcp-workbench button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 7px 10px;
+  cursor: pointer;
+}
+.tcp-workbench button:hover:not(:disabled) {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+.tcp-workbench button:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+.tcp-workbench input,
+.tcp-workbench select {
+  padding: 7px 9px;
+  min-width: 0;
+}
+.tcp-workbench button:focus-visible,
+.tcp-workbench input:focus-visible,
+.tcp-workbench select:focus-visible,
+.tcp-workbench textarea:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+.tcp-state {
+  margin-left: auto;
+  color: var(--muted);
+  border: 1px solid var(--line);
+  border-radius: 20px;
+  padding: 5px 12px;
+  white-space: nowrap;
+  font-size: 12px;
+}
+.tcp-state.connected {
+  color: var(--accent);
+  background: var(--accent-soft);
+}
+.tcp-connect {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  align-items: end;
+}
+.tcp-connect label {
+  display: grid;
+  gap: 6px;
+  color: var(--muted);
+  font-size: 12px;
+}
+.tcp-connect label:nth-child(2) {
+  flex: 1;
+  min-width: 170px;
+}
+.tcp-connect label:nth-child(3) {
+  width: 90px;
+}
+.tcp-error {
+  color: #c64a48;
+  font-size: 12px;
+  margin-top: 0;
+  margin-bottom: 0;
+  overflow-wrap: anywhere;
+}
+.tcp-peers {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  min-height: 30px;
+  color: var(--muted);
+  font-size: 12px;
+}
+.tcp-peer {
+  display: inline-flex;
+  border: 1px solid var(--line);
+  border-radius: 5px;
+  overflow: hidden;
+}
+.tcp-peer.active {
+  border-color: var(--accent);
+}
+.tcp-peer button {
+  border: 0;
+  border-radius: 0;
+  padding: 5px 8px;
+}
+.tcp-peer.active button {
+  background: var(--accent-soft);
+}
+.tcp-send {
+  display: grid;
+  gap: 8px;
+}
+.tcp-send-heading,
+.tcp-send-footer,
+.tcp-log-toolbar,
+.tcp-record-detail > div {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  font-size: 12px;
+}
+.tcp-send-heading strong {
+  margin-right: auto;
+}
+.tcp-send-heading select:last-child {
+  max-width: 280px;
+}
+.tcp-send textarea {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 10px;
+  resize: vertical;
+  min-height: 64px;
+  max-height: 180px;
+  font-family: Consolas, monospace;
+}
+.tcp-send-footer small {
+  flex: 1;
+  color: var(--muted);
+}
+.tcp-send-footer button {
+  color: var(--accent);
+  background: var(--accent-soft);
+}
+.tcp-log-toolbar {
+  border-top: 1px solid var(--line);
+  padding-top: 12px;
+}
+.tcp-log-toolbar > span {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--muted);
+}
+.tcp-log-toolbar > input {
+  flex: 1;
+  min-width: 140px;
+}
+.tcp-log-toolbar label {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  white-space: nowrap;
+}
+.tcp-log-hint {
+  color: var(--muted);
+  font-size: 11px;
+  margin-top: 0;
+  margin-bottom: 0;
+}
+.tcp-log {
+  flex: 1;
+  min-height: 120px;
+  overflow: auto;
+  border: 1px solid var(--line);
+  border-radius: 5px;
+}
+.tcp-log table {
+  border-collapse: collapse;
+  width: 100%;
+  table-layout: fixed;
+  font:
+    12px Consolas,
+    monospace;
+}
+.tcp-log th {
+  position: sticky;
+  top: 0;
+  background: var(--surface);
+  text-align: left;
+  color: var(--muted);
+  z-index: 1;
+}
+.tcp-log th,
+.tcp-log td {
+  padding: 8px;
+  border-bottom: 1px solid var(--line);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.tcp-log th:nth-child(1) {
+  width: 104px;
+}
+.tcp-log th:nth-child(2) {
+  width: 42px;
+}
+.tcp-log th:nth-child(3) {
+  width: 175px;
+}
+.tcp-log th:nth-child(4) {
+  width: 48px;
+}
+.tcp-log td button {
+  border: none;
+  background: transparent;
+  padding: 0;
+  display: block;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  text-align: left;
+}
+.tcp-log tr.selected {
+  background: var(--accent-soft);
+}
+.tcp-dir-TX {
+  color: var(--accent);
+}
+.tcp-dir-RX {
+  color: #488ac5;
+}
+.tcp-dir-SYS,
+.tcp-empty {
+  color: var(--muted);
+}
+.tcp-empty {
+  padding: 24px;
+  text-align: center;
+  font-size: 12px;
+}
+.tcp-record-detail {
+  flex-shrink: 0;
+  border-top: 1px solid var(--line);
+  padding-top: 10px;
+}
+.tcp-record-detail strong {
+  margin-right: auto;
+}
+.tcp-record-detail pre {
+  max-height: 130px;
+  overflow: auto;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font:
+    12px Consolas,
+    monospace;
+}
+.tcp-page {
+  overflow: auto;
+}

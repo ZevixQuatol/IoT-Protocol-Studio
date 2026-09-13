@@ -145,6 +145,13 @@ async function checkMessageStudio(page) {
   await button("复制 HEX").click();
   await page.getByText("HEX 已复制", { exact: true }).waitFor();
   check((await page.evaluate(() => window.copiedHex)) === "34 12", "Copy uses the generated HEX");
+  await button("送入通信").click();
+  check(
+    (await page.getByLabel("发送内容").inputValue()) === "34 12",
+    "Generated HEX reaches TCP draft",
+  );
+  check(await button("发送").isDisabled(), "Draft handoff does not send without a connection");
+  await button("Schema").click();
   await button("在调试页打开").click();
   check(
     (await page.locator("#debug-hex-input").inputValue()) === "34 12",
@@ -152,13 +159,17 @@ async function checkMessageStudio(page) {
   );
   await page.locator("#debug-hex-input").fill("AA");
   await button("Schema").click();
-  page.once("dialog", (item) => item.dismiss());
+  await page.evaluate(() => {
+    window.confirm = () => false;
+  });
   await button("在调试页打开").click();
   check(
     (await page.locator(".message-studio").count()) === 1,
     "Cancelling Debug replacement stays in Message",
   );
-  page.once("dialog", (item) => item.accept());
+  await page.evaluate(() => {
+    window.confirm = () => true;
+  });
   await button("在调试页打开").click();
   check(
     (await page.locator("#debug-hex-input").inputValue()) === "34 12",
