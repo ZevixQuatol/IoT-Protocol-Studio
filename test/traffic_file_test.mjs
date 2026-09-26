@@ -15,4 +15,11 @@ assert.throws(() => readTrafficArchive(JSON.stringify({ ...archive,
   records: [{ ...archive.records[0], size: 3 }] })));
 assert.throws(() => readTrafficArchive(JSON.stringify({ ...archive,
   records: [{ ...archive.records[0], hex: "00 GG" }] })));
+const parsed = { protocolPath: "protocols/wire.yaml", messageName: "data", status: "ok",
+  checksum: "pass", error: "", fields: [{ name: "kind", displayName: "Kind", type: "uint8",
+    value: "0", offset: 0, length: 1 }] };
+const frame = { ...archive.records[0], direction: "FRAME", parsed };
+assert.deepEqual(readTrafficArchive(JSON.stringify({ ...archive, records: [frame] })).records[0].parsed, parsed);
+assert.throws(() => readTrafficArchive(JSON.stringify({ ...archive,
+  records: [{ ...frame, parsed: { ...parsed, fields: [{ ...parsed.fields[0], offset: 2 }] } }] })));
 console.log("traffic archive validation passed");

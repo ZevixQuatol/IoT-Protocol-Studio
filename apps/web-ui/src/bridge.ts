@@ -41,6 +41,14 @@ export type TcpRecord = {
   hex: string;
   size: number;
   detail: string;
+  parsed?: {
+    protocolPath: string;
+    messageName: string;
+    status: "ok" | "error" | "unmatched";
+    checksum: "none" | "pass" | "fail" | "";
+    error: string;
+    fields: DebugField[];
+  };
 };
 export type TcpSnapshot = {
   ok: true;

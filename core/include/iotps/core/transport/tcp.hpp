@@ -12,6 +12,22 @@ struct TcpPeer {
     std::uint64_t id;
     std::string address;
 };
+struct TcpParsedField {
+    std::string name;
+    std::string display_name;
+    std::string type;
+    std::string value;
+    std::size_t offset;
+    std::size_t length;
+};
+struct TcpParse {
+    std::string protocol_path;
+    std::string message_name;
+    std::string status;
+    std::string checksum;
+    std::string error;
+    std::vector<TcpParsedField> fields;
+};
 struct TcpRecord {
     std::uint64_t id;
     std::int64_t time_ms;
@@ -20,6 +36,7 @@ struct TcpRecord {
     std::string address;
     ByteBuffer data;
     std::string detail;
+    std::optional<TcpParse> parsed;
 };
 struct TcpSnapshot {
     TransportState state{TransportState::closed};

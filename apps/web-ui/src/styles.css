@@ -3081,6 +3081,16 @@ button {
   flex-wrap: wrap;
   font-size: 12px;
 }
+.tcp-record-detail > .debug-field-list,
+.tcp-record-detail .debug-field-preview {
+  display: grid;
+  gap: 4px;
+}
+.tcp-record-detail .debug-field-preview {
+  padding: 6px 8px;
+  border: 1px solid var(--line);
+  overflow-wrap: anywhere;
+}
 .tcp-send-heading strong {
   margin-right: auto;
 }

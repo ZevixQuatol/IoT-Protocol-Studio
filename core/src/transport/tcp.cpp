@@ -1,4 +1,6 @@
 #include "iotps/core/transport/tcp.hpp"
+#include "iotps/core/codec/codec.hpp"
+#include "iotps/core/debug.hpp"
 
 #include <algorithm>
 #include <array>
@@ -132,15 +134,21 @@ struct TcpSession::Impl {
 #endif
     }
     void record(std::string direction, const TcpPeer& peer, ByteBuffer data,
-                std::string detail = {}) {
+                std::string detail = {}, std::optional<TcpParse> parsed = std::nullopt) {
         const auto time = std::chrono::duration_cast<std::chrono::milliseconds>(
                               std::chrono::system_clock::now().time_since_epoch())
                               .count();
         record_bytes += data.size();
+        if (parsed)
+            for (const auto& field : parsed->fields)
+                record_bytes += field.value.size();
         records.push_back({++next_record, time, std::move(direction), peer.id, peer.address,
-                           std::move(data), std::move(detail)});
+                           std::move(data), std::move(detail), std::move(parsed)});
         while (records.size() > 1000 || record_bytes > 4 * 1024 * 1024) {
             record_bytes -= records.front().data.size();
+            if (records.front().parsed)
+                for (const auto& field : records.front().parsed->fields)
+                    record_bytes -= field.value.size();
             records.pop_front();
             ++status.dropped;
         }
@@ -288,20 +296,80 @@ struct TcpSession::Impl {
                                                   std::chrono::steady_clock::now())) {
                                 if (frame.error.empty()) {
                                     std::string detail = "Complete frame; no protocol bound";
+                                    std::optional<TcpParse> parsed;
                                     if (bound_protocol) {
                                         detail = "Protocol " + status.protocol_path + ": ";
+                                        std::string message = status.message_name;
+                                        std::string reason;
                                         if (!status.message_name.empty()) {
                                             detail += "message " + status.message_name + " (fixed binding)";
                                         } else {
                                             const auto match =
                                                 schema::identify_message(*bound_protocol, frame.bytes);
-                                            detail += match.status == schema::MatchStatus::matched
-                                                          ? "message " + match.message
-                                                          : match.reason;
+                                            if (match.status == schema::MatchStatus::matched)
+                                                message = match.message;
+                                            else
+                                                reason = match.reason;
+                                            detail += reason.empty() ? "message " + message : reason;
+                                        }
+                                        parsed.emplace();
+                                        parsed->protocol_path = status.protocol_path;
+                                        parsed->message_name = message;
+                                        if (!reason.empty()) {
+                                            parsed->status = "unmatched";
+                                            parsed->error = reason;
+                                        } else {
+                                            const auto decoded = codec::decode_protocol_message(
+                                                *bound_protocol, message, frame.bytes);
+                                            const auto definition = std::ranges::find_if(
+                                                bound_protocol->messages, [&](const auto& item) {
+                                                    return item.name == message;
+                                                });
+                                            parsed->checksum = definition != bound_protocol->messages.end() &&
+                                                                       definition->checksum
+                                                                   ? ""
+                                                                   : "none";
+                                            if (const auto* error = decoded.error_if()) {
+                                                parsed->status = "error";
+                                                parsed->error = error->detail;
+                                                if (error->detail.find("checksum_mismatch") !=
+                                                    std::string::npos)
+                                                    parsed->checksum = "fail";
+                                            } else {
+                                                parsed->status = "ok";
+                                                if (definition->checksum)
+                                                    parsed->checksum = "pass";
+                                                const auto& data = decoded.value();
+                                                for (const auto& field : data.message.fields) {
+                                                    const auto field_definition = std::ranges::find_if(
+                                                        definition->fields, [&](const auto& item) {
+                                                            return item.name == field.name;
+                                                        });
+                                                    const auto range = std::ranges::find_if(
+                                                        data.field_ranges, [&](const auto& item) {
+                                                            return item.path == message + "." + field.name;
+                                                        });
+                                                    if (range == data.field_ranges.end())
+                                                        continue;
+                                                    auto value = format_scalar(field.value);
+                                                    if (value.size() > 512) {
+                                                        std::size_t end = 512;
+                                                        while (end > 0 &&
+                                                               (static_cast<unsigned char>(value[end]) &
+                                                                0xc0) == 0x80)
+                                                            --end;
+                                                        value = value.substr(0, end) + "...";
+                                                    }
+                                                    parsed->fields.push_back({
+                                                        field.name, field_definition->display_name,
+                                                        std::string{schema::to_string(field_definition->type)},
+                                                        std::move(value), range->offset, range->length});
+                                                }
+                                            }
                                         }
                                     }
                                     record("FRAME", peer.info, std::move(frame.bytes),
-                                           std::move(detail));
+                                           std::move(detail), std::move(parsed));
                                 } else
                                     record("SYS", peer.info, {}, std::move(frame.error));
                             }
@@ -509,9 +577,13 @@ TcpSnapshot TcpSession::snapshot(std::uint64_t after, std::size_t max_records,
     std::size_t bytes = 0;
     for (const auto& record : impl_->records)
         if (record.id > after) {
-            if (!result.records.empty() && bytes + record.data.size() > max_bytes)
+            std::size_t record_size = record.data.size();
+            if (record.parsed)
+                for (const auto& field : record.parsed->fields)
+                    record_size += field.value.size();
+            if (!result.records.empty() && bytes + record_size > max_bytes)
                 break;
-            bytes += record.data.size();
+            bytes += record_size;
             result.records.push_back(record);
             result.cursor = record.id;
             if (result.records.size() >= max_records)

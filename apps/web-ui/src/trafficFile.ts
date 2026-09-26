@@ -9,6 +9,7 @@ export type TrafficArchive = {
 };
 
 export function readTrafficArchive(content: string): TrafficArchive {
+  if (content.length > 16 * 1024 * 1024) throw new Error("Traffic archive exceeds 16 MiB");
   const value: unknown = JSON.parse(content);
   if (!value || typeof value !== "object") throw new Error("Invalid traffic archive");
   const archive = value as Partial<TrafficArchive>;
@@ -46,6 +47,43 @@ export function readTrafficArchive(content: string): TrafficArchive {
     )
       throw new Error("Invalid traffic archive record");
     bytes += item.size;
+    if (item.parsed !== undefined) {
+      const parsed = item.parsed;
+      if (
+        item.direction !== "FRAME" ||
+        !parsed ||
+        typeof parsed !== "object" ||
+        typeof parsed.protocolPath !== "string" ||
+        parsed.protocolPath.length > 1024 ||
+        typeof parsed.messageName !== "string" ||
+        parsed.messageName.length > 256 ||
+        !["ok", "error", "unmatched"].includes(parsed.status) ||
+        !["", "none", "pass", "fail"].includes(parsed.checksum) ||
+        typeof parsed.error !== "string" ||
+        parsed.error.length > 4096 ||
+        !Array.isArray(parsed.fields) ||
+        parsed.fields.length > 1000 ||
+        (parsed.status !== "ok" && parsed.fields.length > 0) ||
+        parsed.fields.some(
+          (field) =>
+            !field ||
+            typeof field.name !== "string" ||
+            field.name.length > 256 ||
+            typeof field.displayName !== "string" ||
+            field.displayName.length > 256 ||
+            typeof field.type !== "string" ||
+            field.type.length > 64 ||
+            typeof field.value !== "string" ||
+            field.value.length > 515 ||
+            !Number.isSafeInteger(field.offset) ||
+            !Number.isSafeInteger(field.length) ||
+            field.offset < 0 ||
+            field.length < 1 ||
+            field.offset + field.length > item.size,
+        )
+      )
+        throw new Error("Invalid parsed traffic record");
+    }
   }
   if (bytes > 4 * 1024 * 1024) throw new Error("Traffic archive exceeds 4 MiB");
   return archive as TrafficArchive;

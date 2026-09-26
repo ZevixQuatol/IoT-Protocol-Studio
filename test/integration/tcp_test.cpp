@@ -74,7 +74,9 @@ int main() {
             .protocol = {.name = "wire", .version = "1", .message_type_field = "kind"},
             .messages = {{.name = "data",
                           .type_id = 0,
-                          .fields = {{.name = "kind", .type = schema::FieldType::uint8}}}},
+                          .fields = {{.name = "kind", .type = schema::FieldType::uint8},
+                                     {.name = "body", .type = schema::FieldType::bytes,
+                                      .length = 5}}}},
         };
         check(server.bind_protocol(protocol, "protocols/wire.yaml").has_value(),
               "bind auto protocol");
@@ -93,12 +95,70 @@ int main() {
                                                            std::string::npos;
               }),
               "identified frame keeps raw bytes and message label");
+        const auto frame_record = [&]() {
+            const auto records = server.snapshot(0, 1000).records;
+            const auto item = std::ranges::find_if(records.rbegin(), records.rend(),
+                                                   [](const auto& record) {
+                                                       return record.direction == "FRAME";
+                                                   });
+            check(item != records.rend(), "completed frame recorded");
+            return *item;
+        };
+        check(frame_record().parsed && frame_record().parsed->status == "ok" &&
+                  frame_record().parsed->fields.size() == 2 &&
+                  frame_record().parsed->fields[0].offset == 0 &&
+                  frame_record().parsed->fields[1].length == 5,
+              "split frame decodes fields and byte ranges");
+        check(std::ranges::none_of(server.snapshot(0, 1000).records, [](const auto& item) {
+                  return item.direction == "RX" && item.parsed.has_value();
+              }),
+              "raw RX never inherits frame parse");
+        auto checked_protocol = protocol;
+        checked_protocol.messages[0].fields[1].length = 4;
+        checked_protocol.messages[0].fields.push_back(
+            {.name = "crc", .type = schema::FieldType::uint8});
+        checked_protocol.messages[0].checksum = {
+            .name = "sum", .algorithm = schema::ChecksumAlgorithm::sum8,
+            .target_field = "crc", .range_start = 0, .range_end = 5};
+        check(server.bind_protocol(checked_protocol, "protocols/wire.yaml").has_value(),
+              "bind checksummed protocol");
+        const ByteBuffer valid_frame{0, 1, 2, 3, 4, 10};
+        check(first.send(first_id, valid_frame).has_value(), "send valid checked frame");
+        wait_for([&] { return server.snapshot().statistics.bytes_received == 12; });
+        check(frame_record().parsed && frame_record().parsed->status == "ok" &&
+                  frame_record().parsed->checksum == "pass" &&
+                  frame_record().parsed->fields.size() == 3,
+              "checksum passes on complete frame");
+        const ByteBuffer bad_frame{0, 1, 2, 3, 4, 11};
+        check(first.send(first_id, bad_frame).has_value(), "send bad checked frame");
+        wait_for([&] { return server.snapshot().statistics.bytes_received == 18; });
+        check(frame_record().parsed && frame_record().parsed->status == "error" &&
+                  frame_record().parsed->checksum == "fail" &&
+                  frame_record().parsed->error.find("checksum_mismatch") != std::string::npos,
+              "checksum failure stays on frame record");
+        const ByteBuffer unknown_frame{7, 1, 2, 3, 4, 10};
+        check(first.send(first_id, unknown_frame).has_value(), "send unknown message frame");
+        wait_for([&] { return server.snapshot().statistics.bytes_received == 24; });
+        check(frame_record().parsed && frame_record().parsed->status == "unmatched" &&
+                  !frame_record().parsed->error.empty(), "unknown message has clear result");
+        ByteBuffer sticky = valid_frame;
+        sticky.insert(sticky.end(), valid_frame.begin(), valid_frame.end());
+        const auto frames_before = std::ranges::count_if(
+            server.snapshot(0, 1000).records,
+            [](const auto& item) { return item.direction == "FRAME"; });
+        check(first.send(first_id, sticky).has_value(), "send two frames together");
+        wait_for([&] { return server.snapshot().statistics.bytes_received == 36; });
+        check(std::ranges::count_if(server.snapshot(0, 1000).records,
+                                    [](const auto& item) { return item.direction == "FRAME"; }) ==
+                  frames_before + 2 &&
+                  frame_record().parsed && frame_record().parsed->status == "ok",
+              "sticky receive yields two decoded frames");
         check(server.bind_protocol(protocol, "protocols/wire.yaml", "data").has_value(),
               "bind fixed message");
         check(server.snapshot().message_name == "data", "binding visible in snapshot");
         server.clear_binding();
         check(server.snapshot().protocol_path.empty(), "clear binding");
-        check(traffic(first, "TX") == payload, "actual TX bytes");
+        check(traffic(first, "TX").size() == payload.size() * 6, "actual TX bytes");
         check(server.set_framing({}).has_value(), "disable framing");
         check(server.send(server_first, payload).has_value(), "selected server reply");
         wait_for([&] { return first.snapshot().statistics.bytes_received == payload.size(); });
@@ -110,7 +170,8 @@ int main() {
         const auto prior_cursor = first.snapshot().cursor;
         first.clear_records();
         check(first.snapshot().records.empty(), "clear records");
-        check(first.snapshot().statistics.bytes_sent == payload.size(), "clear retains counters");
+        check(first.snapshot().statistics.bytes_sent == payload.size() * 6,
+              "clear retains counters");
         // Exercise segmentation and paged snapshots without assuming one recv per send.
         ByteBuffer large(65536);
         for (std::size_t i = 0; i < large.size(); ++i)
@@ -150,11 +211,28 @@ int main() {
                   "bridge snapshot batch bounded");
             check(cursor == page.cursor, "snapshot cursor matches final record");
         }
+        check(server.set_framing(framing).has_value(), "restore framing for truncation");
+        check(first.send(first_id, {payload.data(), 2}).has_value(), "send incomplete frame");
+        wait_for([&] { return server.snapshot().statistics.bytes_received == 38; });
+        const auto frame_count = std::ranges::count_if(server.snapshot(0, 1000, 4 * 1024 * 1024).records,
+                                                       [](const auto& item) {
+                                                           return item.direction == "FRAME";
+                                                       });
         check(server.disconnect(server_first).has_value(), "disconnect selected peer");
         wait_for([&] {
             return first.snapshot().state == TransportState::closed &&
                    server.snapshot().peers.size() == 1;
         });
+        check(std::ranges::count_if(server.snapshot(0, 1000, 4 * 1024 * 1024).records,
+                                    [](const auto& item) { return item.direction == "FRAME"; }) ==
+                  frame_count &&
+                  std::ranges::any_of(server.snapshot(0, 1000, 4 * 1024 * 1024).records,
+                                      [](const auto& item) {
+                                          return item.direction == "SYS" &&
+                                                 item.detail.find("connection closed") !=
+                                                     std::string::npos;
+                                      }),
+              "truncated bytes report system error without a false frame");
         check(server.snapshot().state == TransportState::open, "listener survives peer disconnect");
         check(second.snapshot().state == TransportState::open, "other peer survives disconnect");
         check(first.start(false, "127.0.0.1", port).has_value(), "manual reconnect");

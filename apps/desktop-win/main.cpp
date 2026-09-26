@@ -1579,7 +1579,30 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR command_line, int) {
                         << ",\"address\":" << json_string(record.address)
                         << ",\"hex\":" << json_string(iotps::core::format_hex(record.data))
                         << ",\"size\":" << record.data.size()
-                        << ",\"detail\":" << json_string(record.detail) << '}';
+                        << ",\"detail\":" << json_string(record.detail);
+                    if (record.parsed) {
+                        const auto& parsed = *record.parsed;
+                        out << ",\"parsed\":{\"protocolPath\":"
+                            << json_string(parsed.protocol_path)
+                            << ",\"messageName\":" << json_string(parsed.message_name)
+                            << ",\"status\":" << json_string(parsed.status)
+                            << ",\"checksum\":" << json_string(parsed.checksum)
+                            << ",\"error\":" << json_string(parsed.error) << ",\"fields\":[";
+                        bool first_field = true;
+                        for (const auto& field : parsed.fields) {
+                            if (!first_field)
+                                out << ',';
+                            first_field = false;
+                            out << "{\"name\":" << json_string(field.name)
+                                << ",\"displayName\":" << json_string(field.display_name)
+                                << ",\"type\":" << json_string(field.type)
+                                << ",\"value\":" << json_string(field.value)
+                                << ",\"offset\":" << field.offset
+                                << ",\"length\":" << field.length << '}';
+                        }
+                        out << "]}";
+                    }
+                    out << '}';
                 }
                 out << "]}";
                 return out.str();

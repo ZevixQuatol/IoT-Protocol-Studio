@@ -63,6 +63,7 @@ import {
   updateFieldDisplayName,
   type CoreInfo,
   type InspectionResult,
+  type TcpRecord,
   type MessageEncodeResult,
   type WorkspaceProject,
   type WorkspaceProtocol,
@@ -419,6 +420,7 @@ export default function App() {
   const [debugAnnotations, setDebugAnnotations] = useState<DebugAnnotation[]>([]);
   const [debugToolRange, setDebugToolRange] = useState<DebugRange>(null);
   const [debugByteOffset, setDebugByteOffset] = useState<{ offset: number } | null>(null);
+  const [debugHandoff, setDebugHandoff] = useState<{ seq: number; record: TcpRecord } | null>(null);
   const [indexMode, setIndexMode] = useState<"byte" | "offset">("byte");
   const [annotationSelection, setAnnotationSelection] = useState<{
     anchor: number;
@@ -1127,7 +1129,7 @@ export default function App() {
   };
 
   const [tcpDraft, setTcpDraft] = useState<{ id: number; hex: string } | null>(null);
-  const openHexInDebug = (hex: string) => {
+  const openHexInDebug = (hex: string, record?: TcpRecord) => {
     if (debugBusy) return;
     if (
       debugInput.trim() &&
@@ -1139,7 +1141,14 @@ export default function App() {
     setDebugFormatted(true);
     setDebugToolRange(null);
     setDebugByteOffset(null);
+    setDebugHandoff((current) => (record ? { seq: (current?.seq ?? 0) + 1, record } : null));
     navigate("debug");
+    if (record) {
+      const content = hex.replace(/\s+/g, "").toUpperCase();
+      void inspectHex(hex).then((result) => {
+        if (debugContentRef.current === content) setDebugResult(result);
+      });
+    }
   };
   const openMessageInDebug = () => {
     if (messageEncodeResult?.ok && !isDirty) openHexInDebug(messageEncodeResult.normalizedHex);
@@ -1470,7 +1479,7 @@ export default function App() {
               locale={locale}
               protocols={project?.protocols ?? []}
               draft={tcpDraft}
-              onDebug={openHexInDebug}
+              onDebug={(record) => openHexInDebug(record.hex, record)}
               focusSession={focusSession}
               onDiagnostic={(session, message, problem) =>
                 addDiagnostic("tcp", session, message, problem, session)
@@ -1772,6 +1781,7 @@ export default function App() {
                     project={project}
                     dirty={isDirty}
                     byteOffset={debugByteOffset}
+                    handoff={debugHandoff}
                     onRange={setDebugToolRange}
                     onInput={updateDebugInput}
                     onIssue={(context, message) =>

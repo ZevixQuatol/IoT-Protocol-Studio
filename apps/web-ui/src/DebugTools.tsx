@@ -6,6 +6,7 @@ import {
   inspectHex,
   type DebugField,
   type InspectionResult,
+  type TcpRecord,
   type WorkspaceProject,
 } from "./bridge";
 import type { Locale } from "./i18n";
@@ -104,6 +105,7 @@ type Props = {
   project: WorkspaceProject | null | undefined;
   dirty: boolean;
   byteOffset: { offset: number } | null;
+  handoff: { seq: number; record: TcpRecord } | null;
   onRange: (range: DebugRange) => void;
   onInput: (value: string) => void;
   onImport: (result: InspectionResult & { ok: true }, annotations: DebugAnnotation[]) => void;
@@ -188,6 +190,26 @@ export default function DebugTools(props: Props) {
     protocolPath,
     messageName,
   ]);
+  useEffect(() => {
+    if (!props.handoff?.record.parsed) return;
+    setTool("protocol");
+    setProtocolPath(props.handoff.record.parsed.protocolPath);
+    setMessageName(props.handoff.record.parsed.messageName);
+  }, [props.handoff]);
+  useEffect(() => {
+    const parsed = props.handoff?.record.parsed;
+    if (
+      !props.result?.ok ||
+      !parsed ||
+      parsed.status !== "ok" ||
+      props.input.replace(/\s/g, "").toUpperCase() !==
+        props.handoff?.record.hex.replace(/\s/g, "").toUpperCase() ||
+      protocolPath !== parsed.protocolPath ||
+      messageName !== parsed.messageName
+    )
+      return;
+    setFields(parsed.fields);
+  }, [props.handoff, props.result, protocolPath, messageName]);
 
   const focusField = (field: DebugField, scrollBytes: boolean) => {
     setActiveField(field.name);
@@ -684,8 +706,8 @@ export default function DebugTools(props: Props) {
           </label>
           <p>
             {t(
-              "当前支持基础类型、固定字符串/字节/数组和长度字段。独立调试仍需手选消息；通信会话可按协议识别字段标记完整帧。",
-              "Supports primitives, fixed strings/bytes/arrays and length fields. Standalone Debug still selects a message; communication sessions can identify complete frames by protocol rule.",
+              "支持基础类型、固定字符串/字节/数组和长度字段；从通信帧进入时自动显示已解析字段。",
+              "Supports primitives, fixed strings/bytes/arrays and length fields; opening a communication frame shows its decoded fields.",
             )}
           </p>
           <button

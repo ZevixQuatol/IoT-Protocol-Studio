@@ -44,7 +44,7 @@ export default function TcpWorkbench({
   visible: boolean;
   locale: Locale;
   draft: { id: number; hex: string } | null;
-  onDebug: (hex: string) => void;
+  onDebug: (record: TcpRecord) => void;
   onDiagnostic: (session: string, message: string, problem: boolean) => void;
 }) {
   const zh = locale === "zh-CN";
@@ -808,7 +808,7 @@ export default function TcpWorkbench({
             >
               {t("复制 HEX", "Copy HEX")}
             </button>
-            <button type="button" disabled={!selected.hex} onClick={() => onDebug(selected.hex)}>
+            <button type="button" disabled={!selected.hex} onClick={() => onDebug(selected)}>
               {t("送入调试", "Open in Debug")}
             </button>
             <button
@@ -820,6 +820,33 @@ export default function TcpWorkbench({
             </button>
           </div>
           {selected.detail && <p>{selected.detail}</p>}
+          {selected.parsed && (
+            <div
+              className="debug-field-list"
+              aria-label={t("协议解析结果", "Protocol parse result")}
+            >
+              <p role={selected.parsed.status === "ok" ? "status" : "alert"}>
+                {selected.parsed.status === "ok"
+                  ? t("解析成功", "Decoded")
+                  : selected.parsed.status === "unmatched"
+                    ? t("未匹配消息", "Message not matched")
+                    : t("解析失败", "Decode failed")}
+                {selected.parsed.messageName && ` · ${selected.parsed.messageName}`}
+                {selected.parsed.checksum === "pass" && ` · ${t("校验通过", "Checksum passed")}`}
+                {selected.parsed.checksum === "fail" && ` · ${t("校验失败", "Checksum failed")}`}
+                {selected.parsed.error && ` · ${selected.parsed.error}`}
+              </p>
+              {selected.parsed.fields.map((field) => (
+                <div key={field.name} className="debug-field-preview">
+                  <strong>{field.displayName || field.name}</strong>
+                  <small>
+                    {field.name} · {field.type} · {field.offset}–{field.offset + field.length - 1}
+                  </small>
+                  <code>{field.value}</code>
+                </div>
+              ))}
+            </div>
+          )}
           <pre>{selected.hex || selected.detail}</pre>
         </div>
       )}

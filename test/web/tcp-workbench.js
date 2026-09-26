@@ -63,6 +63,15 @@ async function checkTcp(page) {
         const hex = args[1].toUpperCase();
         record("TX", hex);
         record("RX", hex);
+        if (hex === "00 FF 80 0D 0A")
+          records.push({
+            id: ++next, time: Date.now(), direction: "FRAME", peer: 2,
+            address: "127.0.0.1:51001", hex, size: 5, detail: "message data",
+            parsed: { protocolPath: "protocols/wire.yaml", messageName: "data",
+              status: "ok", checksum: "pass", error: "",
+              fields: [{ name: "kind", displayName: "Kind", type: "uint8",
+                value: "0", offset: 0, length: 1 }] },
+          });
         state.sent += hex.split(" ").length;
         state.received += hex.split(" ").length;
       }
@@ -114,6 +123,23 @@ async function checkTcp(page) {
   await page.getByRole("button", { name: "通信连接", exact: true }).click();
   check((await page.locator(".tcp-log tbody tr").count()) === 1, "records survive navigation");
   await page.getByLabel("关闭详情").click();
+  await page.getByLabel("记录方向").selectOption("FRAME");
+  await page.locator(".tcp-log tbody tr button").click();
+  await page.getByLabel("协议解析结果").getByText("校验通过").waitFor();
+  await page.getByLabel("协议解析结果").getByText("Kind", { exact: true }).waitFor();
+  await page.getByRole("button", { name: "送入调试", exact: true }).click();
+  await page.getByLabel("解析字段列表").getByText("Kind", { exact: true }).waitFor();
+  await page.getByLabel("解析字段列表").getByRole("button").first().click();
+  check(await page.locator("#debug-byte-0").evaluate((el) => el.classList.contains("debug-tool-highlight")),
+    "frame field highlights its byte");
+  await page.getByRole("button", { name: "定位字节 1" }).click();
+  check((await page.getByLabel("解析字段列表").getByRole("button").first().getAttribute("aria-pressed")) === "false",
+    "unmapped byte clears field selection");
+  await page.getByRole("button", { name: "定位字节 0" }).click();
+  check((await page.getByLabel("解析字段列表").getByRole("button").first().getAttribute("aria-pressed")) === "true",
+    "byte selects matching frame field");
+  await page.getByRole("button", { name: "通信连接", exact: true }).click();
+  await page.getByLabel("关闭详情").click();
   await page.getByLabel("筛选记录").fill("");
   await page.getByLabel("记录方向").selectOption("all");
   await page.getByLabel("更多操作: 127.0.0.1:51002", { exact: true }).click();
@@ -144,7 +170,7 @@ async function checkTcp(page) {
   return {
     passed: true,
     coverage:
-      "server, peer selection, HEX/UTF-8, validation, RX filter, Debug handoff, navigation persistence, more dialog, clear, stop, client mode",
+      "server, peer selection, HEX/UTF-8, validation, RX/FRAME filter, parsed fields/checksum, Debug handoff and both field/byte directions, navigation persistence, more dialog, clear, stop, client mode",
     screenshots: ["out/qa/tcp-light.png", "out/qa/tcp-dark.png"],
   };
 }
