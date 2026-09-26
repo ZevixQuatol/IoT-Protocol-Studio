@@ -54,7 +54,8 @@ add_library(iotps::codec ALIAS iotps_codec)
 iotps_configure_core_target(iotps_codec)
 target_link_libraries(iotps_codec PUBLIC iotps::common iotps::schema)
 
-add_library(iotps_transport STATIC src/transport/transport.cpp src/transport/tcp.cpp)
+add_library(iotps_transport STATIC src/transport/transport.cpp src/transport/framing.cpp
+                                   src/transport/tcp.cpp)
 add_library(iotps::transport ALIAS iotps_transport)
 iotps_configure_core_target(iotps_transport)
 target_link_libraries(iotps_transport PUBLIC iotps::common)

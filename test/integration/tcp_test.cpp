@@ -65,10 +65,20 @@ int main() {
         wait_for([&] {
             return second.snapshot().peers.size() == 1 && server.snapshot().peers.size() == 2;
         });
-        check(first.send(first_id, payload).has_value(), "client send");
+        FrameRule framing;
+        framing.mode = FrameMode::fixed;
+        framing.fixed_size = payload.size();
+        check(server.set_framing(framing).has_value(), "configure fixed framing");
+        check(first.send(first_id, {payload.data(), 3}).has_value(), "client send first half");
+        wait_for([&] { return server.snapshot().statistics.bytes_received == 3; });
+        check(traffic(server, "FRAME").empty(), "partial RX is not a frame");
+        check(first.send(first_id, {payload.data() + 3, payload.size() - 3}).has_value(),
+              "client send second half");
         wait_for([&] { return server.snapshot().statistics.bytes_received == payload.size(); });
         check(traffic(server, "RX") == payload, "binary client to server");
+        check(traffic(server, "FRAME") == payload, "separate completed frame");
         check(traffic(first, "TX") == payload, "actual TX bytes");
+        check(server.set_framing({}).has_value(), "disable framing");
         check(server.send(server_first, payload).has_value(), "selected server reply");
         wait_for([&] { return first.snapshot().statistics.bytes_received == payload.size(); });
         check(traffic(first, "RX") == payload, "binary server to client");

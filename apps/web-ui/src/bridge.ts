@@ -35,7 +35,7 @@ export type WindowAction = "drag" | "minimize" | "maximize" | "close";
 export type TcpRecord = {
   id: number;
   time: number;
-  direction: "TX" | "RX" | "SYS";
+  direction: "TX" | "RX" | "FRAME" | "SYS";
   peer: number;
   address: string;
   hex: string;

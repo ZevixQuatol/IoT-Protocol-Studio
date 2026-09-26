@@ -976,9 +976,11 @@ window.addEventListener("DOMContentLoaded", () => {
     const sidebar = document.querySelector(".schema-sidebar");
     const sidebarResizeHandle = document.querySelector(".sidebar-resize-handle");
     const contentCard = document.querySelector(".content-card");
+    const framingRules = document.querySelectorAll(".tcp-framing select option");
     const windowControls = document.querySelectorAll(".window-control");
     if (shell && titlebar && schemaButton && debug && settings && sidebar &&
-        sidebarResizeHandle && contentCard && windowControls.length === 3) {
+        sidebarResizeHandle && contentCard && framingRules.length >= 4 &&
+        windowControls.length === 3) {
       Promise.all([
         window.iotpsWorkspaceCurrent(),
         window.iotpsWorkspaceCreateProtocol(
@@ -1002,8 +1004,10 @@ window.addEventListener("DOMContentLoaded", () => {
           const tcpPoll = await window.iotpsTcp("smoke", "poll", "0");
           const tcpInvalid = await window.iotpsTcp("smoke", "start", "client", "bad-ip", "9000");
           const tcpHex = await window.iotpsTcp("smoke", "send", "1", "GG");
+          const tcpFrame = await window.iotpsTcp("smoke", "frame", "fixed", "4");
+          const tcpFrameInvalid = await window.iotpsTcp("smoke", "frame", "length", "0", "3", "1", "big");
           await window.iotpsTcp("smoke", "destroy");
-          if (!tcpPoll?.ok || tcpPoll.state !== "closed" || !Array.isArray(tcpPoll.records) || tcpInvalid?.ok || tcpHex?.ok) {
+          if (!tcpPoll?.ok || tcpPoll.state !== "closed" || !Array.isArray(tcpPoll.records) || tcpInvalid?.ok || tcpHex?.ok || !tcpFrame?.ok || tcpFrameInvalid?.error?.code !== "invalid_configuration") {
             report("tcp-bridge-failed"); return;
           }
           if (!fixture?.ok || fixture.fields?.[0]?.value !== "4660" || fixture.fields[0].offset !== 0 || fixture.fields[0].length !== 2) {
@@ -1465,6 +1469,42 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR command_line, int) {
                 if (const auto* error = parsed.error_if())
                     return workspace_error_response("invalid_hex", error->detail);
                 result = tcp.send(*peer, parsed.value());
+            } else if (action == "frame") {
+                iotps::core::transport::FrameRule rule;
+                if (args->size() == 2 && (*args)[1] == "off") {
+                    rule.mode = iotps::core::transport::FrameMode::off;
+                } else if (args->size() == 3 && (*args)[1] == "fixed") {
+                    const auto size = number((*args)[2]);
+                    if (!size || *size > iotps::core::transport::max_frame_buffer)
+                        return workspace_error_response("invalid_configuration",
+                                                        "invalid fixed frame size");
+                    rule.mode = iotps::core::transport::FrameMode::fixed;
+                    rule.fixed_size = static_cast<std::size_t>(*size);
+                } else if (args->size() == 6 && (*args)[1] == "length") {
+                    const auto offset = number((*args)[2]);
+                    const auto width = number((*args)[3]);
+                    const auto adjustment = number((*args)[4]);
+                    if (!offset || !width || !adjustment ||
+                        *offset > iotps::core::transport::max_frame_buffer ||
+                        *adjustment > iotps::core::transport::max_frame_buffer ||
+                        ((*args)[5] != "big" && (*args)[5] != "little"))
+                        return workspace_error_response("invalid_configuration",
+                                                        "invalid length field framing");
+                    rule.mode = iotps::core::transport::FrameMode::length_field;
+                    rule.length_offset = static_cast<std::size_t>(*offset);
+                    rule.length_size = static_cast<std::size_t>(*width);
+                    rule.length_adjustment = static_cast<std::size_t>(*adjustment);
+                    rule.little_endian = (*args)[5] == "little";
+                } else if (args->size() == 3 && (*args)[1] == "delimiter") {
+                    const auto delimiter = iotps::core::parse_hex((*args)[2]);
+                    if (const auto* error = delimiter.error_if())
+                        return workspace_error_response("invalid_hex", error->detail);
+                    rule.mode = iotps::core::transport::FrameMode::delimiter;
+                    rule.delimiter = delimiter.value();
+                } else {
+                    return workspace_error_response("invalid_request", "invalid framing command");
+                }
+                result = tcp.set_framing(std::move(rule));
             } else if ((action == "poll" && args->size() == 2) ||
                        (action == "export" && args->size() == 1)) {
                 const auto cursor =

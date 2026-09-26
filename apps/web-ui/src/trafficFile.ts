@@ -32,7 +32,7 @@ export function readTrafficArchive(content: string): TrafficArchive {
       item.id <= 0 ||
       !Number.isSafeInteger(item.time) ||
       item.time < 0 ||
-      !["TX", "RX", "SYS"].includes(item.direction) ||
+      !["TX", "RX", "FRAME", "SYS"].includes(item.direction) ||
       !Number.isSafeInteger(item.peer) ||
       item.peer < 0 ||
       typeof item.address !== "string" ||

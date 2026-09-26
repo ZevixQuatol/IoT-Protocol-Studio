@@ -51,6 +51,14 @@ export default function TcpWorkbench({
   const [peer, setPeer] = useState("");
   const [input, setInput] = useState("");
   const [encoding, setEncoding] = useState("hex");
+  const [frameMode, setFrameMode] = useState("off");
+  const [frameSize, setFrameSize] = useState("8");
+  const [lengthOffset, setLengthOffset] = useState("0");
+  const [lengthWidth, setLengthWidth] = useState("1");
+  const [lengthAdjustment, setLengthAdjustment] = useState("1");
+  const [lengthEndian, setLengthEndian] = useState("big");
+  const [delimiter, setDelimiter] = useState("0A");
+  const [frameStatus, setFrameStatus] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
@@ -108,7 +116,7 @@ export default function TcpWorkbench({
               onDiagnostic(
                 session,
                 item.detail,
-                /fail|error|discard|limit|timeout|refused/i.test(item.detail),
+                /fail|error|invalid|discard|limit|timeout|refused/i.test(item.detail),
               );
         if (result.records.length)
           setRecords((current) => {
@@ -189,6 +197,22 @@ export default function TcpWorkbench({
           "已加入发送队列，实际发送字节见 TX 记录。",
           "Queued. TX records show bytes actually sent.",
         ),
+      );
+  };
+  const configureFrames = async () => {
+    const args =
+      frameMode === "fixed"
+        ? [frameMode, frameSize]
+        : frameMode === "length"
+          ? [frameMode, lengthOffset, lengthWidth, lengthAdjustment, lengthEndian]
+          : frameMode === "delimiter"
+            ? [frameMode, delimiter]
+            : ["off"];
+    if (await act("frame", ...args))
+      setFrameStatus(
+        frameMode === "off"
+          ? t("分帧已关闭", "Framing off")
+          : t("分帧规则已应用；未完成的旧帧已清除", "Framing applied; old partial frame cleared"),
       );
   };
   const clear = async () => {
@@ -414,6 +438,103 @@ export default function TcpWorkbench({
           </small>
         )}
       </div>
+      <form
+        className="tcp-framing"
+        onChange={() => setFrameStatus("")}
+        onSubmit={(event) => {
+          event.preventDefault();
+          void configureFrames();
+        }}
+      >
+        <strong>{t("接收分帧", "Receive framing")}</strong>
+        <label>
+          {t("规则", "Rule")}
+          <select value={frameMode} onChange={(event) => setFrameMode(event.target.value)}>
+            <option value="off">{t("关闭", "Off")}</option>
+            <option value="fixed">{t("固定长度", "Fixed length")}</option>
+            <option value="length">{t("长度字段", "Length field")}</option>
+            <option value="delimiter">{t("分隔符", "Delimiter")}</option>
+          </select>
+        </label>
+        {frameMode === "fixed" && (
+          <label>
+            {t("帧字节数", "Frame bytes")}
+            <input
+              type="number"
+              min="1"
+              max="1048576"
+              required
+              value={frameSize}
+              onChange={(event) => setFrameSize(event.target.value)}
+            />
+          </label>
+        )}
+        {frameMode === "length" && (
+          <>
+            <label>
+              {t("字段偏移", "Field offset")}
+              <input
+                type="number"
+                min="0"
+                max="1048575"
+                required
+                value={lengthOffset}
+                onChange={(event) => setLengthOffset(event.target.value)}
+              />
+            </label>
+            <label>
+              {t("字段宽度", "Field width")}
+              <select value={lengthWidth} onChange={(event) => setLengthWidth(event.target.value)}>
+                <option value="1">1 B</option>
+                <option value="2">2 B</option>
+                <option value="4">4 B</option>
+              </select>
+            </label>
+            <label>
+              {t("附加字节数", "Extra bytes")}
+              <input
+                type="number"
+                min="0"
+                max="1048576"
+                required
+                value={lengthAdjustment}
+                onChange={(event) => setLengthAdjustment(event.target.value)}
+              />
+            </label>
+            <label>
+              {t("字节序", "Byte order")}
+              <select
+                value={lengthEndian}
+                onChange={(event) => setLengthEndian(event.target.value)}
+              >
+                <option value="big">Big</option>
+                <option value="little">Little</option>
+              </select>
+            </label>
+          </>
+        )}
+        {frameMode === "delimiter" && (
+          <label>
+            {t("分隔符 HEX", "Delimiter HEX")}
+            <input
+              value={delimiter}
+              required
+              placeholder="0D 0A"
+              onChange={(event) => setDelimiter(event.target.value)}
+            />
+          </label>
+        )}
+        <button type="submit" disabled={busy}>
+          {t("应用", "Apply")}
+        </button>
+        <small role="status">
+          {frameStatus ||
+            t(
+              "帧长 = 长度字段值 + 附加字节数；上限 1 MiB，残帧空闲 5 秒后丢弃",
+              "Frame size = length value + extra bytes; 1 MiB limit, 5s partial-frame timeout",
+            )}
+        </small>
+      </form>
       <div className="tcp-send">
         <div className="tcp-send-heading">
           <strong>{t("发送数据", "Send data")}</strong>
@@ -491,6 +612,7 @@ export default function TcpWorkbench({
           <option value="all">{t("全部", "All")}</option>
           <option>TX</option>
           <option>RX</option>
+          <option>FRAME</option>
           <option>SYS</option>
         </select>
         <input
@@ -536,8 +658,8 @@ export default function TcpWorkbench({
       </div>
       <p className="tcp-log-hint">
         {t(
-          "TCP 是字节流，RX 按接收块记录，不代表完整协议帧。当前会话最多保留 1000 条 / 4 MiB；保存导出当前尚未淘汰的记录。",
-          "TCP is a byte stream: RX chunks are not protocol frames. Current session keeps up to 1000 entries / 4 MiB; save exports retained records.",
+          "TCP 是字节流：RX 保留原始接收块，FRAME 只表示规则确认的完整帧。当前会话最多保留 1000 条 / 4 MiB；保存导出当前尚未淘汰的记录。",
+          "TCP is a byte stream: RX keeps raw chunks; FRAME contains only completed frames. Current session keeps up to 1000 entries / 4 MiB; save exports retained records.",
         )}{" "}
         {(history?.dropped ?? status.dropped) > 0 &&
           `${t("已淘汰", "Evicted")}: ${history?.dropped ?? status.dropped}`}
@@ -571,7 +693,9 @@ export default function TcpWorkbench({
                     onClick={() => setSelected(item)}
                     title={item.detail || item.hex.slice(0, 200)}
                   >
-                    {item.detail || item.hex.slice(0, 150)}
+                    {item.direction === "FRAME"
+                      ? item.hex.slice(0, 150)
+                      : item.detail || item.hex.slice(0, 150)}
                     {item.hex.length > 150 ? "…" : ""}
                   </button>
                 </td>

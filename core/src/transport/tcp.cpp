@@ -102,6 +102,7 @@ struct TcpSession::Impl {
         TcpPeer info;
         bool closing{false};
         std::deque<Outgoing> outgoing;
+        FrameAssembler framer;
     };
     mutable std::mutex mutex;
     std::jthread worker;
@@ -111,6 +112,7 @@ struct TcpSession::Impl {
     std::size_t record_bytes{0};
     std::uint64_t next_record{0}, next_peer{0};
     bool runtime_ready{true};
+    FrameRule framing;
 
     Impl() {
 #ifdef _WIN32
@@ -148,6 +150,8 @@ struct TcpSession::Impl {
     }
     void remove_peer(std::size_t i, std::string detail) {
         auto& peer = peers[i];
+        if (const auto partial = peer.framer.discard("connection closed"))
+            record("SYS", peer.info, {}, partial->error);
         for (const auto& item : peer.outgoing)
             status.queued_bytes -= item.data.size() - item.offset;
         record("SYS", peer.info, {}, std::move(detail));
@@ -213,6 +217,7 @@ struct TcpSession::Impl {
                                      {++next_peer, address_of(address)},
                                      false,
                                      {}});
+                    peers.back().framer.configure(framing);
                     status.state = TransportState::open;
                     status.error.clear();
                     record("SYS", peers.back().info, {}, "Connected");
@@ -258,12 +263,15 @@ struct TcpSession::Impl {
                             error("Client limit (16) or socket setup failure");
                         } else {
                             peers.push_back({client, {++next_peer, address_of(remote)}, false, {}});
+                            peers.back().framer.configure(framing);
                             record("SYS", peers.back().info, {}, "Client connected");
                         }
                     }
                 }
                 for (std::size_t i = peers.size(); i-- > 0;) {
                     auto& peer = peers[i];
+                    if (const auto expired = peer.framer.expire(std::chrono::steady_clock::now()))
+                        record("SYS", peer.info, {}, expired->error);
                     if (FD_ISSET(peer.socket, &read)) {
                         std::array<std::uint8_t, 16384> buffer{};
                         const int count = static_cast<int>(
@@ -273,6 +281,15 @@ struct TcpSession::Impl {
                             status.statistics.bytes_received += static_cast<std::uint64_t>(count);
                             ++status.statistics.messages_received;
                             record("RX", peer.info, {buffer.begin(), buffer.begin() + count});
+                            for (auto& frame :
+                                 peer.framer.feed({buffer.data(), static_cast<std::size_t>(count)},
+                                                  std::chrono::steady_clock::now())) {
+                                if (frame.error.empty())
+                                    record("FRAME", peer.info, std::move(frame.bytes),
+                                           "Complete frame");
+                                else
+                                    record("SYS", peer.info, {}, std::move(frame.error));
+                            }
                         } else if (count == 0 || !pending(socket_error())) {
                             if (count < 0)
                                 error("receive failed: " + std::to_string(socket_error()));
@@ -421,6 +438,18 @@ TransportResult TcpSession::disconnect(std::uint64_t peer) {
     found->closing = true;
     if (!impl_->status.server)
         impl_->worker.request_stop();
+    return std::monostate{};
+}
+TransportResult TcpSession::set_framing(FrameRule rule) {
+    if (const auto error = frame_rule_error(rule); !error.empty())
+        return fail(TransportErrorCode::invalid_configuration, error);
+    std::lock_guard lock(impl_->mutex);
+    impl_->framing = std::move(rule);
+    for (auto& peer : impl_->peers) {
+        if (const auto partial = peer.framer.discard("framing rule changed"))
+            impl_->record("SYS", peer.info, {}, partial->error);
+        peer.framer.configure(impl_->framing);
+    }
     return std::monostate{};
 }
 void TcpSession::clear_records() {

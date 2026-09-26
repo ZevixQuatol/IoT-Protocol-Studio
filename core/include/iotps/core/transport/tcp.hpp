@@ -1,5 +1,6 @@
 #pragma once
 
+#include "iotps/core/transport/framing.hpp"
 #include "iotps/core/transport/transport.hpp"
 
 #include <memory>
@@ -47,6 +48,7 @@ class TcpSession {
     void stop();
     [[nodiscard]] TransportResult send(std::uint64_t peer, std::span<const std::uint8_t> bytes);
     [[nodiscard]] TransportResult disconnect(std::uint64_t peer);
+    [[nodiscard]] TransportResult set_framing(FrameRule rule);
     void clear_records();
     [[nodiscard]] TcpSnapshot snapshot(std::uint64_t after = 0, std::size_t max_records = 128,
                                        std::size_t max_bytes = 128 * 1024) const;
