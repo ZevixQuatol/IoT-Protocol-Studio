@@ -238,9 +238,34 @@ SchemaValidation validate(const ProtocolSchema& schema) {
             cursor = offset + length;
         }
 
-        if (message.checksum.has_value() && !field_names.contains(message.checksum->target_field)) {
-            add_diagnostic(validation, SchemaErrorCode::checksum_field_not_found,
-                           message_path(message_index, "checksum.targetField"));
+        if (message.checksum.has_value()) {
+            const auto& checksum = *message.checksum;
+            const auto target = field_names.find(checksum.target_field);
+            if (target == field_names.end()) {
+                add_diagnostic(validation, SchemaErrorCode::checksum_field_not_found,
+                               message_path(message_index, "checksum.targetField"));
+            } else {
+                const auto& field = message.fields[target->second];
+                const auto expected = checksum.algorithm == ChecksumAlgorithm::crc16_modbus
+                                          ? FieldType::uint16
+                                          : FieldType::uint8;
+                if (field.type != expected || field.length_of.has_value()) {
+                    add_diagnostic(validation, SchemaErrorCode::checksum_target_invalid,
+                                   message_path(message_index, "checksum.targetField"));
+                }
+            }
+            if (checksum.algorithm == ChecksumAlgorithm::custom) {
+                add_diagnostic(validation, SchemaErrorCode::checksum_algorithm_unsupported,
+                               message_path(message_index, "checksum.algorithm"));
+            }
+            const auto start = checksum.range_start.value_or(0);
+            const auto end = checksum.range_end.value_or(cursor);
+            if (start >= end || end > cursor) {
+                add_diagnostic(validation, SchemaErrorCode::checksum_range_invalid,
+                               message_path(message_index, end > cursor || !checksum.range_start
+                                                               ? "checksum.rangeEnd"
+                                                               : "checksum.rangeStart"));
+            }
         }
     }
 
@@ -363,6 +388,12 @@ std::string_view to_string(const SchemaErrorCode code) noexcept {
         return "array_metadata_not_allowed";
     case SchemaErrorCode::checksum_field_not_found:
         return "checksum_field_not_found";
+    case SchemaErrorCode::checksum_target_invalid:
+        return "checksum_target_invalid";
+    case SchemaErrorCode::checksum_range_invalid:
+        return "checksum_range_invalid";
+    case SchemaErrorCode::checksum_algorithm_unsupported:
+        return "checksum_algorithm_unsupported";
     }
     return "unknown";
 }

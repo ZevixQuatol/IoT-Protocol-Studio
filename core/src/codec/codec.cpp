@@ -1,5 +1,6 @@
 #include "iotps/core/codec/codec.hpp"
 
+#include "iotps/core/checksum.hpp"
 #include "iotps/core/hex.hpp"
 
 #include <algorithm>
@@ -514,6 +515,51 @@ PrimitiveBitsResult encode_length_bits(const schema::FieldDefinition& field,
     return static_cast<std::uint64_t>(target.length);
 }
 
+PrimitiveBitsResult calculate_checksum(const schema::MessageDefinition& definition,
+                                       const LayoutPlan& layout,
+                                       const std::span<const std::uint8_t> bytes) {
+    const auto& checksum = *definition.checksum;
+    const auto target = find_layout_field(layout, checksum.target_field);
+    const auto path = definition.name + ".checksum";
+    if (target == layout.fields.end())
+        return make_error(CodecErrorCode::invalid_layout, path, 0,
+                          "checksum target field not found");
+    const auto expected_type = checksum.algorithm == schema::ChecksumAlgorithm::crc16_modbus
+                                   ? schema::FieldType::uint16
+                                   : schema::FieldType::uint8;
+    if (checksum.algorithm == schema::ChecksumAlgorithm::custom ||
+        target->definition->type != expected_type || target->definition->length_of)
+        return make_error(CodecErrorCode::invalid_layout, path, target->offset,
+                          "unsupported checksum algorithm or target field type");
+    const auto start = checksum.range_start.value_or(0);
+    const auto end = checksum.range_end.value_or(layout.frame_size);
+    if (start >= end || end > layout.frame_size || bytes.size() < layout.frame_size)
+        return make_error(CodecErrorCode::invalid_layout, path, start,
+                          "checksum byte range is outside the frame");
+    ByteBuffer input;
+    input.reserve(end - start);
+    for (std::size_t index = start; index < end; ++index) {
+        if (index >= target->offset && index - target->offset < target->length) {
+            if (checksum.include_target)
+                input.push_back(0);
+        } else {
+            input.push_back(bytes[index]);
+        }
+    }
+    switch (checksum.algorithm) {
+    case schema::ChecksumAlgorithm::sum8:
+        return sum8(input);
+    case schema::ChecksumAlgorithm::xor8:
+        return xor8(input);
+    case schema::ChecksumAlgorithm::crc16_modbus:
+        return crc16_modbus(input);
+    case schema::ChecksumAlgorithm::custom:
+        break;
+    }
+    return make_error(CodecErrorCode::invalid_layout, path, start,
+                      "unsupported checksum algorithm");
+}
+
 } // namespace
 
 EncodeResult FixedLayoutCodec::encode(const schema::MessageDefinition& definition,
@@ -555,6 +601,9 @@ EncodeResult FixedLayoutCodec::encode(const schema::MessageDefinition& definitio
             std::ranges::copy(encoded_field, bytes.begin() + layout_field.offset);
             continue;
         }
+
+        if (definition.checksum && field.name == definition.checksum->target_field)
+            continue;
 
         if (value == message.fields.end()) {
             return make_error(CodecErrorCode::missing_field, path, layout_field.offset,
@@ -622,6 +671,17 @@ EncodeResult FixedLayoutCodec::encode(const schema::MessageDefinition& definitio
                               layout.value().frame_size,
                               "field is not defined by the message schema");
         }
+    }
+
+    if (definition.checksum) {
+        const auto target = find_layout_field(layout.value(), definition.checksum->target_field);
+        auto calculated = calculate_checksum(definition, layout.value(), bytes);
+        if (const auto* error = calculated.error_if())
+            return *error;
+        ByteBuffer encoded;
+        append_unsigned(encoded, calculated.value(), target->length,
+                        target->definition->byte_order.value_or(default_byte_order));
+        std::ranges::copy(encoded, bytes.begin() + target->offset);
     }
 
     return bytes;
@@ -719,6 +779,24 @@ DecodeResult FixedLayoutCodec::decode(const schema::MessageDefinition& definitio
                                   "' wire length " + std::to_string(target->length));
         }
     }
+    if (definition.checksum) {
+        const auto target = find_layout_field(layout.value(), definition.checksum->target_field);
+        auto calculated = calculate_checksum(definition, layout.value(), bytes);
+        if (const auto* error = calculated.error_if())
+            return *error;
+        const auto actual =
+            read_unsigned(bytes, target->offset, target->length,
+                          target->definition->byte_order.value_or(default_byte_order));
+        if (actual != calculated.value()) {
+            const auto start = definition.checksum->range_start.value_or(0);
+            const auto end = definition.checksum->range_end.value_or(layout.value().frame_size);
+            return make_error(CodecErrorCode::checksum_mismatch,
+                              field_path(definition, *target->definition), target->offset,
+                              "expected " + std::to_string(calculated.value()) + ", actual " +
+                                  std::to_string(actual) + ", range [" + std::to_string(start) +
+                                  "," + std::to_string(end) + ")");
+        }
+    }
     return decoded;
 }
 
@@ -810,6 +888,8 @@ std::string_view to_string(const CodecErrorCode code) noexcept {
         return "length_value_out_of_range";
     case CodecErrorCode::array_count_mismatch:
         return "array_count_mismatch";
+    case CodecErrorCode::checksum_mismatch:
+        return "checksum_mismatch";
     }
     return "unknown";
 }

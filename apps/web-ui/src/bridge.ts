@@ -95,6 +95,7 @@ export type WorkspaceMessage = {
   name: string;
   displayName: string;
   typeId: string | null;
+  checksumTarget: string | null;
   fields: WorkspaceField[];
 };
 

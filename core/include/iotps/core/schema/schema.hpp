@@ -66,6 +66,9 @@ struct ChecksumDefinition {
     std::string name;
     ChecksumAlgorithm algorithm{ChecksumAlgorithm::sum8};
     std::string target_field;
+    std::optional<std::size_t> range_start;
+    std::optional<std::size_t> range_end;
+    bool include_target{false};
 };
 
 struct MessageDefinition {
@@ -119,6 +122,9 @@ enum class SchemaErrorCode {
     array_length_not_allowed,
     array_metadata_not_allowed,
     checksum_field_not_found,
+    checksum_target_invalid,
+    checksum_range_invalid,
+    checksum_algorithm_unsupported,
 };
 
 using SchemaDiagnostic = Error<SchemaErrorCode>;

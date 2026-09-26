@@ -57,6 +57,7 @@ enum class CodecErrorCode {
     length_value_mismatch,
     length_value_out_of_range,
     array_count_mismatch,
+    checksum_mismatch,
 };
 
 using CodecError = Error<CodecErrorCode>;

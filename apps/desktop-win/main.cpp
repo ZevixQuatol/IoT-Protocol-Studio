@@ -279,7 +279,9 @@ void append_protocol_schema(std::ostringstream& response,
         } else {
             response << "null";
         }
-        response << ",\"fields\":[";
+        response << ",\"checksumTarget\":"
+                 << (message.checksum ? json_string(message.checksum->target_field) : "null")
+                 << ",\"fields\":[";
 
         std::size_t cursor = 0;
         for (std::size_t field_index = 0; field_index < message.fields.size(); ++field_index) {

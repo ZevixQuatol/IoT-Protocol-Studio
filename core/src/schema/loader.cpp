@@ -434,6 +434,38 @@ load_message(const ryml::ConstNodeRef node, const std::string_view yaml_path,
             .algorithm = algorithm.value(),
             .target_field = scalar(target_field),
         };
+        for (const auto* key : {"rangeStart", "rangeEnd"}) {
+            if (!checksum.has_child(key))
+                continue;
+            const auto value_node = checksum[key];
+            const auto path = checksum_path + "." + key;
+            if (const auto error = require_scalar(value_node, path, parser))
+                return *error;
+            source_map.emplace(domain_path + ".checksum." + key, value_node.id());
+            auto value = unsigned_integer(value_node, path, parser);
+            if (const auto* error = value.error_if())
+                return *error;
+            const auto offset = static_cast<std::size_t>(value.value());
+            if (offset != value.value())
+                return make_error(SchemaErrorCode::yaml_invalid_scalar, path,
+                                  "checksum byte offset is outside size_t range", value_node,
+                                  parser);
+            if (std::string_view{key} == "rangeStart")
+                message.checksum->range_start = offset;
+            else
+                message.checksum->range_end = offset;
+        }
+        if (checksum.has_child("includeTarget")) {
+            const auto value_node = checksum["includeTarget"];
+            const auto path = checksum_path + ".includeTarget";
+            if (const auto error = require_scalar(value_node, path, parser))
+                return *error;
+            const auto value = scalar(value_node);
+            if (value != "true" && value != "false")
+                return make_error(SchemaErrorCode::yaml_invalid_scalar, path,
+                                  "includeTarget must be true or false", value_node, parser);
+            message.checksum->include_target = value == "true";
+        }
     }
     return message;
 }

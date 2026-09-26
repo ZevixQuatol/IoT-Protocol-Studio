@@ -972,7 +972,7 @@ export default function App() {
           relativePath: selectedProtocol.path,
           messageName: selectedMessage.name,
           fields: selectedMessage.fields
-            .filter((field) => !field.lengthOf)
+            .filter((field) => !field.lengthOf && field.name !== selectedMessage.checksumTarget)
             .map((field) => ({ name: field.name, value: messageFieldValues[field.name] ?? "" })),
         }),
       );
@@ -2408,7 +2408,11 @@ export default function App() {
                                 path={selectedProtocol.path}
                                 message={selectedMessage.name}
                                 fields={selectedMessage.fields
-                                  .filter((field) => !field.lengthOf)
+                                  .filter(
+                                    (field) =>
+                                      !field.lengthOf &&
+                                      field.name !== selectedMessage.checksumTarget,
+                                  )
                                   .map((field) => ({
                                     name: field.name,
                                     value: messageFieldValues[field.name] ?? "",
@@ -2452,7 +2456,8 @@ export default function App() {
                                           ? `${field.elementType ?? "?"}[${field.count ?? "?"}]`
                                           : field.type}
                                       </code>
-                                      {field.lengthOf ? (
+                                      {field.lengthOf ||
+                                      field.name === selectedMessage.checksumTarget ? (
                                         <div className="message-derived-value">
                                           <strong>{translation.messageStudio.derived}</strong>
                                           <span>{translation.messageStudio.automatic}</span>

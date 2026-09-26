@@ -18,7 +18,7 @@ YAML 文件
   → 稳定错误码、字段路径和源码位置
 ```
 
-v0.1 当前覆盖 Protocol、Message、基础 Field、固定 `length`/`offset`、固定长度 `string`/`bytes`、最小单字段 `lengthOf`、固定长度 Primitive Array 和 Checksum 的最小模型。Workspace 可以根据 Protocol 元数据生成一个空 `messages` 的最小 Schema；任意 Schema 结构的无损写回、连续 Length Range、动态目标、动态 Array、Struct、Enum、BitField、Condition 和动态校验范围仍不在本阶段。
+v0.1 当前覆盖 Protocol、Message、基础 Field、固定 `length`/`offset`、固定长度 `string`/`bytes`、最小单字段 `lengthOf`、固定长度 Primitive Array 和固定字节范围 Checksum。Workspace 可以根据 Protocol 元数据生成一个空 `messages` 的最小 Schema；任意 Schema 结构的无损写回、连续 Length Range、动态目标、动态 Array、Struct、Enum、BitField、Condition 和动态校验范围仍不在本阶段。
 
 ## 2. YAML 依赖
 
@@ -136,6 +136,13 @@ messages:
 | `name` | scalar | 是 | Checksum 定义名称 |
 | `algorithm` | scalar | 是 | 可选值见下文 |
 | `targetField` | scalar | 是 | 必须引用当前 Message 中存在的 Field |
+| `rangeStart` | unsigned integer scalar | 否 | 计算范围起点，含该字节；默认 `0` |
+| `rangeEnd` | unsigned integer scalar | 否 | 计算范围终点，不含该字节；默认固定帧长度 |
+| `includeTarget` | boolean scalar | 否 | 默认 `false`，跳过范围内目标字段字节；为 `true` 时以零字节代替目标字段参与计算 |
+
+计算范围使用半开区间 `[rangeStart, rangeEnd)`，必须非空且位于固定帧内。编码先填入字段和 `lengthOf` 派生值，再计算校验字段；解码时按同一范围计算并比较，错误报告期望值、实际值和范围。`sum8`、`xor8` 的目标字段必须为 `uint8`；`crc16-modbus` 必须为 `uint16`，按字段字节序写入。校验目标不能同时是 `lengthOf` 字段。当前 `custom` 没有可执行算法，作为活动校验定义会被校验器拒绝。
+
+`sum8` 为字节和模 256，`xor8` 为逐字节异或；`crc16-modbus` 使用初值 `0xFFFF`、反射多项式 `0xA001`。这些命名算法的参数固定。需要其他参数或动态范围时须新增明确算法契约。
 
 ## 5. 枚举值
 
@@ -203,7 +210,7 @@ std::string_view to_string(FieldType type);
 | 文件 I/O | `file_open_failed`、`file_read_failed` |
 | YAML 语法/形状 | `yaml_parse_error`、`yaml_required_node_missing`、`yaml_node_type_mismatch` |
 | YAML 标量映射 | `yaml_invalid_scalar`、`yaml_unknown_field_type`、`yaml_unknown_byte_order` |
-| 领域规则 | `unsupported_schema_version`、`duplicate_message_type_id`、`field_length_required`、`field_length_zero`、`field_length_mismatch`、`field_offset_overflow`、`field_layout_overlap`、`length_field_target_not_found`、`length_field_dependency_cycle`、`array_element_type_required`、`array_element_type_unsupported`、`array_count_required`、`array_count_zero`、`array_length_overflow`、`array_length_not_allowed`、`array_metadata_not_allowed`、`checksum_field_not_found` |
+| 领域规则 | `unsupported_schema_version`、`duplicate_message_type_id`、`field_length_required`、`field_length_zero`、`field_length_mismatch`、`field_offset_overflow`、`field_layout_overlap`、`length_field_target_not_found`、`length_field_dependency_cycle`、`array_element_type_required`、`array_element_type_unsupported`、`array_count_required`、`array_count_zero`、`array_length_overflow`、`array_length_not_allowed`、`array_metadata_not_allowed`、`checksum_field_not_found`、`checksum_target_invalid`、`checksum_range_invalid`、`checksum_algorithm_unsupported` |
 
 加载器只返回第一个阻止建立稳定领域模型的错误。后续 Protocol Designer 的 Problems 功能可以在模型建立成功后扩展为多诊断展示。
 

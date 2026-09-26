@@ -162,8 +162,24 @@ int main() {
         wait_for([&] { return first.snapshot().state == TransportState::faulted; });
         first.stop();
         check(first.snapshot().state == TransportState::closed, "stop after error");
+        TcpSession ipv6_server, ipv6_client;
+        check(ipv6_server.start(true, "::1", port).has_value(), "start IPv6 loopback listener");
+        wait_for([&] { return ipv6_server.snapshot().state != TransportState::opening; });
+        check(ipv6_server.snapshot().state == TransportState::open, "IPv6 listener opened");
+        check(ipv6_client.start(false, "::1", port).has_value(), "start IPv6 loopback client");
+        wait_for([&] {
+            return ipv6_client.snapshot().peers.size() == 1 &&
+                   ipv6_server.snapshot().peers.size() == 1;
+        });
+        check(ipv6_client.send(ipv6_client.snapshot().peers.front().id, payload).has_value(),
+              "IPv6 client send");
+        wait_for(
+            [&] { return ipv6_server.snapshot().statistics.bytes_received == payload.size(); });
+        check(traffic(ipv6_server, "RX") == payload, "IPv6 binary receive");
+        ipv6_client.stop();
+        ipv6_server.stop();
         std::cout << "TCP loopback: two peers, binary duplex, 64 KiB, errors, clear, disconnect "
-                     "and reconnect passed\n";
+                     "reconnect and IPv6 passed\n";
         return 0;
     } catch (const std::exception& error) {
         std::cerr << error.what() << '\n';

@@ -1,3 +1,4 @@
+#include "iotps/core/checksum.hpp"
 #include "iotps/core/codec/codec.hpp"
 #include "iotps/core/hex.hpp"
 #include "iotps/core/schema/loader.hpp"
@@ -105,5 +106,82 @@ int main() {
     }
 
     CHECK(to_string(ProtocolCodecErrorCode::message_not_found) == "message_not_found");
+
+    const auto checksum_schema = schema::load_yaml(R"yaml(
+schemaVersion: '0.1'
+protocol:
+  name: checksummed
+  version: '1.0'
+  defaultByteOrder: little
+messages:
+  frame:
+    fields:
+      - name: size
+        type: uint8
+        lengthOf: payload
+      - name: payload
+        type: bytes
+        length: 2
+      - name: crc
+        type: uint16
+    checksum:
+      name: frame-crc
+      algorithm: crc16-modbus
+      targetField: crc
+      rangeStart: 0
+      rangeEnd: 5
+      includeTarget: true
+)yaml");
+    CHECK(checksum_schema.has_value());
+    if (checksum_schema.has_value()) {
+        StructuredMessage frame{.message_name = "frame",
+                                .fields = {{.name = "payload", .value = ByteBuffer{0x12, 0x34}}}};
+        const auto encoded = encode_protocol_message(checksum_schema.value(), frame);
+        CHECK(encoded.has_value());
+        if (const auto* bytes = encoded.value_if()) {
+            const ByteBuffer input{2, 0x12, 0x34, 0, 0};
+            const auto expected_crc = crc16_modbus(input);
+            CHECK(*bytes == (ByteBuffer{2, 0x12, 0x34, static_cast<std::uint8_t>(expected_crc),
+                                        static_cast<std::uint8_t>(expected_crc >> 8)}));
+            CHECK(decode_protocol_message(checksum_schema.value(), "frame", *bytes).has_value());
+            auto damaged = *bytes;
+            damaged.back() ^= 1;
+            const auto rejected =
+                decode_protocol_message(checksum_schema.value(), "frame", damaged);
+            CHECK(!rejected.has_value());
+            if (const auto* error = rejected.error_if()) {
+                CHECK(error->detail.find("checksum_mismatch") != std::string::npos);
+                CHECK(error->detail.find("expected") != std::string::npos);
+                CHECK(error->detail.find("range [0,5)") != std::string::npos);
+            }
+        }
+        auto invalid = checksum_schema.value();
+        invalid.messages[0].checksum->range_end = 7;
+        CHECK(!schema::validate(invalid).ok());
+        invalid = checksum_schema.value();
+        invalid.messages[0].checksum->algorithm = schema::ChecksumAlgorithm::custom;
+        CHECK(!schema::validate(invalid).ok());
+
+        auto one_byte = checksum_schema.value();
+        one_byte.messages[0].fields.back().type = schema::FieldType::uint8;
+        one_byte.messages[0].checksum->range_end = 4;
+        one_byte.messages[0].checksum->include_target = false;
+        for (const auto algorithm :
+             {schema::ChecksumAlgorithm::sum8, schema::ChecksumAlgorithm::xor8}) {
+            one_byte.messages[0].checksum->algorithm = algorithm;
+            CHECK(schema::validate(one_byte).ok());
+            const auto generated = encode_protocol_message(one_byte, frame);
+            CHECK(generated.has_value());
+            if (const auto* value = generated.value_if()) {
+                const ByteBuffer input{2, 0x12, 0x34};
+                const auto expected =
+                    algorithm == schema::ChecksumAlgorithm::sum8 ? sum8(input) : xor8(input);
+                CHECK(*value == (ByteBuffer{2, 0x12, 0x34, static_cast<std::uint8_t>(expected)}));
+                CHECK(decode_protocol_message(one_byte, "frame", *value).has_value());
+            }
+        }
+        one_byte.messages[0].checksum->target_field = "payload";
+        CHECK(!schema::validate(one_byte).ok());
+    }
     return failures == 0 ? 0 : 1;
 }
