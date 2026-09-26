@@ -4,6 +4,7 @@
 #include <limits>
 #include <string>
 #include <unordered_map>
+#include <utility>
 
 namespace iotps::core::schema {
 namespace {
@@ -177,6 +178,29 @@ SchemaValidation validate(const ProtocolSchema& schema) {
             }
         }
 
+        if (!schema.protocol.message_type_field.empty()) {
+            if (!message.type_id)
+                add_diagnostic(validation, SchemaErrorCode::message_type_id_required,
+                               message_path(message_index, "typeId"));
+            const auto found = field_names.find(schema.protocol.message_type_field);
+            if (found == field_names.end()) {
+                add_diagnostic(validation, SchemaErrorCode::message_type_field_not_found,
+                               message_path(message_index, "fields"));
+            } else {
+                const auto& field = message.fields[found->second];
+                if (!is_unsigned_integer(field.type) || field.length_of ||
+                    (message.checksum && message.checksum->target_field == field.name)) {
+                    add_diagnostic(validation, SchemaErrorCode::message_type_field_invalid,
+                                   field_path(message_index, found->second, "type"));
+                } else if (message.type_id) {
+                    const auto width = primitive_width(field.type).value();
+                    if (width < 8 && (*message.type_id >> (width * 8)) != 0)
+                        add_diagnostic(validation, SchemaErrorCode::message_type_id_out_of_range,
+                                       message_path(message_index, "typeId"));
+                }
+            }
+        }
+
         std::vector<std::optional<std::size_t>> length_targets(message.fields.size());
         for (std::size_t field_index = 0; field_index < message.fields.size(); ++field_index) {
             const auto& field = message.fields[field_index];
@@ -272,6 +296,51 @@ SchemaValidation validate(const ProtocolSchema& schema) {
     return validation;
 }
 
+MessageMatch identify_message(const ProtocolSchema& schema,
+                              const std::span<const std::uint8_t> bytes) {
+    if (schema.protocol.message_type_field.empty())
+        return {.status = MatchStatus::unconfigured,
+                .reason = "Protocol has no messageTypeField rule"};
+    std::string matched;
+    bool incomplete = false;
+    for (const auto& message : schema.messages) {
+        std::size_t cursor = 0;
+        for (const auto& field : message.fields) {
+            const auto width = wire_size(field);
+            if (!width)
+                return {.status = MatchStatus::unconfigured,
+                        .reason = "Message has an unresolved field layout"};
+            const auto offset = field.offset.value_or(cursor);
+            if (field.name == schema.protocol.message_type_field) {
+                if (offset > bytes.size() || *width > bytes.size() - offset) {
+                    incomplete = true;
+                } else {
+                    std::uint64_t value = 0;
+                    const bool little = field.byte_order.value_or(schema.protocol.default_byte_order) ==
+                                        ByteOrder::little_endian;
+                    for (std::size_t index = 0; index < *width; ++index)
+                        value = (value << 8) | bytes[offset + (little ? *width - index - 1 : index)];
+                    if (message.type_id && value == *message.type_id) {
+                        if (!matched.empty())
+                            return {.status = MatchStatus::ambiguous,
+                                    .reason = "Multiple message rules match this frame"};
+                        matched = message.name;
+                    }
+                }
+                break;
+            }
+            cursor = offset + *width;
+        }
+    }
+    if (incomplete)
+        return {.status = MatchStatus::incomplete,
+                .reason = "Frame is too short to evaluate every message rule"};
+    if (matched.empty())
+        return {.status = MatchStatus::unknown,
+                .reason = "No message rule matches the frame"};
+    return {.status = MatchStatus::matched, .message = std::move(matched)};
+}
+
 std::optional<std::size_t> wire_size(const FieldDefinition& field) noexcept {
     return fixed_width(field);
 }
@@ -350,6 +419,14 @@ std::string_view to_string(const SchemaErrorCode code) noexcept {
         return "duplicate_message_name";
     case SchemaErrorCode::duplicate_message_type_id:
         return "duplicate_message_type_id";
+    case SchemaErrorCode::message_type_id_required:
+        return "message_type_id_required";
+    case SchemaErrorCode::message_type_field_not_found:
+        return "message_type_field_not_found";
+    case SchemaErrorCode::message_type_field_invalid:
+        return "message_type_field_invalid";
+    case SchemaErrorCode::message_type_id_out_of_range:
+        return "message_type_id_out_of_range";
     case SchemaErrorCode::empty_field_name:
         return "empty_field_name";
     case SchemaErrorCode::duplicate_field_name:

@@ -1,7 +1,13 @@
 import { useEffect, useRef, useState } from "react";
 import { ArrowDown, ArrowUp, Network, PlugZap, Send, Trash2, X } from "lucide-react";
 import DotsHorizontalIcon from "./icons/dots-horizontal-icon";
-import { tcpCommand, trafficFile, type TcpRecord, type TcpSnapshot } from "./bridge";
+import {
+  tcpCommand,
+  trafficFile,
+  type TcpRecord,
+  type TcpSnapshot,
+  type WorkspaceProtocol,
+} from "./bridge";
 import { readTrafficArchive } from "./trafficFile";
 import type { Locale } from "./i18n";
 
@@ -17,6 +23,8 @@ const empty: TcpSnapshot = {
   queued: 0,
   dropped: 0,
   retries: 0,
+  protocolPath: "",
+  messageName: "",
   cursor: 0,
   peers: [],
   records: [],
@@ -24,6 +32,7 @@ const empty: TcpSnapshot = {
 
 export default function TcpWorkbench({
   session,
+  protocols,
   visible,
   locale,
   draft,
@@ -31,6 +40,7 @@ export default function TcpWorkbench({
   onDiagnostic,
 }: {
   session: string;
+  protocols: WorkspaceProtocol[];
   visible: boolean;
   locale: Locale;
   draft: { id: number; hex: string } | null;
@@ -59,6 +69,9 @@ export default function TcpWorkbench({
   const [lengthEndian, setLengthEndian] = useState("big");
   const [delimiter, setDelimiter] = useState("0A");
   const [frameStatus, setFrameStatus] = useState("");
+  const [bindPath, setBindPath] = useState("");
+  const [bindMessage, setBindMessage] = useState("");
+  const [bindStatus, setBindStatus] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
@@ -75,6 +88,7 @@ export default function TcpWorkbench({
   const connected = status.state === "open";
   const active = connected || status.state === "opening";
   const shownRecords = history?.records ?? records;
+  const bindProtocol = protocols.find((item) => item.path === bindPath);
 
   useEffect(() => {
     if (draft) {
@@ -535,6 +549,74 @@ export default function TcpWorkbench({
             )}
         </small>
       </form>
+      <form
+        className="tcp-framing"
+        onSubmit={(event) => {
+          event.preventDefault();
+          void act("bind", ...(bindPath ? [bindPath, bindMessage] : ["off"])).then((ok) => {
+            if (ok)
+              setBindStatus(
+                bindPath
+                  ? t("协议与消息绑定已应用", "Protocol and message binding applied")
+                  : t("协议绑定已清除", "Protocol binding cleared"),
+              );
+          });
+        }}
+      >
+        <strong>{t("协议 / 消息绑定", "Protocol / message binding")}</strong>
+        <label>
+          {t("协议", "Protocol")}
+          <select
+            aria-label={t("绑定协议", "Bound protocol")}
+            value={bindPath}
+            onChange={(event) => {
+              setBindPath(event.target.value);
+              setBindMessage("");
+              setBindStatus("");
+            }}
+          >
+            <option value="">{t("不绑定", "Unbound")}</option>
+            {protocols.map((item) => (
+              <option key={item.path} value={item.path}>
+                {item.name} ({item.path})
+              </option>
+            ))}
+          </select>
+        </label>
+        {bindProtocol && (
+          <label>
+            {t("消息", "Message")}
+            <select
+              aria-label={t("绑定消息", "Bound message")}
+              value={bindMessage}
+              onChange={(event) => {
+                setBindMessage(event.target.value);
+                setBindStatus("");
+              }}
+            >
+              <option value="">{t("自动识别", "Auto identify")}</option>
+              {bindProtocol.schema.messages.map((item) => (
+                <option key={item.name} value={item.name}>
+                  {item.displayName || item.name}
+                </option>
+              ))}
+            </select>
+          </label>
+        )}
+        <button type="submit" disabled={busy}>
+          {t("应用", "Apply")}
+        </button>
+        <small role="status">
+          {bindStatus ||
+            (status.protocolPath
+              ? `${t("当前", "Current")}: ${status.protocolPath} / ${status.messageName || t("自动", "auto")}`
+              : t("当前未绑定协议", "No protocol bound"))}
+          {bindProtocol &&
+            !bindMessage &&
+            !bindProtocol.schema.messageTypeField &&
+            ` · ${t("自动识别需在协议 YAML 设置 protocol.messageTypeField", "Auto identify requires protocol.messageTypeField in YAML")}`}
+        </small>
+      </form>
       <div className="tcp-send">
         <div className="tcp-send-heading">
           <strong>{t("发送数据", "Send data")}</strong>
@@ -694,7 +776,7 @@ export default function TcpWorkbench({
                     title={item.detail || item.hex.slice(0, 200)}
                   >
                     {item.direction === "FRAME"
-                      ? item.hex.slice(0, 150)
+                      ? `${item.detail} · ${item.hex.slice(0, 150)}`
                       : item.detail || item.hex.slice(0, 150)}
                     {item.hex.length > 150 ? "…" : ""}
                   </button>
@@ -737,6 +819,7 @@ export default function TcpWorkbench({
               <X size={14} />
             </button>
           </div>
+          {selected.detail && <p>{selected.detail}</p>}
           <pre>{selected.hex || selected.detail}</pre>
         </div>
       )}

@@ -973,6 +973,7 @@ export default function App() {
           messageName: selectedMessage.name,
           fields: selectedMessage.fields
             .filter((field) => !field.lengthOf && field.name !== selectedMessage.checksumTarget)
+            .filter((field) => field.name !== selectedProtocol.schema.messageTypeField)
             .map((field) => ({ name: field.name, value: messageFieldValues[field.name] ?? "" })),
         }),
       );
@@ -1467,6 +1468,7 @@ export default function App() {
             <TcpWorkspace
               visible={page === "tcp"}
               locale={locale}
+              protocols={project?.protocols ?? []}
               draft={tcpDraft}
               onDebug={openHexInDebug}
               focusSession={focusSession}
@@ -2111,6 +2113,12 @@ export default function App() {
                                 <small>{translation.structure.messages}</small>
                                 <strong>{selectedProtocol.schema.messages.length}</strong>
                               </span>
+                              <span>
+                                <small>
+                                  {locale === "zh-CN" ? "消息识别字段" : "Message type field"}
+                                </small>
+                                <strong>{selectedProtocol.schema.messageTypeField || "—"}</strong>
+                              </span>
                             </div>
                             <div className="schema-edit-actions">
                               <button
@@ -2411,7 +2419,8 @@ export default function App() {
                                   .filter(
                                     (field) =>
                                       !field.lengthOf &&
-                                      field.name !== selectedMessage.checksumTarget,
+                                      field.name !== selectedMessage.checksumTarget &&
+                                      field.name !== selectedProtocol.schema.messageTypeField,
                                   )
                                   .map((field) => ({
                                     name: field.name,
@@ -2457,7 +2466,8 @@ export default function App() {
                                           : field.type}
                                       </code>
                                       {field.lengthOf ||
-                                      field.name === selectedMessage.checksumTarget ? (
+                                      field.name === selectedMessage.checksumTarget ||
+                                      field.name === selectedProtocol.schema.messageTypeField ? (
                                         <div className="message-derived-value">
                                           <strong>{translation.messageStudio.derived}</strong>
                                           <span>{translation.messageStudio.automatic}</span>

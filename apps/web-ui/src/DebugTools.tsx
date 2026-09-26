@@ -684,8 +684,8 @@ export default function DebugTools(props: Props) {
           </label>
           <p>
             {t(
-              "当前支持基础类型、固定字符串/字节/数组和长度字段。动态结构与自动识别消息依赖协议设计模块。",
-              "Supports primitives, fixed strings/bytes/arrays and length fields. Dynamic layouts and automatic message matching require Protocol Designer support.",
+              "当前支持基础类型、固定字符串/字节/数组和长度字段。独立调试仍需手选消息；通信会话可按协议识别字段标记完整帧。",
+              "Supports primitives, fixed strings/bytes/arrays and length fields. Standalone Debug still selects a message; communication sessions can identify complete frames by protocol rule.",
             )}
           </p>
           <button

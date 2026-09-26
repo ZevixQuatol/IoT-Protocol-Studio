@@ -5,6 +5,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <optional>
+#include <span>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -48,6 +49,7 @@ struct ProtocolMetadata {
     std::string version;
     std::string description;
     ByteOrder default_byte_order{ByteOrder::big_endian};
+    std::string message_type_field;
 };
 
 struct FieldDefinition {
@@ -103,6 +105,10 @@ enum class SchemaErrorCode {
     message_name_required,
     duplicate_message_name,
     duplicate_message_type_id,
+    message_type_id_required,
+    message_type_field_not_found,
+    message_type_field_invalid,
+    message_type_id_out_of_range,
     empty_field_name,
     duplicate_field_name,
     field_length_required,
@@ -138,6 +144,14 @@ struct SchemaValidation {
 };
 
 [[nodiscard]] SchemaValidation validate(const ProtocolSchema& schema);
+enum class MatchStatus { matched, unconfigured, unknown, ambiguous, incomplete };
+struct MessageMatch {
+    MatchStatus status{MatchStatus::unconfigured};
+    std::string message;
+    std::string reason;
+};
+[[nodiscard]] MessageMatch identify_message(const ProtocolSchema& schema,
+                                            std::span<const std::uint8_t> bytes);
 [[nodiscard]] std::optional<std::size_t> wire_size(const FieldDefinition& field) noexcept;
 [[nodiscard]] std::string_view to_string(ByteOrder byte_order) noexcept;
 [[nodiscard]] std::string_view to_string(FieldType type) noexcept;

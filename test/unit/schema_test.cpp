@@ -1,6 +1,7 @@
 #include "iotps/core/schema/schema.hpp"
 
 #include <algorithm>
+#include <array>
 #include <iostream>
 #include <limits>
 #include <string_view>
@@ -42,6 +43,39 @@ int main() {
     CHECK(to_string(ByteOrder::little_endian) == "little");
     CHECK(to_string(FieldType::int32) == "int32");
     CHECK(wire_size(valid.messages[0].fields[0]) == 1);
+
+    auto matching = valid;
+    matching.protocol.message_type_field = "command";
+    matching.messages.push_back({.name = "reply",
+                                 .type_id = 2,
+                                 .fields = {{.name = "prefix", .type = FieldType::uint8},
+                                            {.name = "command", .type = FieldType::uint8}}});
+    const std::array<std::uint8_t, 2> first{1, 9}, second{9, 2}, unknown{9, 9}, conflict{1, 2};
+    const std::array<std::uint8_t, 1> short_frame{1};
+    CHECK(validate(matching).ok());
+    CHECK(identify_message(matching, first).message == "telemetry");
+    CHECK(identify_message(matching, second).message == "reply");
+    CHECK(identify_message(matching, unknown).status == MatchStatus::unknown);
+    CHECK(identify_message(matching, conflict).status == MatchStatus::ambiguous);
+    CHECK(identify_message(matching, short_frame).status == MatchStatus::incomplete);
+    auto little = valid;
+    little.protocol.message_type_field = "command";
+    little.messages[0].type_id = 0x1234;
+    little.messages[0].fields[0].type = FieldType::uint16;
+    little.messages[0].fields[0].byte_order = ByteOrder::little_endian;
+    const std::array<std::uint8_t, 2> little_frame{0x34, 0x12};
+    CHECK(validate(little).ok());
+    CHECK(identify_message(little, little_frame).message == "telemetry");
+    matching.messages[1].fields[1].name = "other";
+    CHECK(contains_diagnostic(validate(matching), SchemaErrorCode::message_type_field_not_found,
+                              "messages[1].fields"));
+    matching.messages[1].fields[1].name = "command";
+    matching.messages[1].type_id = 256;
+    CHECK(contains_diagnostic(validate(matching), SchemaErrorCode::message_type_id_out_of_range,
+                              "messages[1].typeId"));
+    matching.messages[1].type_id.reset();
+    CHECK(contains_diagnostic(validate(matching), SchemaErrorCode::message_type_id_required,
+                              "messages[1].typeId"));
 
     auto invalid = valid;
     invalid.messages.push_back(invalid.messages.front());

@@ -839,8 +839,23 @@ ProtocolEncodeResult encode_protocol_message(const schema::ProtocolSchema& proto
             std::nullopt, "message is not defined by protocol '" + protocol.protocol.name + "'");
     }
 
+    auto values = message;
+    if (!protocol.protocol.message_type_field.empty() && definition->type_id) {
+        const auto& field_name = protocol.protocol.message_type_field;
+        const auto provided = std::ranges::find_if(values.fields, [&](const auto& field) {
+            return field.name == field_name;
+        });
+        if (provided == values.fields.end()) {
+            values.fields.push_back({field_name, *definition->type_id});
+        } else if (const auto* id = std::get_if<std::uint64_t>(&provided->value);
+                   !id || *id != *definition->type_id) {
+            return make_protocol_error(ProtocolCodecErrorCode::encode_failed,
+                                       "messages." + definition->name + "." + field_name,
+                                       std::nullopt, "message type field differs from typeId");
+        }
+    }
     const FixedLayoutCodec codec;
-    auto encoded = codec.encode(*definition, message, protocol.protocol.default_byte_order);
+    auto encoded = codec.encode(*definition, values, protocol.protocol.default_byte_order);
     if (const auto* error = encoded.error_if()) {
         return wrap_codec_error(ProtocolCodecErrorCode::encode_failed, *error);
     }

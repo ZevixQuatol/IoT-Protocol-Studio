@@ -58,7 +58,7 @@ add_library(iotps_transport STATIC src/transport/transport.cpp src/transport/fra
                                    src/transport/tcp.cpp)
 add_library(iotps::transport ALIAS iotps_transport)
 iotps_configure_core_target(iotps_transport)
-target_link_libraries(iotps_transport PUBLIC iotps::common)
+target_link_libraries(iotps_transport PUBLIC iotps::common iotps::schema)
 if(WIN32)
   target_link_libraries(iotps_transport PRIVATE ws2_32)
 endif()

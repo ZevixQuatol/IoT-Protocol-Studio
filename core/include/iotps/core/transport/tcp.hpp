@@ -2,6 +2,7 @@
 
 #include "iotps/core/transport/framing.hpp"
 #include "iotps/core/transport/transport.hpp"
+#include "iotps/core/schema/schema.hpp"
 
 #include <memory>
 #include <vector>
@@ -31,6 +32,8 @@ struct TcpSnapshot {
     std::uint64_t dropped{0};
     std::uint64_t cursor{0};
     std::uint32_t retries{0};
+    std::string protocol_path;
+    std::string message_name;
     std::vector<TcpPeer> peers;
     std::vector<TcpRecord> records;
 };
@@ -49,6 +52,9 @@ class TcpSession {
     [[nodiscard]] TransportResult send(std::uint64_t peer, std::span<const std::uint8_t> bytes);
     [[nodiscard]] TransportResult disconnect(std::uint64_t peer);
     [[nodiscard]] TransportResult set_framing(FrameRule rule);
+    [[nodiscard]] TransportResult bind_protocol(schema::ProtocolSchema protocol,
+                                                std::string path, std::string message = {});
+    void clear_binding();
     void clear_records();
     [[nodiscard]] TcpSnapshot snapshot(std::uint64_t after = 0, std::size_t max_records = 128,
                                        std::size_t max_bytes = 128 * 1024) const;

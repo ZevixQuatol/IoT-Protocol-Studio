@@ -266,6 +266,7 @@ void append_protocol_schema(std::ostringstream& response,
              << ",\"protocolVersion\":" << json_string(schema.protocol.version)
              << ",\"defaultByteOrder\":"
              << json_string(iotps::core::schema::to_string(schema.protocol.default_byte_order))
+             << ",\"messageTypeField\":" << json_string(schema.protocol.message_type_field)
              << ",\"messages\":[";
     for (std::size_t message_index = 0; message_index < schema.messages.size(); ++message_index) {
         const auto& message = schema.messages[message_index];
@@ -977,9 +978,10 @@ window.addEventListener("DOMContentLoaded", () => {
     const sidebarResizeHandle = document.querySelector(".sidebar-resize-handle");
     const contentCard = document.querySelector(".content-card");
     const framingRules = document.querySelectorAll(".tcp-framing select option");
+    const bindingForms = document.querySelectorAll(".tcp-framing");
     const windowControls = document.querySelectorAll(".window-control");
     if (shell && titlebar && schemaButton && debug && settings && sidebar &&
-        sidebarResizeHandle && contentCard && framingRules.length >= 4 &&
+        sidebarResizeHandle && contentCard && framingRules.length >= 4 && bindingForms.length >= 2 &&
         windowControls.length === 3) {
       Promise.all([
         window.iotpsWorkspaceCurrent(),
@@ -1006,8 +1008,10 @@ window.addEventListener("DOMContentLoaded", () => {
           const tcpHex = await window.iotpsTcp("smoke", "send", "1", "GG");
           const tcpFrame = await window.iotpsTcp("smoke", "frame", "fixed", "4");
           const tcpFrameInvalid = await window.iotpsTcp("smoke", "frame", "length", "0", "3", "1", "big");
+          const tcpBindOff = await window.iotpsTcp("smoke", "bind", "off");
+          const tcpBindNoProject = await window.iotpsTcp("smoke", "bind", "protocols/a.yaml", "");
           await window.iotpsTcp("smoke", "destroy");
-          if (!tcpPoll?.ok || tcpPoll.state !== "closed" || !Array.isArray(tcpPoll.records) || tcpInvalid?.ok || tcpHex?.ok || !tcpFrame?.ok || tcpFrameInvalid?.error?.code !== "invalid_configuration") {
+          if (!tcpPoll?.ok || tcpPoll.state !== "closed" || !Array.isArray(tcpPoll.records) || tcpInvalid?.ok || tcpHex?.ok || !tcpFrame?.ok || tcpFrameInvalid?.error?.code !== "invalid_configuration" || !tcpBindOff?.ok || tcpBindNoProject?.error?.code !== "project_not_open") {
             report("tcp-bridge-failed"); return;
           }
           if (!fixture?.ok || fixture.fields?.[0]?.value !== "4660" || fixture.fields[0].offset !== 0 || fixture.fields[0].length !== 2) {
@@ -1055,6 +1059,14 @@ window.addEventListener("DOMContentLoaded", () => {
           await edit("addField", "packet", "", "name", "value", "type", "uint16", "endian", "little");
           await edit("addField", "packet", "", "name", "flag", "type", "uint8");
           const renamed = await edit("updateField", "packet", "value", "name", "reading", "displayName", "Reading");
+          await window.iotpsTcp("smoke-binding", "create");
+          const bound = await window.iotpsTcp("smoke-binding", "bind", path, "packet");
+          const boundPoll = await window.iotpsTcp("smoke-binding", "poll", "0");
+          const invalidBinding = await window.iotpsTcp("smoke-binding", "bind", path, "missing");
+          await window.iotpsTcp("smoke-binding", "destroy");
+          if (!bound?.ok || boundPoll?.messageName !== "packet" || invalidBinding?.error?.code !== "invalid_configuration") {
+            report("tcp-binding-bridge-failed"); return;
+          }
           const savedTemplate = await window.iotpsMessageTemplates("save", path, "packet", "Smoke", "reading", "4660", "flag", "1");
           const duplicateTemplate = await window.iotpsMessageTemplates("save", path, "packet", "Smoke", "reading", "0", "flag", "0");
           await window.iotpsWorkspaceClose();
@@ -1401,7 +1413,7 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR command_line, int) {
         std::optional<std::filesystem::path> current_project;
         std::map<std::string, std::unique_ptr<iotps::core::transport::TcpSession>> tcp_sessions;
         TcpWindows tcp_windows(window, [&tcp_sessions] { tcp_sessions.clear(); });
-        window.bind("iotpsTcp", [&tcp_sessions](const std::string& request) {
+        window.bind("iotpsTcp", [&tcp_sessions, &current_project](const std::string& request) {
             auto args = string_arguments(request);
             if (!args || args->size() < 2 || args->size() > 7 || (*args)[0].empty() ||
                 (*args)[0].size() > 64)
@@ -1505,6 +1517,23 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR command_line, int) {
                     return workspace_error_response("invalid_request", "invalid framing command");
                 }
                 result = tcp.set_framing(std::move(rule));
+            } else if (action == "bind" && args->size() == 2 && (*args)[1] == "off") {
+                tcp.clear_binding();
+            } else if (action == "bind" && args->size() == 3) {
+                if (!current_project)
+                    return workspace_error_response("project_not_open", "Open a project first");
+                const auto loaded = iotps::core::workspace::load_project(*current_project);
+                if (const auto* error = loaded.error_if())
+                    return workspace_error_response(
+                        std::string{iotps::core::workspace::to_string(error->code)}, error->detail);
+                const auto& protocols = loaded.value().protocols;
+                const auto protocol = std::ranges::find_if(protocols, [&](const auto& item) {
+                    return item.relative_path.generic_string() == (*args)[1];
+                });
+                if (protocol == protocols.end())
+                    return workspace_error_response("protocol_not_referenced",
+                                                    "Protocol is not in the open project");
+                result = tcp.bind_protocol(protocol->schema, (*args)[1], (*args)[2]);
             } else if ((action == "poll" && args->size() == 2) ||
                        (action == "export" && args->size() == 1)) {
                 const auto cursor =
@@ -1527,6 +1556,8 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR command_line, int) {
                     << ",\"received\":" << state.statistics.bytes_received
                     << ",\"queued\":" << state.queued_bytes << ",\"dropped\":" << state.dropped
                     << ",\"retries\":" << state.retries << ",\"cursor\":" << state.cursor
+                    << ",\"protocolPath\":" << json_string(state.protocol_path)
+                    << ",\"messageName\":" << json_string(state.message_name)
                     << ",\"peers\":[";
                 bool first = true;
                 for (const auto& peer : state.peers) {

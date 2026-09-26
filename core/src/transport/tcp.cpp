@@ -5,6 +5,7 @@
 #include <chrono>
 #include <deque>
 #include <mutex>
+#include <optional>
 #include <stdexcept>
 #include <thread>
 #include <utility>
@@ -113,6 +114,7 @@ struct TcpSession::Impl {
     std::uint64_t next_record{0}, next_peer{0};
     bool runtime_ready{true};
     FrameRule framing;
+    std::optional<schema::ProtocolSchema> bound_protocol;
 
     Impl() {
 #ifdef _WIN32
@@ -284,10 +286,23 @@ struct TcpSession::Impl {
                             for (auto& frame :
                                  peer.framer.feed({buffer.data(), static_cast<std::size_t>(count)},
                                                   std::chrono::steady_clock::now())) {
-                                if (frame.error.empty())
+                                if (frame.error.empty()) {
+                                    std::string detail = "Complete frame; no protocol bound";
+                                    if (bound_protocol) {
+                                        detail = "Protocol " + status.protocol_path + ": ";
+                                        if (!status.message_name.empty()) {
+                                            detail += "message " + status.message_name + " (fixed binding)";
+                                        } else {
+                                            const auto match =
+                                                schema::identify_message(*bound_protocol, frame.bytes);
+                                            detail += match.status == schema::MatchStatus::matched
+                                                          ? "message " + match.message
+                                                          : match.reason;
+                                        }
+                                    }
                                     record("FRAME", peer.info, std::move(frame.bytes),
-                                           "Complete frame");
-                                else
+                                           std::move(detail));
+                                } else
                                     record("SYS", peer.info, {}, std::move(frame.error));
                             }
                         } else if (count == 0 || !pending(socket_error())) {
@@ -451,6 +466,31 @@ TransportResult TcpSession::set_framing(FrameRule rule) {
         peer.framer.configure(impl_->framing);
     }
     return std::monostate{};
+}
+TransportResult TcpSession::bind_protocol(schema::ProtocolSchema protocol, std::string path,
+                                          std::string message) {
+    if (path.empty() || !schema::validate(protocol).ok())
+        return fail(TransportErrorCode::invalid_configuration, "Invalid protocol binding");
+    if (!message.empty() &&
+        std::ranges::none_of(protocol.messages,
+                             [&](const auto& item) { return item.name == message; }))
+        return fail(TransportErrorCode::invalid_configuration, "Message is not in the protocol");
+    std::lock_guard lock(impl_->mutex);
+    impl_->bound_protocol = std::move(protocol);
+    impl_->status.protocol_path = std::move(path);
+    impl_->status.message_name = std::move(message);
+    impl_->record("SYS", {0, impl_->status.host}, {},
+                  "Bound protocol " + impl_->status.protocol_path +
+                      (impl_->status.message_name.empty() ? " (auto message)"
+                                                          : " / " + impl_->status.message_name));
+    return std::monostate{};
+}
+void TcpSession::clear_binding() {
+    std::lock_guard lock(impl_->mutex);
+    impl_->bound_protocol.reset();
+    impl_->status.protocol_path.clear();
+    impl_->status.message_name.clear();
+    impl_->record("SYS", {0, impl_->status.host}, {}, "Protocol binding cleared");
 }
 void TcpSession::clear_records() {
     std::lock_guard lock(impl_->mutex);

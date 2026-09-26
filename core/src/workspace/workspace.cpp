@@ -1392,7 +1392,8 @@ message_templates(const std::filesystem::path& project_directory, const std::str
             return fail(WorkspaceErrorCode::protocol_message_not_found, "message was not found");
         std::vector<MessageTemplateField> expected;
         for (const auto& field : message->fields) {
-            if (field.length_of)
+            if (field.length_of || field.name == protocol->schema.protocol.message_type_field ||
+                (message->checksum && field.name == message->checksum->target_field))
                 continue;
             // Fixed value shape only: display names, order, offsets and byte order may change.
             auto type = std::string{schema::to_string(field.type)};

@@ -107,6 +107,40 @@ int main() {
 
     CHECK(to_string(ProtocolCodecErrorCode::message_not_found) == "message_not_found");
 
+    const auto identified_schema = schema::load_yaml(R"yaml(
+schemaVersion: '0.1'
+protocol:
+  name: identified
+  version: '1.0'
+  messageTypeField: kind
+messages:
+  ping:
+    typeId: 2
+    fields:
+      - name: kind
+        type: uint8
+      - name: payload
+        type: uint8
+)yaml");
+    CHECK(identified_schema.has_value());
+    if (identified_schema.has_value()) {
+        CHECK(identified_schema.value().protocol.message_type_field == "kind");
+        StructuredMessage ping{.message_name = "ping",
+                               .fields = {{"payload", std::uint64_t{7}}}};
+        const auto encoded = encode_protocol_message(identified_schema.value(), ping);
+        CHECK(encoded.has_value());
+        if (encoded.has_value()) {
+            CHECK(encoded.value() == ByteBuffer({2, 7}));
+            CHECK(schema::identify_message(identified_schema.value(), encoded.value()).message ==
+                  "ping");
+        }
+        ping.fields.push_back({"kind", std::uint64_t{3}});
+        const auto mismatch = encode_protocol_message(identified_schema.value(), ping);
+        CHECK(!mismatch.has_value());
+        CHECK(mismatch.error_if() && mismatch.error_if()->code ==
+                                         ProtocolCodecErrorCode::encode_failed);
+    }
+
     const auto checksum_schema = schema::load_yaml(R"yaml(
 schemaVersion: '0.1'
 protocol:

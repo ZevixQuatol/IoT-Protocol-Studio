@@ -47,6 +47,7 @@ protocol:
   version: "1.0"
   description: Smart temperature sensor protocol
   defaultByteOrder: little
+  messageTypeField: command
 messages:
   telemetry:
     displayName: Telemetry
@@ -98,6 +99,7 @@ messages:
 | `version` | scalar | 是 | 非空协议业务版本；与 `schemaVersion` 含义不同 |
 | `description` | scalar | 否 | 空字符串 |
 | `defaultByteOrder` | scalar | 否 | `big`；可选值见下文 |
+| `messageTypeField` | scalar | 否 | 消息类型判定使用的字段名；省略时不自动识别 |
 
 ### 4.3 Message
 
@@ -124,6 +126,8 @@ messages:
 | `count` | unsigned integer scalar | Array 必填 | `type: array` 时必须大于 `0`；其他 Field 禁止声明 |
 
 固定布局按 Field 定义顺序计算。省略 `offset` 时字段紧接当前游标；显式 `offset` 大于当前游标时形成 gap。Decode 跳过 gap，Encode 使用 `0x00` 填充，字段的 `FieldRange` 不包含 padding。`offset + length` 不得溢出，最后一个字段的结束位置就是固定帧长度，帧后仍有字节时 Codec 返回尾随数据错误。固定 `string` 的 `length` 是 UTF-8 wire 字节数，短值右侧使用 NUL padding；固定 `bytes` 的 Encode 输入必须与 `length` 精确相等。完整文本契约见 [固定长度 String 与 Bytes](<./固定长度 String 与 Bytes.md>)。
+
+配置 `protocol.messageTypeField` 后，每个 Message 都必须提供 `typeId` 和同名的 `uint8`/`uint16`/`uint32`/`uint64` 字段，且 `typeId` 必须在字段宽度内。该字段不能同时作为长度或校验目标。识别按各 Message 的实际字段偏移与字节序读取完整帧；无匹配、多个规则同时匹配、帧太短无法判定时分别报告原因并保留原始 HEX。协议级编码自动写入 `typeId`，显式传入不同值会报错。会话可以固定绑定消息，也可以选择自动识别；绑定使用应用时已保存的协议快照，修改协议后需重新应用绑定。
 
 `lengthOf` 第一阶段只引用一个固定 wire Field，值等于目标 `FieldRange.length`，不包含 Length Field 自身、header、trailer、checksum 或字段间 gap。Length Field 可前置或后置，只能使用 `uint8`/`uint16`/`uint32`/`uint64`，不得引用自身或形成依赖循环。完整契约见 [Length Field](<./Length Field.md>)。
 

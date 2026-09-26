@@ -562,6 +562,13 @@ SchemaLoadResult load_yaml(const std::string_view yaml, std::string source_name)
             }
             schema.protocol.default_byte_order = order.value();
         }
+        if (protocol.has_child("messageTypeField")) {
+            const auto field = protocol["messageTypeField"];
+            if (const auto error = require_scalar(field, "protocol.messageTypeField", parser))
+                return *error;
+            schema.protocol.message_type_field = scalar(field);
+            source_map.emplace("protocol.messageTypeField", field.id());
+        }
         std::size_t message_index = 0;
         for (const auto message_node : messages.children()) {
             const auto message_name = to_string(message_node.key());

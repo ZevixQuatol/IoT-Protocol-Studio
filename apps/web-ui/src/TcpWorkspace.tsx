@@ -3,7 +3,7 @@ import { createPortal } from "react-dom";
 import { ExternalLink, PanelTop, Plus, X } from "lucide-react";
 import DotsHorizontalIcon from "./icons/dots-horizontal-icon";
 import TcpWorkbench from "./TcpWorkbench";
-import { tcpCommand } from "./bridge";
+import { tcpCommand, type WorkspaceProtocol } from "./bridge";
 import type { Locale } from "./i18n";
 
 type Session = { id: string; name: string; detached: boolean };
@@ -150,6 +150,7 @@ function SessionWindow({
 export default function TcpWorkspace({
   visible,
   locale,
+  protocols,
   draft,
   onDebug,
   onDiagnostic,
@@ -157,6 +158,7 @@ export default function TcpWorkspace({
 }: {
   visible: boolean;
   locale: Locale;
+  protocols: WorkspaceProtocol[];
   draft: Draft;
   onDebug: (hex: string) => void;
   onDiagnostic: (session: string, message: string, problem: boolean) => void;
@@ -300,6 +302,7 @@ export default function TcpWorkspace({
           )}
           <TcpWorkbench
             session={session.id}
+            protocols={protocols}
             visible={session.detached || (visible && active === session.id)}
             locale={locale}
             draft={targetDraft?.session === session.id ? targetDraft.value : null}

@@ -1,6 +1,7 @@
 #include "iotps/core/transport/tcp.hpp"
 
 #include <chrono>
+#include <algorithm>
 #include <iostream>
 #include <stdexcept>
 #include <thread>
@@ -69,6 +70,16 @@ int main() {
         framing.mode = FrameMode::fixed;
         framing.fixed_size = payload.size();
         check(server.set_framing(framing).has_value(), "configure fixed framing");
+        schema::ProtocolSchema protocol{
+            .protocol = {.name = "wire", .version = "1", .message_type_field = "kind"},
+            .messages = {{.name = "data",
+                          .type_id = 0,
+                          .fields = {{.name = "kind", .type = schema::FieldType::uint8}}}},
+        };
+        check(server.bind_protocol(protocol, "protocols/wire.yaml").has_value(),
+              "bind auto protocol");
+        check(!server.bind_protocol(protocol, "protocols/wire.yaml", "missing").has_value(),
+              "reject missing bound message");
         check(first.send(first_id, {payload.data(), 3}).has_value(), "client send first half");
         wait_for([&] { return server.snapshot().statistics.bytes_received == 3; });
         check(traffic(server, "FRAME").empty(), "partial RX is not a frame");
@@ -77,6 +88,16 @@ int main() {
         wait_for([&] { return server.snapshot().statistics.bytes_received == payload.size(); });
         check(traffic(server, "RX") == payload, "binary client to server");
         check(traffic(server, "FRAME") == payload, "separate completed frame");
+        check(std::ranges::any_of(server.snapshot(0, 1000).records, [](const auto& item) {
+                  return item.direction == "FRAME" && item.detail.find("message data") !=
+                                                           std::string::npos;
+              }),
+              "identified frame keeps raw bytes and message label");
+        check(server.bind_protocol(protocol, "protocols/wire.yaml", "data").has_value(),
+              "bind fixed message");
+        check(server.snapshot().message_name == "data", "binding visible in snapshot");
+        server.clear_binding();
+        check(server.snapshot().protocol_path.empty(), "clear binding");
         check(traffic(first, "TX") == payload, "actual TX bytes");
         check(server.set_framing({}).has_value(), "disable framing");
         check(server.send(server_first, payload).has_value(), "selected server reply");

@@ -54,6 +54,8 @@ export type TcpSnapshot = {
   queued: number;
   dropped: number;
   retries: number;
+  protocolPath: string;
+  messageName: string;
   cursor: number;
   peers: { id: number; address: string }[];
   records: TcpRecord[];
@@ -107,6 +109,7 @@ export type WorkspaceProtocol = {
     version: string;
     protocolVersion: string;
     defaultByteOrder: "big" | "little";
+    messageTypeField: string;
     messages: WorkspaceMessage[];
   };
 };
