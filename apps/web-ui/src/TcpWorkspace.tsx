@@ -152,11 +152,15 @@ export default function TcpWorkspace({
   locale,
   draft,
   onDebug,
+  onDiagnostic,
+  focusSession,
 }: {
   visible: boolean;
   locale: Locale;
   draft: Draft;
   onDebug: (hex: string) => void;
+  onDiagnostic: (session: string, message: string, problem: boolean) => void;
+  focusSession?: { id: string; seq: number };
 }) {
   const t = (cn: string, en: string) => (locale === "zh-CN" ? cn : en);
   const next = useRef(2);
@@ -164,6 +168,10 @@ export default function TcpWorkspace({
     { id: "tcp-1", name: "TCP 1", detached: false },
   ]);
   const [active, setActive] = useState("tcp-1");
+  useEffect(() => {
+    if (focusSession && sessions.some((item) => item.id === focusSession.id))
+      setActive(focusSession.id);
+  }, [focusSession]);
   const [targetDraft, setTargetDraft] = useState<{ session: string; value: Draft } | null>(null);
   const [menu, setMenu] = useState<string | null>(null);
   const [name, setName] = useState("");
@@ -299,6 +307,7 @@ export default function TcpWorkspace({
               window.focus();
               onDebug(hex);
             }}
+            onDiagnostic={onDiagnostic}
           />
         </SessionWindow>
       ))}

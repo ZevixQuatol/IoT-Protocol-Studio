@@ -53,6 +53,7 @@ export type TcpSnapshot = {
   received: number;
   queued: number;
   dropped: number;
+  retries: number;
   cursor: number;
   peers: { id: number; address: string }[];
   records: TcpRecord[];
@@ -242,6 +243,8 @@ declare global {
       hex: string,
     ) => Promise<DebugDecodeResult>;
     iotpsDebugFile?: (action: string, content: string) => Promise<DebugFileResult>;
+    iotpsTrafficFile?: (action: string, content: string) => Promise<DebugFileResult>;
+    iotpsLogFile?: (action: string, content: string) => Promise<DebugFileResult>;
     iotpsCoreInfo?: () => Promise<CoreInfo>;
     iotpsInspectHex?: (input: string) => Promise<InspectionResult>;
     iotpsWindowAction?: (action: WindowAction) => Promise<{ ok: boolean }>;
@@ -323,6 +326,12 @@ export async function debugDecode(
 }
 export async function debugFile(action: string, content = ""): Promise<DebugFileResult> {
   return window.iotpsDebugFile ? window.iotpsDebugFile(action, content) : debugNativeRequired;
+}
+export async function trafficFile(action: string, content = ""): Promise<DebugFileResult> {
+  return window.iotpsTrafficFile ? window.iotpsTrafficFile(action, content) : debugNativeRequired;
+}
+export async function logFile(content: string): Promise<DebugFileResult> {
+  return window.iotpsLogFile ? window.iotpsLogFile("save", content) : debugNativeRequired;
 }
 
 const browserWorkspace: WorkspaceResult = {

@@ -817,25 +817,39 @@ decode_debug_message(const std::string& request,
     return json.str();
 }
 
-[[nodiscard]] std::string debug_file(HWND owner, const std::string& request) {
+[[nodiscard]] std::string debug_file(HWND owner, const std::string& request, int kind = 0) {
     try {
+        const std::size_t limit = kind == 1 ? 16 * 1024 * 1024 : 1024 * 1024;
+        if (request.size() > limit + 1024)
+            return encode_error_response("invalid_request", "File request exceeds size limit");
         const auto args = string_arguments(request);
         if (!args || args->size() != 2 || ((*args)[0] != "open" && (*args)[0] != "save") ||
-            (*args)[1].size() > 1024 * 1024)
+            (kind == 2 && (*args)[0] != "save") || (*args)[1].size() > limit)
             return encode_error_response("invalid_request",
-                                         "Invalid annotation file request (maximum 1 MiB)");
+                                         "Invalid file request or size limit exceeded");
         const bool save = (*args)[0] == "save";
         Microsoft::WRL::ComPtr<IFileDialog> dialog;
         if (FAILED(CoCreateInstance(save ? CLSID_FileSaveDialog : CLSID_FileOpenDialog, nullptr,
                                     CLSCTX_INPROC_SERVER, IID_PPV_ARGS(&dialog))))
             throw std::runtime_error("Cannot create file dialog");
-        const COMDLG_FILTERSPEC filters[]{
-            {L"IoT Debug annotations (*.iotdebug.json)", L"*.iotdebug.json"},
-            {L"JSON (*.json)", L"*.json"}};
+        const COMDLG_FILTERSPEC filters[]{{kind == 1   ? L"IoT traffic records (*.iottraffic.json)"
+                                           : kind == 2 ? L"IoT diagnostic log (*.iotlog.json)"
+                                                       : L"IoT Debug annotations (*.iotdebug.json)",
+                                           kind == 1   ? L"*.iottraffic.json"
+                                           : kind == 2 ? L"*.iotlog.json"
+                                                       : L"*.iotdebug.json"},
+                                          {L"JSON (*.json)", L"*.json"}};
         dialog->SetFileTypes(2, filters);
-        dialog->SetDefaultExtension(L"iotdebug.json");
-        dialog->SetFileName(L"annotations.iotdebug.json");
-        dialog->SetTitle(save ? L"Export debug annotations" : L"Import debug annotations");
+        dialog->SetDefaultExtension(kind == 1   ? L"iottraffic.json"
+                                    : kind == 2 ? L"iotlog.json"
+                                                : L"iotdebug.json");
+        dialog->SetFileName(kind == 1   ? L"traffic.iottraffic.json"
+                            : kind == 2 ? L"diagnostics.iotlog.json"
+                                        : L"annotations.iotdebug.json");
+        dialog->SetTitle(kind == 1 ? (save ? L"Export traffic records" : L"Import traffic records")
+                         : kind == 2
+                             ? L"Export diagnostic log"
+                             : (save ? L"Export debug annotations" : L"Import debug annotations"));
         FILEOPENDIALOGOPTIONS options{};
         if (FAILED(dialog->GetOptions(&options)) ||
             FAILED(dialog->SetOptions(options | FOS_FORCEFILESYSTEM |
@@ -854,18 +868,18 @@ decode_debug_message(const std::string& request,
         const std::filesystem::path path(name);
         CoTaskMemFree(name);
         if (!save) {
-            if (std::filesystem::file_size(path) > 1024 * 1024)
-                throw std::runtime_error("Annotation file exceeds 1 MiB");
+            if (std::filesystem::file_size(path) > limit)
+                throw std::runtime_error("File exceeds size limit");
             std::ifstream stream(path, std::ios::binary);
             if (!stream)
                 throw std::runtime_error("Cannot open annotation file");
-            std::string content(1024 * 1024 + 1, '\0');
+            std::string content(limit + 1, '\0');
             stream.read(content.data(), static_cast<std::streamsize>(content.size()));
             if (stream.bad())
                 throw std::runtime_error("Cannot read annotation file");
             content.resize(static_cast<std::size_t>(stream.gcount()));
-            if (content.size() > 1024 * 1024)
-                throw std::runtime_error("Annotation file exceeds 1 MiB");
+            if (content.size() > limit)
+                throw std::runtime_error("File exceeds size limit");
             return "{\"ok\":true,\"cancelled\":false,\"content\":" + json_string(content) + "}";
         }
         // Write beside the target, then replace atomically; failed saves preserve the old file.
@@ -1383,7 +1397,7 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR command_line, int) {
         TcpWindows tcp_windows(window, [&tcp_sessions] { tcp_sessions.clear(); });
         window.bind("iotpsTcp", [&tcp_sessions](const std::string& request) {
             auto args = string_arguments(request);
-            if (!args || args->size() < 2 || args->size() > 5 || (*args)[0].empty() ||
+            if (!args || args->size() < 2 || args->size() > 7 || (*args)[0].empty() ||
                 (*args)[0].size() > 64)
                 return workspace_error_response("invalid_request", "invalid TCP command");
             const auto session_id = (*args)[0];
@@ -1417,14 +1431,20 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR command_line, int) {
             };
             iotps::core::transport::TransportResult result = std::monostate{};
             const auto& action = (*args)[0];
-            if (action == "start" && args->size() == 4) {
+            if (action == "start" && (args->size() == 4 || args->size() == 6)) {
                 const auto port = number((*args)[3]);
-                if (!port || *port == 0 || *port > 65535 ||
+                const auto retries =
+                    args->size() == 6 ? number((*args)[4]) : std::optional<std::uint64_t>{0};
+                const auto interval =
+                    args->size() == 6 ? number((*args)[5]) : std::optional<std::uint64_t>{2000};
+                if (!port || *port == 0 || *port > 65535 || !retries || *retries > 10 ||
+                    !interval || *interval < 1000 || *interval > 60000 ||
                     ((*args)[1] != "client" && (*args)[1] != "server"))
                     return workspace_error_response("invalid_configuration",
                                                     "invalid TCP mode or port");
-                result = tcp.start((*args)[1] == "server", (*args)[2],
-                                   static_cast<std::uint16_t>(*port));
+                result = tcp.start(
+                    (*args)[1] == "server", (*args)[2], static_cast<std::uint16_t>(*port),
+                    static_cast<std::uint32_t>(*retries), static_cast<std::uint32_t>(*interval));
             } else if (action == "stop" && args->size() == 1)
                 tcp.stop();
             else if (action == "clear" && args->size() == 1)
@@ -1443,11 +1463,14 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR command_line, int) {
                 if (const auto* error = parsed.error_if())
                     return workspace_error_response("invalid_hex", error->detail);
                 result = tcp.send(*peer, parsed.value());
-            } else if (action == "poll" && args->size() == 2) {
-                const auto cursor = number((*args)[1]);
+            } else if ((action == "poll" && args->size() == 2) ||
+                       (action == "export" && args->size() == 1)) {
+                const auto cursor =
+                    action == "export" ? std::optional<std::uint64_t>{0} : number((*args)[1]);
                 if (!cursor)
                     return workspace_error_response("invalid_request", "invalid cursor");
-                const auto state = tcp.snapshot(*cursor);
+                const auto state = action == "export" ? tcp.snapshot(0, 1000, 4 * 1024 * 1024)
+                                                      : tcp.snapshot(*cursor);
                 using iotps::core::transport::TransportState;
                 const char* label = state.state == TransportState::open      ? "open"
                                     : state.state == TransportState::opening ? "opening"
@@ -1461,7 +1484,8 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR command_line, int) {
                     << ",\"sent\":" << state.statistics.bytes_sent
                     << ",\"received\":" << state.statistics.bytes_received
                     << ",\"queued\":" << state.queued_bytes << ",\"dropped\":" << state.dropped
-                    << ",\"cursor\":" << state.cursor << ",\"peers\":[";
+                    << ",\"retries\":" << state.retries << ",\"cursor\":" << state.cursor
+                    << ",\"peers\":[";
                 bool first = true;
                 for (const auto& peer : state.peers) {
                     if (!first)
@@ -1504,6 +1528,12 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR command_line, int) {
         });
         window.bind("iotpsDebugFile", [window_handle](const std::string& request) {
             return debug_file(window_handle, request);
+        });
+        window.bind("iotpsTrafficFile", [window_handle](const std::string& request) {
+            return debug_file(window_handle, request, 1);
+        });
+        window.bind("iotpsLogFile", [window_handle](const std::string& request) {
+            return debug_file(window_handle, request, 2);
         });
         window.bind("iotpsWorkspaceCurrent", [&current_project](const std::string&) {
             return current_workspace(current_project);

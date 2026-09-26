@@ -177,6 +177,7 @@ struct TcpSession::Impl {
                 listener = std::exchange(connecting, invalid_socket);
                 std::lock_guard lock(mutex);
                 status.state = TransportState::open;
+                status.error.clear();
                 record("SYS", {0, address_of(address)}, {}, "Listening");
             } else {
                 const int result = ::connect(sock, reinterpret_cast<sockaddr*>(&address), size);
@@ -213,6 +214,7 @@ struct TcpSession::Impl {
                                      false,
                                      {}});
                     status.state = TransportState::open;
+                    status.error.clear();
                     record("SYS", peers.back().info, {}, "Connected");
                 }
             }
@@ -329,10 +331,12 @@ struct TcpSession::Impl {
 
 TcpSession::TcpSession() : impl_(std::make_unique<Impl>()) {}
 TcpSession::~TcpSession() = default;
-TransportResult TcpSession::start(bool server, std::string host, std::uint16_t port) {
+TransportResult TcpSession::start(bool server, std::string host, std::uint16_t port,
+                                  std::uint32_t retry_limit, std::uint32_t retry_interval_ms) {
     sockaddr_storage address{};
     SockLength size = 0;
-    if (!impl_->runtime_ready || port == 0 || host.size() > 64 ||
+    if (!impl_->runtime_ready || port == 0 || host.size() > 64 || retry_limit > 10 ||
+        retry_interval_ms < 1000 || retry_interval_ms > 60000 ||
         !parse_address(host, port, address, size))
         return fail(TransportErrorCode::invalid_configuration,
                     "Use an IPv4/IPv6 address and port 1-65535");
@@ -352,10 +356,30 @@ TransportResult TcpSession::start(bool server, std::string host, std::uint16_t p
         impl_->status.host = std::move(host);
         impl_->status.port = port;
         impl_->status.error.clear();
+        impl_->status.retries = 0;
     }
     try {
-        impl_->worker = std::jthread([this, address, size, server](std::stop_token token) {
-            impl_->run(token, address, size, server);
+        impl_->worker = std::jthread([this, address, size, server, retry_limit,
+                                      retry_interval_ms](std::stop_token token) {
+            for (std::uint32_t attempt = 0;;) {
+                impl_->run(token, address, size, server);
+                if (token.stop_requested() || server || attempt == retry_limit)
+                    break;
+                {
+                    std::lock_guard lock(impl_->mutex);
+                    impl_->status.retries = ++attempt;
+                    impl_->status.state = TransportState::opening;
+                    impl_->record(
+                        "SYS", {0, impl_->status.host + ":" + std::to_string(impl_->status.port)},
+                        {},
+                        "Reconnect attempt " + std::to_string(attempt) + "/" +
+                            std::to_string(retry_limit));
+                }
+                const auto deadline =
+                    std::chrono::steady_clock::now() + std::chrono::milliseconds(retry_interval_ms);
+                while (!token.stop_requested() && std::chrono::steady_clock::now() < deadline)
+                    std::this_thread::sleep_for(std::chrono::milliseconds(50));
+            }
         });
     } catch (const std::exception& error) {
         std::lock_guard lock(impl_->mutex);
@@ -395,6 +419,8 @@ TransportResult TcpSession::disconnect(std::uint64_t peer) {
     if (found == impl_->peers.end())
         return fail(TransportErrorCode::not_open, "Peer no longer connected");
     found->closing = true;
+    if (!impl_->status.server)
+        impl_->worker.request_stop();
     return std::monostate{};
 }
 void TcpSession::clear_records() {
@@ -403,7 +429,8 @@ void TcpSession::clear_records() {
     impl_->record_bytes = 0;
     impl_->status.dropped = 0;
 }
-TcpSnapshot TcpSession::snapshot(std::uint64_t after) const {
+TcpSnapshot TcpSession::snapshot(std::uint64_t after, std::size_t max_records,
+                                 std::size_t max_bytes) const {
     std::lock_guard lock(impl_->mutex);
     auto result = impl_->status;
     for (const auto& peer : impl_->peers)
@@ -413,12 +440,12 @@ TcpSnapshot TcpSession::snapshot(std::uint64_t after) const {
     std::size_t bytes = 0;
     for (const auto& record : impl_->records)
         if (record.id > after) {
-            if (!result.records.empty() && bytes + record.data.size() > 128 * 1024)
+            if (!result.records.empty() && bytes + record.data.size() > max_bytes)
                 break;
             bytes += record.data.size();
             result.records.push_back(record);
             result.cursor = record.id;
-            if (result.records.size() >= 128)
+            if (result.records.size() >= max_records)
                 break;
         }
     if (result.records.empty())

@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState } from "react";
 import { ArrowDown, ArrowUp, Network, PlugZap, Send, Trash2, X } from "lucide-react";
 import DotsHorizontalIcon from "./icons/dots-horizontal-icon";
-import { tcpCommand, type TcpRecord, type TcpSnapshot } from "./bridge";
+import { tcpCommand, trafficFile, type TcpRecord, type TcpSnapshot } from "./bridge";
+import { readTrafficArchive } from "./trafficFile";
 import type { Locale } from "./i18n";
 
 const empty: TcpSnapshot = {
@@ -15,6 +16,7 @@ const empty: TcpSnapshot = {
   received: 0,
   queued: 0,
   dropped: 0,
+  retries: 0,
   cursor: 0,
   peers: [],
   records: [],
@@ -26,12 +28,14 @@ export default function TcpWorkbench({
   locale,
   draft,
   onDebug,
+  onDiagnostic,
 }: {
   session: string;
   visible: boolean;
   locale: Locale;
   draft: { id: number; hex: string } | null;
   onDebug: (hex: string) => void;
+  onDiagnostic: (session: string, message: string, problem: boolean) => void;
 }) {
   const zh = locale === "zh-CN";
   const t = (cn: string, en: string) => (zh ? cn : en);
@@ -40,6 +44,10 @@ export default function TcpWorkbench({
   const [port, setPort] = useState("9000");
   const [status, setStatus] = useState(empty);
   const [records, setRecords] = useState<TcpRecord[]>([]);
+  const [history, setHistory] = useState<ReturnType<typeof readTrafficArchive> | null>(null);
+  const [autoRetry, setAutoRetry] = useState(false);
+  const [retryLimit, setRetryLimit] = useState("3");
+  const [retrySeconds, setRetrySeconds] = useState("2");
   const [peer, setPeer] = useState("");
   const [input, setInput] = useState("");
   const [encoding, setEncoding] = useState("hex");
@@ -55,8 +63,10 @@ export default function TcpWorkbench({
   const table = useRef<HTMLDivElement>(null);
   const cursor = useRef(0);
   const generation = useRef(0);
+  const lastPollError = useRef("");
   const connected = status.state === "open";
   const active = connected || status.state === "opening";
+  const shownRecords = history?.records ?? records;
 
   useEffect(() => {
     if (draft) {
@@ -78,8 +88,12 @@ export default function TcpWorkbench({
         if (!alive) return;
         if (!result.ok) {
           setError(result.error.message);
+          if (lastPollError.current !== result.error.message)
+            onDiagnostic(session, result.error.message, true);
+          lastPollError.current = result.error.message;
           return;
         }
+        lastPollError.current = "";
         if (!("state" in result) || generation.current !== version) return;
         cursor.current = result.cursor;
         setStatus(result);
@@ -88,6 +102,14 @@ export default function TcpWorkbench({
             ? current
             : String(result.peers[0]?.id ?? ""),
         );
+        if (result.records.length)
+          for (const item of result.records)
+            if (item.direction === "SYS" && item.detail)
+              onDiagnostic(
+                session,
+                item.detail,
+                /fail|error|discard|limit|timeout|refused/i.test(item.detail),
+              );
         if (result.records.length)
           setRecords((current) => {
             const combined = [...current, ...result.records];
@@ -102,7 +124,10 @@ export default function TcpWorkbench({
             return combined.slice(start);
           });
       } catch (failure) {
-        if (alive) setError(String(failure));
+        if (alive) {
+          setError(String(failure));
+          onDiagnostic(session, String(failure), true);
+        }
       } finally {
         if (alive) timer = setTimeout(() => void poll(), visible ? 250 : 1000);
       }
@@ -111,7 +136,10 @@ export default function TcpWorkbench({
       .then((result) => {
         if (!alive) return;
         if (result.ok) void poll();
-        else setError(result.error.message);
+        else {
+          setError(result.error.message);
+          onDiagnostic(session, result.error.message, true);
+        }
       })
       .catch((failure) => {
         if (alive) setError(String(failure));
@@ -134,6 +162,7 @@ export default function TcpWorkbench({
       const result = await tcpCommand(session, action, ...args);
       if (!result.ok) {
         setError(result.error.message);
+        onDiagnostic(session, result.error.message, true);
         return false;
       }
       if (action === "start") setStatus((current) => ({ ...current, state: "opening", error: "" }));
@@ -141,6 +170,7 @@ export default function TcpWorkbench({
       return true;
     } catch (failure) {
       setError(String(failure));
+      onDiagnostic(session, String(failure), true);
       return false;
     } finally {
       setBusy(false);
@@ -162,6 +192,11 @@ export default function TcpWorkbench({
       );
   };
   const clear = async () => {
+    if (history) {
+      setHistory(null);
+      setSelected(null);
+      return;
+    }
     const owner = dialog.current?.ownerDocument.defaultView ?? window;
     if (!owner.confirm(t("清空当前收发记录？", "Clear traffic records?"))) return;
     ++generation.current;
@@ -171,7 +206,37 @@ export default function TcpWorkbench({
       setSelected(null);
     }
   };
-  const filtered = records.filter(
+  const archive = async (action: "open" | "save") => {
+    setError("");
+    try {
+      let current = history;
+      if (action === "save" && !current) {
+        const snapshot = await tcpCommand(session, "export");
+        if (!snapshot.ok) throw new Error(snapshot.error.message);
+        if (!("records" in snapshot)) throw new Error("Cannot read traffic records");
+        current = {
+          format: "iotps-traffic-v1",
+          session,
+          savedAt: new Date().toISOString(),
+          dropped: snapshot.dropped,
+          records: snapshot.records,
+        };
+      }
+      const content = action === "save" ? JSON.stringify(current) : "";
+      const result = await trafficFile(action, content);
+      if (!result.ok) throw new Error(result.error.message);
+      if (result.cancelled) return;
+      if (action === "open") {
+        setHistory(readTrafficArchive(result.content));
+        setSelected(null);
+      } else setNotice(t("记录已导出", "Traffic exported"));
+    } catch (failure) {
+      const message = failure instanceof Error ? failure.message : String(failure);
+      setError(message);
+      onDiagnostic(session, message, true);
+    }
+  };
+  const filtered = shownRecords.filter(
     (item) =>
       (direction === "all" || item.direction === direction) &&
       `${item.hex} ${item.address} ${item.detail}`.toLowerCase().includes(search.toLowerCase()),
@@ -182,7 +247,9 @@ export default function TcpWorkbench({
         ? t("监听中", "Listening")
         : t("已连接", "Connected")
       : status.state === "opening"
-        ? t("连接中", "Opening")
+        ? status.retries > 0
+          ? `${t("重连中", "Reconnecting")} ${status.retries}/${retryLimit}`
+          : t("连接中", "Opening")
         : status.state === "faulted"
           ? t("连接错误", "Faulted")
           : t("未连接", "Disconnected");
@@ -204,7 +271,15 @@ export default function TcpWorkbench({
         className="tcp-connect"
         onSubmit={(event) => {
           event.preventDefault();
-          if (!active) void act("start", mode, host.trim(), port);
+          if (!active)
+            void act(
+              "start",
+              mode,
+              host.trim(),
+              port,
+              mode === "client" && autoRetry ? retryLimit : "0",
+              String(Number(retrySeconds) * 1000),
+            );
         }}
       >
         <label>
@@ -246,6 +321,45 @@ export default function TcpWorkbench({
             onChange={(event) => setPort(event.target.value)}
           />
         </label>
+        {mode === "client" && (
+          <label>
+            <input
+              type="checkbox"
+              checked={autoRetry}
+              disabled={busy || active}
+              onChange={(event) => setAutoRetry(event.target.checked)}
+            />
+            {t("自动重连", "Auto reconnect")}
+          </label>
+        )}
+        {mode === "client" && autoRetry && (
+          <>
+            <label>
+              {t("重试次数", "Retries")}
+              <input
+                type="number"
+                min={1}
+                max={10}
+                required
+                value={retryLimit}
+                disabled={busy || active}
+                onChange={(event) => setRetryLimit(event.target.value)}
+              />
+            </label>
+            <label>
+              {t("间隔（秒）", "Interval (s)")}
+              <input
+                type="number"
+                min={1}
+                max={60}
+                required
+                value={retrySeconds}
+                disabled={busy || active}
+                onChange={(event) => setRetrySeconds(event.target.value)}
+              />
+            </label>
+          </>
+        )}
         {active ? (
           <button
             type="button"
@@ -353,11 +467,22 @@ export default function TcpWorkbench({
         </div>
       </div>
       <div className="tcp-log-toolbar">
+        {history && (
+          <span>
+            {t("历史记录（只读）", "History (read only)")} · {history.session}
+          </span>
+        )}
         <strong>{t("收发记录", "Traffic")}</strong>
-        <span>
-          <ArrowUp size={12} /> {status.sent} B <ArrowDown size={12} /> {status.received} B ·{" "}
-          {t("排队", "Queued")} {status.queued} B
-        </span>
+        {history ? (
+          <span>
+            {history.records.length} {t("条记录", "records")}
+          </span>
+        ) : (
+          <span>
+            <ArrowUp size={12} /> {status.sent} B <ArrowDown size={12} /> {status.received} B ·{" "}
+            {t("排队", "Queued")} {status.queued} B
+          </span>
+        )}
         <select
           aria-label={t("记录方向", "Direction")}
           value={direction}
@@ -382,9 +507,26 @@ export default function TcpWorkbench({
           />
           {t("跟随", "Follow")}
         </label>
+        <button type="button" onClick={() => void archive("open")}>
+          {t("导入", "Import")}
+        </button>
+        <button type="button" onClick={() => void archive("save")}>
+          {t("保存 / 导出", "Save / export")}
+        </button>
+        {history && (
+          <button
+            type="button"
+            onClick={() => {
+              setHistory(null);
+              setSelected(null);
+            }}
+          >
+            {t("返回实时", "Back to live")}
+          </button>
+        )}
         <button
           type="button"
-          disabled={busy || records.length === 0}
+          disabled={busy || shownRecords.length === 0}
           title={t("清空记录", "Clear records")}
           aria-label={t("清空记录", "Clear records")}
           onClick={() => void clear()}
@@ -394,10 +536,11 @@ export default function TcpWorkbench({
       </div>
       <p className="tcp-log-hint">
         {t(
-          "TCP 是字节流，RX 按接收块记录，不代表完整协议帧。最多保留 1000 条 / 4 MiB，关闭应用后不保留。",
-          "TCP is a byte stream: RX chunks are not protocol frames. Up to 1000 entries / 4 MiB, in memory only.",
+          "TCP 是字节流，RX 按接收块记录，不代表完整协议帧。当前会话最多保留 1000 条 / 4 MiB；保存导出当前尚未淘汰的记录。",
+          "TCP is a byte stream: RX chunks are not protocol frames. Current session keeps up to 1000 entries / 4 MiB; save exports retained records.",
         )}{" "}
-        {status.dropped > 0 && `${t("已淘汰", "Evicted")}: ${status.dropped}`}
+        {(history?.dropped ?? status.dropped) > 0 &&
+          `${t("已淘汰", "Evicted")}: ${history?.dropped ?? status.dropped}`}
       </p>
       <div className="tcp-log" ref={table}>
         <table>

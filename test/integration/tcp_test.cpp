@@ -101,6 +101,9 @@ int main() {
         }
         check(first.snapshot().dropped > 0, "record ring evicts at capacity");
         check(traffic(first, "RX").size() <= 4 * 1024 * 1024, "record bytes stay bounded");
+        const auto exported = first.snapshot(0, 1000, 4 * 1024 * 1024);
+        check(exported.records.size() > first.snapshot(0).records.size(),
+              "export captures complete retained ring");
         std::uint64_t cursor = 0;
         for (;;) {
             const auto page = first.snapshot(cursor);
@@ -128,6 +131,27 @@ int main() {
             return first.snapshot().peers.size() == 1 && server.snapshot().peers.size() == 2;
         });
         check(first.snapshot().peers.front().id > first_id, "new connection identity");
+        TcpSession auto_client;
+        check(!auto_client.start(false, "127.0.0.1", port, 11, 1000).has_value(),
+              "reject excessive retry count");
+        check(auto_client.start(false, "127.0.0.1", port, 2, 1000).has_value(),
+              "start auto reconnect client");
+        wait_for([&] {
+            return auto_client.snapshot().peers.size() == 1 && server.snapshot().peers.size() == 3;
+        });
+        const auto auto_server_peer = server.snapshot().peers.back().id;
+        const auto auto_first_peer = auto_client.snapshot().peers.front().id;
+        check(server.disconnect(auto_server_peer).has_value(), "drop auto client peer");
+        wait_for([&] { return auto_client.snapshot().retries == 1; });
+        check(!auto_client.send(auto_first_peer, payload).has_value(),
+              "do not queue send while disconnected");
+        wait_for([&] {
+            return auto_client.snapshot().state == TransportState::open &&
+                   auto_client.snapshot().peers.front().id > auto_first_peer;
+        });
+        check(auto_client.snapshot().queued_bytes == 0, "reconnect never replays queue");
+        auto_client.stop();
+        check(auto_client.snapshot().state == TransportState::closed, "manual stop ends retry");
         server.stop();
         wait_for([&] {
             return first.snapshot().state == TransportState::closed &&

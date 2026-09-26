@@ -59,6 +59,7 @@ import {
   renameProject,
   performWindowAction,
   saveProtocol,
+  logFile,
   updateFieldDisplayName,
   type CoreInfo,
   type InspectionResult,
@@ -82,6 +83,16 @@ import {
 } from "./i18n";
 
 type Page = "schema" | "debug" | "tcp" | "settings";
+type Diagnostic = {
+  id: number;
+  time: number;
+  page: Page;
+  context: string;
+  message: string;
+  problem: boolean;
+  session?: string;
+  protocol?: string;
+};
 type DesignerView = "code" | "visual" | "message";
 
 type TreeNode = {
@@ -425,6 +436,10 @@ export default function App() {
   const [fieldDisplayNameDraft, setFieldDisplayNameDraft] = useState("");
   const [schemaEditTarget, setSchemaEditTarget] = useState<SchemaEditTarget | null>(null);
   const [errorMessage, setErrorMessage] = useState<string>();
+  const [diagnostics, setDiagnostics] = useState<Diagnostic[]>([]);
+  const [focusSession, setFocusSession] = useState<{ id: string; seq: number }>();
+  const [logError, setLogError] = useState("");
+  const nextDiagnostic = useRef(0);
   const [projectMenuOpen, setProjectMenuOpen] = useState(false);
   const [recentProjects, setRecentProjects] = useState(readRecentProjects);
   const [createParent, setCreateParent] = useState("protocols");
@@ -454,6 +469,59 @@ export default function App() {
   const selectedProtocol = project?.protocols.find(
     (protocol) => protocol.path === selectedProtocolPath,
   );
+  const addDiagnostic = (
+    page: Page,
+    context: string,
+    message: string,
+    problem: boolean,
+    session?: string,
+    protocol?: string,
+  ) => {
+    const item: Diagnostic = {
+      id: ++nextDiagnostic.current,
+      time: Date.now(),
+      page,
+      context: context.slice(0, 256),
+      message: message.slice(0, 1000),
+      problem,
+      session,
+      protocol,
+    };
+    setDiagnostics((current) => [...current.slice(-499), item]);
+  };
+  useEffect(() => {
+    if (errorMessage)
+      addDiagnostic(
+        page,
+        selectedProtocolPath ?? project?.rootPath ?? "workspace",
+        errorMessage,
+        true,
+        undefined,
+        selectedProtocolPath,
+      );
+  }, [errorMessage]);
+  useEffect(() => {
+    if (debugResult && !debugResult.ok)
+      addDiagnostic(
+        "debug",
+        selectedProtocolPath ?? "HEX",
+        debugResult.error.message,
+        true,
+        undefined,
+        selectedProtocolPath,
+      );
+  }, [debugResult]);
+  useEffect(() => {
+    if (messageEncodeResult && !messageEncodeResult.ok)
+      addDiagnostic(
+        "schema",
+        selectedProtocolPath ?? "protocol",
+        messageEncodeResult.error.message,
+        true,
+        undefined,
+        selectedProtocolPath,
+      );
+  }, [messageEncodeResult]);
   const selectedMessage = selectedProtocol?.schema.messages.find(
     (message) => message.name === messageName,
   );
@@ -1401,6 +1469,10 @@ export default function App() {
               locale={locale}
               draft={tcpDraft}
               onDebug={openHexInDebug}
+              focusSession={focusSession}
+              onDiagnostic={(session, message, problem) =>
+                addDiagnostic("tcp", session, message, problem, session)
+              }
             />
             {page === "tcp" ? null : page === "settings" ? (
               <>
@@ -1485,6 +1557,115 @@ export default function App() {
                     </div>
                   </section>
 
+                  <section className="settings-section" aria-labelledby="settings-problems-title">
+                    <div className="settings-section-heading">
+                      <div className="settings-section-icon">
+                        <CircleAlert size={17} />
+                      </div>
+                      <div>
+                        <h2 id="settings-problems-title">
+                          {locale === "zh-CN" ? "问题列表" : "Problems"} (
+                          {diagnostics.filter((item) => item.problem).length})
+                        </h2>
+                        <p>
+                          {locale === "zh-CN"
+                            ? "协议、连接、编解码与文件错误；点击跳转到相关页面。"
+                            : "Protocol, connection, codec and file errors. Select one to open its page."}
+                        </p>
+                      </div>
+                    </div>
+                    <div className="diagnostic-list">
+                      {diagnostics
+                        .filter((item) => item.problem)
+                        .slice(-100)
+                        .reverse()
+                        .map((item) => (
+                          <button
+                            type="button"
+                            key={item.id}
+                            onClick={() => {
+                              if (item.protocol) setSelectedProtocolPath(item.protocol);
+                              if (item.session) setFocusSession({ id: item.session, seq: item.id });
+                              navigate(item.page);
+                            }}
+                          >
+                            <time>{new Date(item.time).toLocaleString(locale)}</time>
+                            <strong>{item.context}</strong> {item.message}
+                          </button>
+                        ))}
+                      {!diagnostics.some((item) => item.problem) && (
+                        <p>{locale === "zh-CN" ? "暂无问题" : "No problems"}</p>
+                      )}
+                    </div>
+                  </section>
+                  <section className="settings-section" aria-labelledby="settings-log-title">
+                    <div className="settings-section-heading">
+                      <div className="settings-section-icon">
+                        <ListTree size={17} />
+                      </div>
+                      <div>
+                        <h2 id="settings-log-title">
+                          {locale === "zh-CN" ? "诊断日志" : "Diagnostic log"}
+                        </h2>
+                        <p>
+                          {locale === "zh-CN"
+                            ? "仅本次运行，最多 500 条；与 TCP 收发记录分开。"
+                            : "Current run only, up to 500 entries; separate from traffic."}
+                        </p>
+                      </div>
+                    </div>
+                    <button
+                      type="button"
+                      disabled={!diagnostics.length}
+                      onClick={() => {
+                        setLogError("");
+                        void logFile(
+                          JSON.stringify(
+                            {
+                              format: "iotps-log-v1",
+                              exportedAt: new Date().toISOString(),
+                              entries: diagnostics,
+                            },
+                            null,
+                            2,
+                          ),
+                        )
+                          .then((result) => {
+                            if (!result.ok) {
+                              setLogError(result.error.message);
+                              addDiagnostic(
+                                "settings",
+                                "diagnostic export",
+                                result.error.message,
+                                true,
+                              );
+                            }
+                          })
+                          .catch((error) => {
+                            setLogError(String(error));
+                            addDiagnostic("settings", "diagnostic export", String(error), true);
+                          });
+                      }}
+                    >
+                      {locale === "zh-CN" ? "导出诊断日志" : "Export diagnostic log"}
+                    </button>
+                    {logError && (
+                      <p role="alert" className="tcp-error">
+                        {logError}
+                      </p>
+                    )}
+                    <div className="diagnostic-list">
+                      {diagnostics
+                        .slice(-100)
+                        .reverse()
+                        .map((item) => (
+                          <p key={item.id}>
+                            <time>{new Date(item.time).toLocaleString(locale)}</time> ·{" "}
+                            {item.context} · {item.message}
+                          </p>
+                        ))}
+                    </div>
+                  </section>
                   <section className="settings-section" aria-labelledby="settings-core-title">
                     <div className="settings-section-heading">
                       <div className="settings-section-icon">
@@ -1591,6 +1772,16 @@ export default function App() {
                     byteOffset={debugByteOffset}
                     onRange={setDebugToolRange}
                     onInput={updateDebugInput}
+                    onIssue={(context, message) =>
+                      addDiagnostic(
+                        "debug",
+                        context || "debug",
+                        message,
+                        true,
+                        undefined,
+                        selectedProtocolPath,
+                      )
+                    }
                     onImport={(result, annotations) => {
                       debugContentRef.current = result.normalizedHex.replace(/\s/g, "");
                       setDebugInput(result.normalizedHex);

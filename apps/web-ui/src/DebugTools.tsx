@@ -107,6 +107,7 @@ type Props = {
   onRange: (range: DebugRange) => void;
   onInput: (value: string) => void;
   onImport: (result: InspectionResult & { ok: true }, annotations: DebugAnnotation[]) => void;
+  onIssue: (context: string, message: string) => void;
 };
 
 export default function DebugTools(props: Props) {
@@ -221,6 +222,10 @@ export default function DebugTools(props: Props) {
       if (current()) {
         setError(true);
         setStatus(e instanceof Error ? e.message : String(e));
+        props.onIssue(
+          tool === "protocol" ? protocolPath : tool,
+          e instanceof Error ? e.message : String(e),
+        );
       }
     } finally {
       working.current = false;

@@ -29,6 +29,7 @@ struct TcpSnapshot {
     std::size_t queued_bytes{0};
     std::uint64_t dropped{0};
     std::uint64_t cursor{0};
+    std::uint32_t retries{0};
     std::vector<TcpPeer> peers;
     std::vector<TcpRecord> records;
 };
@@ -40,12 +41,15 @@ class TcpSession {
     ~TcpSession();
     TcpSession(const TcpSession&) = delete;
     TcpSession& operator=(const TcpSession&) = delete;
-    [[nodiscard]] TransportResult start(bool server, std::string host, std::uint16_t port);
+    [[nodiscard]] TransportResult start(bool server, std::string host, std::uint16_t port,
+                                        std::uint32_t retry_limit = 0,
+                                        std::uint32_t retry_interval_ms = 2000);
     void stop();
     [[nodiscard]] TransportResult send(std::uint64_t peer, std::span<const std::uint8_t> bytes);
     [[nodiscard]] TransportResult disconnect(std::uint64_t peer);
     void clear_records();
-    [[nodiscard]] TcpSnapshot snapshot(std::uint64_t after = 0) const;
+    [[nodiscard]] TcpSnapshot snapshot(std::uint64_t after = 0, std::size_t max_records = 128,
+                                       std::size_t max_bytes = 128 * 1024) const;
 
   private:
     struct Impl;

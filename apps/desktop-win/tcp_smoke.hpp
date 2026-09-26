@@ -36,6 +36,11 @@ window.addEventListener('DOMContentLoaded', async () => {
     await wait(async () => (await command('tcp-1', 'poll', '0')).received === 3, 'same-process receive');
     const container = document.querySelector('[data-session="tcp-1"]');
     await wait(() => container.querySelector('.tcp-dir-RX'), 'live RX rendered');
+    const exported = await command('tcp-1', 'export');
+    check(exported.records.some(r => r.direction === 'RX' && r.hex === '00 FF 80'), 'native export retains raw bytes');
+    check([...container.querySelectorAll('.tcp-log-toolbar button')].some(b => b.textContent.includes('保存') || b.textContent.includes('Save')), 'traffic export control');
+    check(!(await window.iotpsTrafficFile('invalid', '')).ok, 'traffic file request validation');
+    check(!(await window.iotpsLogFile('invalid', '')).ok, 'log file request validation');
     const payload = container.querySelector('textarea');
     Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value').set.call(payload, '12 34');
     payload.dispatchEvent(new Event('input', { bubbles: true }));
