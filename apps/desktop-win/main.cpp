@@ -328,6 +328,13 @@ void append_protocol_schema(std::ostringstream& response,
             } else {
                 response << "null";
             }
+            response << ",\"enumValues\":[";
+            for (std::size_t index = 0; index < field.enum_values.size(); ++index) {
+                if (index) response << ',';
+                response << "{\"name\":" << json_string(field.enum_values[index].name)
+                         << ",\"value\":" << json_string(field.enum_values[index].value) << '}';
+            }
+            response << ']';
             response << '}';
         }
         response << "]}";
@@ -810,11 +817,16 @@ decode_debug_message(const std::string& request,
         });
         if (range == data.field_ranges.end())
             return encode_error_response("decode_failed", "Missing field byte range");
+        const auto value = iotps::core::format_scalar(field.value);
         json << "{\"name\":" << json_string(field.name)
              << ",\"displayName\":" << json_string(definition->display_name)
              << ",\"type\":" << json_string(iotps::core::schema::to_string(definition->type))
-             << ",\"value\":" << json_string(iotps::core::format_scalar(field.value))
-             << ",\"offset\":" << range->offset << ",\"length\":" << range->length << '}';
+             << ",\"value\":" << json_string(value)
+             << ",\"offset\":" << range->offset << ",\"length\":" << range->length;
+        if (!definition->enum_values.empty())
+            json << ",\"enumName\":" << json_string(std::string{
+                iotps::core::schema::enum_name(*definition, value).value_or("")});
+        json << '}';
     }
     json << "]}";
     return json.str();
@@ -1086,6 +1098,16 @@ window.addEventListener("DOMContentLoaded", () => {
               parsedField.declaredLength !== null || !encoded?.ok || encoded.normalizedHex !== "34 12 01" ||
               renamed.schema.messages[0].typeId !== "18446744073709551615") {
             report("schema-edit-bridge-failed"); return;
+          }
+          const enumerated = await edit("updateField", "packet", "flag", "enum", "Off=0\nOn=1");
+          const known = await window.iotpsDebugDecode(path, "packet", "34 12 01");
+          const unknown = await window.iotpsDebugDecode(path, "packet", "34 12 09");
+          const encodedUnknown = await window.iotpsEncodeProtocolMessage(path, "packet", "reading", "4660", "flag", "9");
+          if (enumerated.schema.messages[0].fields[1].enumValues?.[1]?.name !== "On" ||
+              known.fields?.[1]?.enumName !== "On" || known.fields[1].value !== "1" ||
+              unknown.fields?.[1]?.enumName !== "" || unknown.fields[1].value !== "9" ||
+              unknown.fields[1].offset !== 2 || encodedUnknown.normalizedHex !== "34 12 09") {
+            report("enum-bridge-failed"); return;
           }
           const moved = await edit("moveFieldUp", "packet", "flag");
           if (moved.schema.messages[0].fields[0].name !== "flag") {
@@ -1598,7 +1620,10 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR command_line, int) {
                                 << ",\"type\":" << json_string(field.type)
                                 << ",\"value\":" << json_string(field.value)
                                 << ",\"offset\":" << field.offset
-                                << ",\"length\":" << field.length << '}';
+                                << ",\"length\":" << field.length;
+                            if (field.enum_name)
+                                out << ",\"enumName\":" << json_string(*field.enum_name);
+                            out << '}';
                         }
                         out << "]}";
                     }

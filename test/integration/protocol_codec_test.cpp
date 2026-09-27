@@ -42,6 +42,36 @@ int main() {
     if (!loaded_schema.has_value()) {
         return 1;
     }
+    const auto enum_schema = schema::load_yaml(R"yaml(schemaVersion: "0.1"
+protocol:
+  name: enum-test
+  version: "1"
+messages:
+  event:
+    fields:
+      - name: status
+        type: uint8
+        enum:
+          Off: 0
+          On: 1
+)yaml");
+    CHECK(enum_schema.has_value());
+    if (const auto* definition = enum_schema.value_if()) {
+        for (const auto& [hex_value, numeric, known] :
+             {std::tuple{"01", std::uint64_t{1}, true}, {"09", std::uint64_t{9}, false}}) {
+            const auto decoded = decode_protocol_hex(*definition, "event", hex_value);
+            CHECK(decoded.has_value());
+            if (const auto* data = decoded.value_if()) {
+                CHECK(std::get<std::uint64_t>(data->message.fields[0].value) == numeric);
+                CHECK(schema::enum_name(definition->messages[0].fields[0],
+                                        std::to_string(numeric)).has_value() == known);
+                const auto encoded = encode_protocol_hex(*definition, data->message);
+                CHECK(encoded.has_value());
+                if (const auto* result = encoded.value_if())
+                    CHECK(*result == format_hex(parse_hex(hex_value).value()));
+            }
+        }
+    }
 
     const auto parsed_bytes = parse_hex(hex);
     CHECK(parsed_bytes.has_value());

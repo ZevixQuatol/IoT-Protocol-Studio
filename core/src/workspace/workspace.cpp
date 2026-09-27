@@ -1233,7 +1233,7 @@ ProjectLoadResult edit_schema(const std::filesystem::path& project_directory,
             return make_error(WorkspaceErrorCode::workspace_operation_failed, "$request.action",
                               "unknown schema edit action");
         const bool patch = action.starts_with("add") || action.starts_with("update");
-        if ((!patch && !request.properties.empty()) || request.properties.size() > 9)
+        if ((!patch && !request.properties.empty()) || request.properties.size() > 10)
             return make_error(WorkspaceErrorCode::workspace_operation_failed, "$request.properties",
                               "unexpected properties");
         std::set<std::string> keys;
@@ -1242,7 +1242,7 @@ ProjectLoadResult edit_schema(const std::filesystem::path& project_directory,
             const auto allowed = is_message
                                      ? std::string_view{"|name|displayName|typeId|"}
                                      : std::string_view{"|name|displayName|type|endian|length|"
-                                                        "offset|lengthOf|elementType|count|"};
+                                                        "offset|lengthOf|elementType|count|enum|"};
             if (key.empty() || key.find('|') != std::string::npos ||
                 allowed.find("|" + key + "|") == std::string_view::npos ||
                 !keys.insert(key).second || value.size() > 4096)
@@ -1320,6 +1320,29 @@ ProjectLoadResult edit_schema(const std::filesystem::path& project_directory,
                         return make_error(WorkspaceErrorCode::protocol_schema_invalid,
                                           "$request.name", "message name already exists");
                     target.set_key_serialized(value, ryml::KEY_DQUO);
+                } else if (is_field && key == "enum" && !value.empty()) {
+                    if (target.has_child("enum")) target.remove_child("enum");
+                    auto mapping = target["enum"];
+                    mapping.set_map();
+                    std::istringstream lines{value};
+                    std::string line;
+                    std::size_t count = 0;
+                    while (std::getline(lines, line)) {
+                        if (!line.empty() && line.back() == '\r') line.pop_back();
+                        if (line.empty()) continue;
+                        const auto split = line.find('=');
+                        if (split == std::string::npos || split == 0 || split == line.size() - 1 ||
+                            ++count > 64)
+                            return make_error(WorkspaceErrorCode::protocol_schema_invalid,
+                                              "$request.enum", "use one name=value pair per line (max 64)");
+                        auto item = mapping.append_child();
+                        item.set_key_serialized(line.substr(0, split), ryml::KEY_DQUO);
+                        item.save(line.substr(split + 1));
+                        item.set_val_style(ryml::VAL_DQUO);
+                    }
+                    if (count == 0)
+                        return make_error(WorkspaceErrorCode::protocol_schema_invalid,
+                                          "$request.enum", "enum requires at least one value");
                 } else if (value.empty()) {
                     if (target.has_child(ryml::to_csubstr(key)))
                         target.remove_child(ryml::to_csubstr(key));

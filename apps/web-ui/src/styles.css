@@ -760,9 +760,13 @@ button {
   gap: 12px;
 }
 .schema-edit-grid input,
-.schema-edit-grid select {
+.schema-edit-grid select,
+.schema-edit-grid textarea {
   width: 100%;
   min-width: 0;
+}
+.schema-edit-grid textarea {
+  resize: vertical;
 }
 .schema-edit-hint {
   font-size: 12px;
@@ -1720,7 +1724,8 @@ button {
   gap: 4px;
 }
 
-.message-value-input input {
+.message-value-input input,
+.message-value-input select {
   width: 100%;
   min-width: 0;
   height: 31px;
@@ -1734,7 +1739,8 @@ button {
   font-size: 11px;
 }
 
-.message-value-input input:focus {
+.message-value-input input:focus,
+.message-value-input select:focus {
   border-color: var(--accent);
 }
 
@@ -2721,6 +2727,7 @@ button {
 :root[data-theme="light"] .field-property-editor input,
 :root[data-theme="light"] .message-selector select,
 :root[data-theme="light"] .message-value-input input,
+:root[data-theme="light"] .message-value-input select,
 :root[data-theme="light"] .protocol-dialog input,
 :root[data-theme="light"] .protocol-dialog select,
 :root[data-theme="light"] .protocol-dialog textarea {

@@ -99,6 +99,7 @@ export type WorkspaceField = {
   lengthOf: string | null;
   elementType: string | null;
   count: string | null;
+  enumValues?: { name: string; value: string }[];
 };
 
 export type WorkspaceMessage = {
@@ -315,6 +316,7 @@ export type DebugField = {
   value: string;
   offset: number;
   length: number;
+  enumName?: string;
 };
 export type DebugToolResult =
   { ok: true; text: string; hex: string; matches: number[] } | DebugFailure;

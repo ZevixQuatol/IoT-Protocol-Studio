@@ -43,6 +43,31 @@ int main() {
     CHECK(to_string(ByteOrder::little_endian) == "little");
     CHECK(to_string(FieldType::int32) == "int32");
     CHECK(wire_size(valid.messages[0].fields[0]) == 1);
+    auto enumerated = valid;
+    auto& enum_field = enumerated.messages[0].fields[0];
+    enum_field.enum_values = {{"Off", "0"}, {"On", "1"}};
+    CHECK(validate(enumerated).ok());
+    CHECK(enum_name(enum_field, "1") == "On");
+    CHECK(!enum_name(enum_field, "9").has_value());
+    enum_field.enum_values[1].value = "256";
+    CHECK(contains_diagnostic(validate(enumerated), SchemaErrorCode::enum_value_invalid,
+                              "messages[0].fields[0].enum"));
+    enum_field.enum_values[1].value = "0";
+    CHECK(contains_diagnostic(validate(enumerated), SchemaErrorCode::enum_duplicate_value,
+                              "messages[0].fields[0].enum"));
+    enum_field.enum_values[1] = {"On", "1"};
+    enum_field.type = FieldType::float32;
+    CHECK(contains_diagnostic(validate(enumerated), SchemaErrorCode::enum_type_unsupported,
+                              "messages[0].fields[0].enum"));
+    enum_field.type = FieldType::int8;
+    enum_field.enum_values = {{"Minimum", "-128"}};
+    CHECK(validate(enumerated).ok());
+    enum_field.enum_values[0].value = "-129";
+    CHECK(contains_diagnostic(validate(enumerated), SchemaErrorCode::enum_value_invalid,
+                              "messages[0].fields[0].enum"));
+    enum_field.type = FieldType::uint64;
+    enum_field.enum_values = {{"Maximum", "18446744073709551615"}};
+    CHECK(validate(enumerated).ok());
 
     auto matching = valid;
     matching.protocol.message_type_field = "command";

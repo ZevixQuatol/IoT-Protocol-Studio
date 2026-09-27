@@ -52,6 +52,11 @@ struct ProtocolMetadata {
     std::string message_type_field;
 };
 
+struct EnumValue {
+    std::string name;
+    std::string value;
+};
+
 struct FieldDefinition {
     std::string name;
     std::string display_name;
@@ -62,6 +67,7 @@ struct FieldDefinition {
     std::optional<std::string> length_of;
     std::optional<FieldType> element_type;
     std::optional<std::size_t> count;
+    std::vector<EnumValue> enum_values;
 };
 
 struct ChecksumDefinition {
@@ -127,6 +133,11 @@ enum class SchemaErrorCode {
     array_length_overflow,
     array_length_not_allowed,
     array_metadata_not_allowed,
+    enum_type_unsupported,
+    enum_count_exceeded,
+    enum_value_invalid,
+    enum_duplicate_name,
+    enum_duplicate_value,
     checksum_field_not_found,
     checksum_target_invalid,
     checksum_range_invalid,
@@ -153,6 +164,8 @@ struct MessageMatch {
 [[nodiscard]] MessageMatch identify_message(const ProtocolSchema& schema,
                                             std::span<const std::uint8_t> bytes);
 [[nodiscard]] std::optional<std::size_t> wire_size(const FieldDefinition& field) noexcept;
+[[nodiscard]] std::optional<std::string_view> enum_name(const FieldDefinition& field,
+                                                        std::string_view value) noexcept;
 [[nodiscard]] std::string_view to_string(ByteOrder byte_order) noexcept;
 [[nodiscard]] std::string_view to_string(FieldType type) noexcept;
 [[nodiscard]] std::string_view to_string(SchemaErrorCode code) noexcept;

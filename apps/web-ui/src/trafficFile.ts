@@ -75,6 +75,8 @@ export function readTrafficArchive(content: string): TrafficArchive {
             field.type.length > 64 ||
             typeof field.value !== "string" ||
             field.value.length > 515 ||
+            (field.enumName !== undefined &&
+              (typeof field.enumName !== "string" || field.enumName.length > 200)) ||
             !Number.isSafeInteger(field.offset) ||
             !Number.isSafeInteger(field.length) ||
             field.offset < 0 ||

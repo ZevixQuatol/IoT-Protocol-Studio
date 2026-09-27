@@ -360,10 +360,15 @@ struct TcpSession::Impl {
                                                             --end;
                                                         value = value.substr(0, end) + "...";
                                                     }
+                                                    std::optional<std::string> enum_name;
+                                                    if (!field_definition->enum_values.empty())
+                                                        enum_name = std::string{schema::enum_name(
+                                                            *field_definition, value).value_or("")};
                                                     parsed->fields.push_back({
                                                         field.name, field_definition->display_name,
                                                         std::string{schema::to_string(field_definition->type)},
-                                                        std::move(value), range->offset, range->length});
+                                                        std::move(value), range->offset, range->length,
+                                                        std::move(enum_name)});
                                                 }
                                             }
                                         }

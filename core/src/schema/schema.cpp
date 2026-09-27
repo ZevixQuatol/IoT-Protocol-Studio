@@ -1,6 +1,8 @@
 #include "iotps/core/schema/schema.hpp"
 
+#include <algorithm>
 #include <functional>
+#include <charconv>
 #include <limits>
 #include <string>
 #include <unordered_map>
@@ -71,6 +73,25 @@ bool is_unsigned_integer(const FieldType type) {
            type == FieldType::uint64;
 }
 
+bool valid_enum_value(const FieldType type, const std::string_view text) {
+    const auto bits = primitive_width(type).value_or(0) * 8;
+    if (bits == 0 || text.empty()) return false;
+    if (is_unsigned_integer(type)) {
+        std::uint64_t value = 0;
+        const auto [end, error] = std::from_chars(text.data(), text.data() + text.size(), value);
+        return error == std::errc{} && end == text.data() + text.size() &&
+               std::to_string(value) == text && (bits == 64 || value < (std::uint64_t{1} << bits));
+    }
+    if (type != FieldType::int8 && type != FieldType::int16 && type != FieldType::int32 &&
+        type != FieldType::int64) return false;
+    std::int64_t value = 0;
+    const auto [end, error] = std::from_chars(text.data(), text.data() + text.size(), value);
+    return error == std::errc{} && end == text.data() + text.size() &&
+           std::to_string(value) == text &&
+           (bits == 64 || (value >= -(std::int64_t{1} << (bits - 1)) &&
+                           value < (std::int64_t{1} << (bits - 1))));
+}
+
 } // namespace
 
 SchemaValidation validate(const ProtocolSchema& schema) {
@@ -117,6 +138,28 @@ SchemaValidation validate(const ProtocolSchema& schema) {
             } else if (!field_names.emplace(field.name, field_index).second) {
                 add_diagnostic(validation, SchemaErrorCode::duplicate_field_name,
                                field_path(message_index, field_index, "name"));
+            }
+
+            if (!field.enum_values.empty()) {
+                const auto path = field_path(message_index, field_index, "enum");
+                if (field.enum_values.size() > 64)
+                    add_diagnostic(validation, SchemaErrorCode::enum_count_exceeded, path);
+                if (!is_unsigned_integer(field.type) && field.type != FieldType::int8 &&
+                     field.type != FieldType::int16 && field.type != FieldType::int32 &&
+                     field.type != FieldType::int64)
+                    add_diagnostic(validation, SchemaErrorCode::enum_type_unsupported, path);
+                std::unordered_map<std::string, bool> names, values;
+                for (const auto& item : field.enum_values) {
+                    if (item.name.empty() || item.name.size() > 200 ||
+                        item.name.find('=') != std::string::npos ||
+                        std::ranges::any_of(item.name, [](unsigned char c) { return c < 32; }) ||
+                        !valid_enum_value(field.type, item.value))
+                        add_diagnostic(validation, SchemaErrorCode::enum_value_invalid, path);
+                    if (!names.emplace(item.name, true).second)
+                        add_diagnostic(validation, SchemaErrorCode::enum_duplicate_name, path);
+                    if (!values.emplace(item.value, true).second)
+                        add_diagnostic(validation, SchemaErrorCode::enum_duplicate_value, path);
+                }
             }
 
             if (field.type == FieldType::array) {
@@ -296,6 +339,13 @@ SchemaValidation validate(const ProtocolSchema& schema) {
     return validation;
 }
 
+std::optional<std::string_view> enum_name(const FieldDefinition& field,
+                                          const std::string_view value) noexcept {
+    for (const auto& item : field.enum_values)
+        if (item.value == value) return item.name;
+    return std::nullopt;
+}
+
 MessageMatch identify_message(const ProtocolSchema& schema,
                               const std::span<const std::uint8_t> bytes) {
     if (schema.protocol.message_type_field.empty())
@@ -463,6 +513,16 @@ std::string_view to_string(const SchemaErrorCode code) noexcept {
         return "array_length_not_allowed";
     case SchemaErrorCode::array_metadata_not_allowed:
         return "array_metadata_not_allowed";
+    case SchemaErrorCode::enum_type_unsupported:
+        return "enum_type_unsupported";
+    case SchemaErrorCode::enum_count_exceeded:
+        return "enum_count_exceeded";
+    case SchemaErrorCode::enum_value_invalid:
+        return "enum_value_invalid";
+    case SchemaErrorCode::enum_duplicate_name:
+        return "enum_duplicate_name";
+    case SchemaErrorCode::enum_duplicate_value:
+        return "enum_duplicate_value";
     case SchemaErrorCode::checksum_field_not_found:
         return "checksum_field_not_found";
     case SchemaErrorCode::checksum_target_invalid:

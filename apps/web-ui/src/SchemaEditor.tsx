@@ -60,6 +60,7 @@ export default function SchemaEditor({
           lengthOf: field?.lengthOf ?? "",
           elementType: field?.elementType ?? "uint8",
           count: field?.count ?? "1",
+          enum: (field?.enumValues ?? []).map((item) => `${item.name}=${item.value}`).join("\n"),
         }
       : {
           name: message?.name ?? "",
@@ -117,6 +118,7 @@ export default function SchemaEditor({
         properties.count = "";
       }
       if (!["uint8", "uint16", "uint32", "uint64"].includes(values.type)) properties.lengthOf = "";
+      if (!/^u?int(8|16|32|64)$/.test(values.type)) properties.enum = "";
     }
     if (
       await onSave({
@@ -226,6 +228,22 @@ export default function SchemaEditor({
                           </option>
                         ))}
                     </select>
+                  </label>
+                )}
+                {/^(u?int)(8|16|32|64)$/.test(values.type) && (
+                  <label>
+                    {locale === "zh-CN"
+                      ? "枚举值（每行：名称=整数）"
+                      : "Enum values (one name=integer per line)"}
+                    <textarea
+                      name="enum"
+                      value={values.enum}
+                      disabled={busy}
+                      maxLength={4096}
+                      rows={4}
+                      placeholder={"Off=0\nOn=1"}
+                      onChange={(event) => update("enum", event.target.value)}
+                    />
                   </label>
                 )}
               </>

@@ -19,6 +19,7 @@ struct TcpParsedField {
     std::string value;
     std::size_t offset;
     std::size_t length;
+    std::optional<std::string> enum_name;
 };
 struct TcpParse {
     std::string protocol_path;

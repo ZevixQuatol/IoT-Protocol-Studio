@@ -249,6 +249,7 @@ function defaultMessageFieldValue(
   if (field.type === "array") {
     return Array.from({ length: Number(field.count ?? 1) }, () => "0").join(", ");
   }
+  if (field.enumValues?.length) return field.enumValues[0].value;
   return "0";
 }
 
@@ -580,6 +581,16 @@ export default function App() {
           ? [
               [translation.structure.elementType, selectedStructureField.elementType ?? "—"],
               [translation.structure.count, selectedStructureField.count ?? "—"],
+            ]
+          : []),
+        ...(selectedStructureField.enumValues?.length
+          ? [
+              [
+                locale === "zh-CN" ? "枚举" : "Enum",
+                selectedStructureField.enumValues
+                  .map((item) => `${item.name}=${item.value}`)
+                  .join(", "),
+              ],
             ]
           : []),
       ]
@@ -2482,6 +2493,54 @@ export default function App() {
                                           <strong>{translation.messageStudio.derived}</strong>
                                           <span>{translation.messageStudio.automatic}</span>
                                         </div>
+                                      ) : field.enumValues?.length ? (
+                                        <label className="message-value-input">
+                                          <select
+                                            disabled={busy}
+                                            aria-label={`${translation.messageStudio.fieldValue}: ${field.name}`}
+                                            value={
+                                              field.enumValues.some(
+                                                (item) =>
+                                                  item.value === messageFieldValues[field.name],
+                                              )
+                                                ? messageFieldValues[field.name]
+                                                : "__custom__"
+                                            }
+                                            onChange={(event) =>
+                                              setMessageFieldValues((current) => ({
+                                                ...current,
+                                                [field.name]:
+                                                  event.target.value === "__custom__"
+                                                    ? ""
+                                                    : event.target.value,
+                                              }))
+                                            }
+                                          >
+                                            {field.enumValues.map((item) => (
+                                              <option key={item.name} value={item.value}>
+                                                {item.name} ({item.value})
+                                              </option>
+                                            ))}
+                                            <option value="__custom__">
+                                              {locale === "zh-CN" ? "自定义数值" : "Custom value"}
+                                            </option>
+                                          </select>
+                                          {!field.enumValues.some(
+                                            (item) => item.value === messageFieldValues[field.name],
+                                          ) && (
+                                            <input
+                                              disabled={busy}
+                                              aria-label={`${translation.messageStudio.fieldValue}: ${field.name} (${locale === "zh-CN" ? "原始数值" : "raw value"})`}
+                                              value={messageFieldValues[field.name] ?? ""}
+                                              onChange={(event) =>
+                                                setMessageFieldValues((current) => ({
+                                                  ...current,
+                                                  [field.name]: event.target.value,
+                                                }))
+                                              }
+                                            />
+                                          )}
+                                        </label>
                                       ) : (
                                         <label className="message-value-input">
                                           <input

@@ -342,6 +342,19 @@ load_field(const ryml::ConstNodeRef node, const std::string_view yaml_path,
                               count_node, parser);
         }
     }
+    if (node.has_child("enum")) {
+        const auto enum_node = node["enum"];
+        const auto enum_path = std::string{yaml_path} + ".enum";
+        if (const auto error = require_mapping(enum_node, enum_path, parser)) return *error;
+        source_map.emplace(std::string{domain_path} + ".enum", enum_node.id());
+        if (enum_node.num_children() == 0)
+            return make_error(SchemaErrorCode::enum_value_invalid, enum_path,
+                              "enum mapping must contain at least one value", enum_node, parser);
+        for (const auto item : enum_node.children()) {
+            if (const auto error = require_scalar(item, enum_path, parser)) return *error;
+            field.enum_values.push_back({to_string(item.key()), scalar(item)});
+        }
+    }
     return field;
 }
 

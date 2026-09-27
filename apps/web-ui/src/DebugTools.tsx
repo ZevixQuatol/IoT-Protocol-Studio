@@ -739,7 +739,13 @@ export default function DebugTools(props: Props) {
                   <small>
                     {field.name} · {field.type} · {field.offset}–{field.offset + field.length - 1}
                   </small>
-                  <code>{field.value}</code>
+                  <code>
+                    {field.enumName === undefined
+                      ? field.value
+                      : field.enumName
+                        ? `${field.enumName} (${field.value})`
+                        : `${t("未知枚举值", "Unknown enum")} (${field.value})`}
+                  </code>
                 </button>
               ))}
             </div>

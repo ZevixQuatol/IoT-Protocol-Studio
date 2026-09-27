@@ -590,6 +590,15 @@ messages:
     CHECK(!edited.messages[0].fields[0].offset.has_value());
     CHECK(edited.messages[0].fields[0].display_name == "Body: \"data\"");
     CHECK(edited.messages[0].type_id == (std::numeric_limits<std::uint64_t>::max)());
+    CHECK(edit("updateField", "telemetry", "enabled",
+               {{"type", "uint8"}, {"enum", "Off=0\nOn=1"}}).has_value());
+    CHECK(editor_schema().messages[0].fields[2].enum_values.size() == 2);
+    CHECK(!edit("updateField", "telemetry", "enabled", {{"enum", "Off=0\nBad=256"}})
+               .has_value());
+    CHECK(!edit("updateField", "telemetry", "enabled", {{"enum", "Off=0\nOn=0"}})
+               .has_value());
+    CHECK(edit("updateField", "telemetry", "enabled",
+               {{"type", "bool"}, {"enum", ""}}).has_value());
     const auto before_bad_edit = read_file(managed / editor_path);
     CHECK(!edit("deleteField", "telemetry", "body: 数据").has_value());
     CHECK(!edit("updateField", "telemetry", "enabled", {{"name", "size"}}).has_value());

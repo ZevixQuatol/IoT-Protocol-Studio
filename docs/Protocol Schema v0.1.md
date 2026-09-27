@@ -1,7 +1,7 @@
 # Protocol Schema v0.1
 
 > 状态：已实现的基础格式  
-> 更新日期：2026-08-28
+> 更新日期：2026-09-27
 > 适用入口：C++ Core、`iotps schema validate`
 
 相关文档：[Core 模块架构](<./Core 模块架构.md>) · [固定长度 String 与 Bytes](<./固定长度 String 与 Bytes.md>) · [Length Field](<./Length Field.md>) · [固定长度 Array](<./固定长度 Array.md>) · [功能清单与开发进度](<./IoT Protocol Studio 功能清单与开发进度.md>) · [SmartSensor 示例](./examples/SmartSensor.protocol.yaml)
@@ -18,7 +18,7 @@ YAML 文件
   → 稳定错误码、字段路径和源码位置
 ```
 
-v0.1 当前覆盖 Protocol、Message、基础 Field、固定 `length`/`offset`、固定长度 `string`/`bytes`、最小单字段 `lengthOf`、固定长度 Primitive Array 和固定字节范围 Checksum。Workspace 可以根据 Protocol 元数据生成一个空 `messages` 的最小 Schema；任意 Schema 结构的无损写回、连续 Length Range、动态目标、动态 Array、Struct、Enum、BitField、Condition 和动态校验范围仍不在本阶段。
+v0.1 当前覆盖 Protocol、Message、基础 Field、固定 `length`/`offset`、固定长度 `string`/`bytes`、最小单字段 `lengthOf`、固定长度 Primitive Array、固定字节范围 Checksum，以及整数字段枚举。Workspace 可以根据 Protocol 元数据生成一个空 `messages` 的最小 Schema；任意 Schema 结构的无损写回、连续 Length Range、动态目标、动态 Array、Struct、BitField、Condition 和动态校验范围仍不在本阶段。
 
 ## 2. YAML 依赖
 
@@ -124,6 +124,19 @@ messages:
 | `lengthOf` | scalar | 否 | 将当前 Field 定义为派生 Length Field；必须使用无符号整数并引用同一 Message 中的一个 Field |
 | `elementType` | scalar | Array 必填 | `type: array` 时必须是固定宽度 Primitive；其他 Field 禁止声明 |
 | `count` | unsigned integer scalar | Array 必填 | `type: array` 时必须大于 `0`；其他 Field 禁止声明 |
+| `enum` | mapping | 否 | 仅用于 `int8`–`int64` / `uint8`–`uint64`；映射名称到十进制整数，最多 64 项 |
+
+整数字段枚举示例：
+
+```yaml
+- name: status
+  type: uint8
+  enum:
+    Off: 0
+    On: 1
+```
+
+枚举名称在字段内唯一、非空且不含控制字符或 `=`；数值在字段宽度内、使用规范十进制写法，不能重复。枚举不改变 wire 长度或编码方式。解码始终保留原始整数；已知数值显示 `名称 (数值)`，未知数值显示原始整数并可再次组包。结构视图按每行 `名称=数值` 编辑映射。
 
 固定布局按 Field 定义顺序计算。省略 `offset` 时字段紧接当前游标；显式 `offset` 大于当前游标时形成 gap。Decode 跳过 gap，Encode 使用 `0x00` 填充，字段的 `FieldRange` 不包含 padding。`offset + length` 不得溢出，最后一个字段的结束位置就是固定帧长度，帧后仍有字节时 Codec 返回尾随数据错误。固定 `string` 的 `length` 是 UTF-8 wire 字节数，短值右侧使用 NUL padding；固定 `bytes` 的 Encode 输入必须与 `length` 精确相等。完整文本契约见 [固定长度 String 与 Bytes](<./固定长度 String 与 Bytes.md>)。
 
