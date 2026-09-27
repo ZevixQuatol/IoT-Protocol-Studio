@@ -12,6 +12,15 @@ struct TcpPeer {
     std::uint64_t id;
     std::string address;
 };
+struct TcpParsedBit {
+    std::string name;
+    std::string display_name;
+    std::string value;
+    std::size_t offset;
+    std::size_t length;
+    std::size_t bit_offset;
+    std::size_t width;
+};
 struct TcpParsedField {
     std::string name;
     std::string display_name;
@@ -20,6 +29,7 @@ struct TcpParsedField {
     std::size_t offset;
     std::size_t length;
     std::optional<std::string> enum_name;
+    std::vector<TcpParsedBit> bits;
 };
 struct TcpParse {
     std::string protocol_path;

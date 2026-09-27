@@ -727,26 +727,55 @@ export default function DebugTools(props: Props) {
           {!!fields.length && (
             <div className="debug-field-list" aria-label={t("解析字段列表", "Decoded fields")}>
               {fields.map((field) => (
-                <button
-                  type="button"
-                  id={`debug-field-${field.name}`}
-                  key={field.name}
-                  className={activeField === field.name ? "active" : ""}
-                  aria-pressed={activeField === field.name}
-                  onClick={() => focusField(field, true)}
-                >
-                  <strong>{field.displayName || field.name}</strong>
-                  <small>
-                    {field.name} · {field.type} · {field.offset}–{field.offset + field.length - 1}
-                  </small>
-                  <code>
-                    {field.enumName === undefined
-                      ? field.value
-                      : field.enumName
-                        ? `${field.enumName} (${field.value})`
-                        : `${t("未知枚举值", "Unknown enum")} (${field.value})`}
-                  </code>
-                </button>
+                <div key={field.name}>
+                  <button
+                    type="button"
+                    id={`debug-field-${field.name}`}
+                    className={activeField === field.name ? "active" : ""}
+                    aria-pressed={activeField === field.name}
+                    onClick={() => focusField(field, true)}
+                  >
+                    <strong>{field.displayName || field.name}</strong>
+                    <small>
+                      {field.name} · {field.type} · {field.offset}–{field.offset + field.length - 1}
+                    </small>
+                    <code>
+                      {field.enumName === undefined
+                        ? field.value
+                        : field.enumName
+                          ? `${field.enumName} (${field.value})`
+                          : `${t("未知枚举值", "Unknown enum")} (${field.value})`}
+                    </code>
+                  </button>
+                  {field.bits?.map((bit) => (
+                    <button
+                      type="button"
+                      key={bit.name}
+                      id={`debug-field-${field.name}.${bit.name}`}
+                      className={`debug-bit-field ${activeField === `${field.name}.${bit.name}` ? "active" : ""}`}
+                      aria-pressed={activeField === `${field.name}.${bit.name}`}
+                      onClick={() =>
+                        focusField(
+                          {
+                            ...field,
+                            name: `${field.name}.${bit.name}`,
+                            offset: bit.offset,
+                            length: bit.length,
+                            value: bit.value,
+                          },
+                          true,
+                        )
+                      }
+                    >
+                      <strong>{bit.displayName || bit.name}</strong>
+                      <small>
+                        bit {bit.bitOffset}–{bit.bitOffset + bit.width - 1} · byte {bit.offset}–
+                        {bit.offset + bit.length - 1}
+                      </small>
+                      <code>{bit.value}</code>
+                    </button>
+                  ))}
+                </div>
               ))}
             </div>
           )}

@@ -1150,6 +1150,13 @@ button {
   max-height: 260px;
   overflow: auto;
 }
+.debug-field-list > div {
+  display: grid;
+  gap: 4px;
+}
+.debug-field-list .debug-bit-field {
+  margin-left: 12px;
+}
 .debug-tools .debug-field-list button {
   display: grid;
   gap: 4px;
@@ -1747,6 +1754,27 @@ button {
 .message-value-input small {
   color: #667785;
   font-size: 9px;
+}
+
+.message-bit-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  color: #aebbc5;
+  font-size: 10px;
+}
+
+.message-bit-row input[type="checkbox"] {
+  width: 16px;
+  height: 16px;
+  flex: none;
+  accent-color: var(--accent);
+}
+
+.message-bit-row input[type="number"] {
+  width: 76px;
+  flex: none;
 }
 
 .message-derived-value {

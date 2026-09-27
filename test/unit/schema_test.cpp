@@ -47,6 +47,15 @@ int main() {
     auto& enum_field = enumerated.messages[0].fields[0];
     enum_field.enum_values = {{"Off", "0"}, {"On", "1"}};
     CHECK(validate(enumerated).ok());
+
+    auto bitfield = valid;
+    bitfield.messages[0].fields[0].type = FieldType::uint16;
+    bitfield.messages[0].fields[0].bits = {{"ready", "Ready", 0, 1}, {"mode", "Mode", 1, 3}};
+    CHECK(validate(bitfield).ok());
+    CHECK(bit_value(0b1011, bitfield.messages[0].fields[0].bits[1]) == 5);
+    bitfield.messages[0].fields[0].bits[1].offset = 0;
+    CHECK(contains_diagnostic(validate(bitfield), SchemaErrorCode::bit_overlap,
+                              "messages[0].fields[0].bits"));
     CHECK(enum_name(enum_field, "1") == "On");
     CHECK(!enum_name(enum_field, "9").has_value());
     enum_field.enum_values[1].value = "256";

@@ -849,6 +849,13 @@ export default function TcpWorkbench({
                         ? `${field.enumName} (${field.value})`
                         : `${t("未知枚举值", "Unknown enum")} (${field.value})`}
                   </code>
+                  {field.bits?.map((bit) => (
+                    <small key={bit.name}>
+                      {bit.displayName || bit.name}: {bit.value} · bit {bit.bitOffset}–
+                      {bit.bitOffset + bit.width - 1} · byte {bit.offset}–
+                      {bit.offset + bit.length - 1}
+                    </small>
+                  ))}
                 </div>
               ))}
             </div>

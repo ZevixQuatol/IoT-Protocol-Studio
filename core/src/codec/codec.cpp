@@ -752,6 +752,22 @@ DecodeResult FixedLayoutCodec::decode(const schema::MessageDefinition& definitio
         decoded.message.fields.push_back({.name = field.name, .value = std::move(decoded_value)});
         decoded.field_ranges.push_back(
             {.path = path, .offset = layout_field.offset, .length = layout_field.length});
+        if (!field.bits.empty()) {
+            const auto order = field.byte_order.value_or(default_byte_order);
+            for (const auto& bit : field.bits) {
+                const auto low = bit.offset / 8;
+                const auto high = (bit.offset + bit.width - 1) / 8;
+                const auto first = order == schema::ByteOrder::little_endian
+                                       ? low : layout_field.length - 1 - high;
+                decoded.element_ranges.push_back({
+                    .path = path + "." + bit.name,
+                    .offset = layout_field.offset + first,
+                    .length = high - low + 1,
+                    .bit_offset = bit.offset,
+                    .bit_width = bit.width,
+                });
+            }
+        }
     }
 
     if (layout.value().frame_size != bytes.size()) {

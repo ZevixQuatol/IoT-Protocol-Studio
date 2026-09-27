@@ -77,6 +77,29 @@ export function readTrafficArchive(content: string): TrafficArchive {
             field.value.length > 515 ||
             (field.enumName !== undefined &&
               (typeof field.enumName !== "string" || field.enumName.length > 200)) ||
+            (field.bits !== undefined &&
+              (!Array.isArray(field.bits) ||
+                field.bits.length > 64 ||
+                field.bits.some(
+                  (bit) =>
+                    !bit ||
+                    typeof bit.name !== "string" ||
+                    bit.name.length > 100 ||
+                    typeof bit.displayName !== "string" ||
+                    bit.displayName.length > 200 ||
+                    typeof bit.value !== "string" ||
+                    bit.value.length > 20 ||
+                    !Number.isSafeInteger(bit.offset) ||
+                    !Number.isSafeInteger(bit.length) ||
+                    !Number.isSafeInteger(bit.bitOffset) ||
+                    !Number.isSafeInteger(bit.width) ||
+                    bit.offset < field.offset ||
+                    bit.offset + bit.length > field.offset + field.length ||
+                    bit.length < 1 ||
+                    bit.bitOffset < 0 ||
+                    bit.width < 1 ||
+                    bit.bitOffset + bit.width > field.length * 8,
+                ))) ||
             !Number.isSafeInteger(field.offset) ||
             !Number.isSafeInteger(field.length) ||
             field.offset < 0 ||

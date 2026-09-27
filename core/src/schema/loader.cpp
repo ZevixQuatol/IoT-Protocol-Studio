@@ -355,6 +355,41 @@ load_field(const ryml::ConstNodeRef node, const std::string_view yaml_path,
             field.enum_values.push_back({to_string(item.key()), scalar(item)});
         }
     }
+    if (node.has_child("bits")) {
+        const auto bits_node = node["bits"];
+        const auto bits_path = std::string{yaml_path} + ".bits";
+        if (const auto error = require_mapping(bits_node, bits_path, parser)) return *error;
+        source_map.emplace(std::string{domain_path} + ".bits", bits_node.id());
+        if (bits_node.num_children() == 0)
+            return make_error(SchemaErrorCode::bit_invalid, bits_path,
+                              "bits mapping must contain at least one entry", bits_node, parser);
+        for (const auto item : bits_node.children()) {
+            const auto path = bits_path + "." + to_string(item.key());
+            if (const auto error = require_mapping(item, path, parser)) return *error;
+            if (!item.has_child("offset") || !item.has_child("width"))
+                return missing_node(path + ".offset/width", "scalar", item, parser);
+            const auto offset_node = item["offset"], width_node = item["width"];
+            if (const auto error = require_scalar(offset_node, path + ".offset", parser)) return *error;
+            if (const auto error = require_scalar(width_node, path + ".width", parser)) return *error;
+            auto offset = unsigned_integer(offset_node, path + ".offset", parser);
+            if (const auto* error = offset.error_if()) return *error;
+            auto width = unsigned_integer(width_node, path + ".width", parser);
+            if (const auto* error = width.error_if()) return *error;
+            BitDefinition bit{.name = to_string(item.key()),
+                              .offset = static_cast<std::size_t>(offset.value()),
+                              .width = static_cast<std::size_t>(width.value())};
+            if (offset.value() != bit.offset || width.value() != bit.width)
+                return make_error(SchemaErrorCode::yaml_invalid_scalar, path,
+                                  "bit offset or width is outside size_t range", item, parser);
+            if (item.has_child("displayName")) {
+                const auto display = item["displayName"];
+                if (const auto error = require_scalar(display, path + ".displayName", parser))
+                    return *error;
+                bit.display_name = scalar(display);
+            }
+            field.bits.push_back(std::move(bit));
+        }
+    }
     return field;
 }
 

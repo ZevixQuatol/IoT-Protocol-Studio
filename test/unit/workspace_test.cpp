@@ -591,14 +591,17 @@ messages:
     CHECK(edited.messages[0].fields[0].display_name == "Body: \"data\"");
     CHECK(edited.messages[0].type_id == (std::numeric_limits<std::uint64_t>::max)());
     CHECK(edit("updateField", "telemetry", "enabled",
-               {{"type", "uint8"}, {"enum", "Off=0\nOn=1"}}).has_value());
+               {{"type", "uint8"}, {"enum", "Off=0\nOn=1"}, {"bits", "ready=0:1\nmode=1:2:Mode"}}).has_value());
     CHECK(editor_schema().messages[0].fields[2].enum_values.size() == 2);
+    CHECK(editor_schema().messages[0].fields[2].bits[1].display_name == "Mode");
     CHECK(!edit("updateField", "telemetry", "enabled", {{"enum", "Off=0\nBad=256"}})
                .has_value());
     CHECK(!edit("updateField", "telemetry", "enabled", {{"enum", "Off=0\nOn=0"}})
                .has_value());
+    CHECK(!edit("updateField", "telemetry", "enabled", {{"bits", "a=0:2\nb=1:1"}})
+               .has_value());
     CHECK(edit("updateField", "telemetry", "enabled",
-               {{"type", "bool"}, {"enum", ""}}).has_value());
+               {{"type", "bool"}, {"enum", ""}, {"bits", ""}}).has_value());
     const auto before_bad_edit = read_file(managed / editor_path);
     CHECK(!edit("deleteField", "telemetry", "body: 数据").has_value());
     CHECK(!edit("updateField", "telemetry", "enabled", {{"name", "size"}}).has_value());

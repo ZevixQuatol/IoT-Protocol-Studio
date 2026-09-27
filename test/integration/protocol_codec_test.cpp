@@ -72,6 +72,35 @@ messages:
             }
         }
     }
+    const auto bits_schema = schema::load_yaml(R"yaml(schemaVersion: "0.1"
+protocol:
+  name: bits-test
+  version: "1"
+messages:
+  event:
+    fields:
+      - name: flags
+        type: uint16
+        bits:
+          ready: {offset: 0, width: 1}
+          mode: {offset: 7, width: 3}
+)yaml");
+    CHECK(bits_schema.has_value());
+    if (const auto* definition = bits_schema.value_if()) {
+        const auto decoded = decode_protocol_hex(*definition, "event", "01 81");
+        CHECK(decoded.has_value());
+        if (const auto* data = decoded.value_if()) {
+            CHECK(std::get<std::uint64_t>(data->message.fields[0].value) == 0x0181);
+            CHECK(data->element_ranges.size() == 2);
+            CHECK(data->element_ranges[0].path == "event.flags.ready");
+            CHECK(data->element_ranges[0].offset == 1 && data->element_ranges[0].length == 1);
+            CHECK(data->element_ranges[1].offset == 0 && data->element_ranges[1].length == 2);
+            CHECK(data->element_ranges[1].bit_offset == 7);
+            CHECK(schema::bit_value(0x0181, definition->messages[0].fields[0].bits[1]) == 3);
+            const auto encoded = encode_protocol_hex(*definition, data->message);
+            CHECK(encoded.has_value() && encoded.value() == "01 81");
+        }
+    }
 
     const auto parsed_bytes = parse_hex(hex);
     CHECK(parsed_bytes.has_value());

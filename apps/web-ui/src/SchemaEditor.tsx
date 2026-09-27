@@ -61,6 +61,12 @@ export default function SchemaEditor({
           elementType: field?.elementType ?? "uint8",
           count: field?.count ?? "1",
           enum: (field?.enumValues ?? []).map((item) => `${item.name}=${item.value}`).join("\n"),
+          bits: (field?.bits ?? [])
+            .map(
+              (bit) =>
+                `${bit.name}=${bit.offset}:${bit.width}${bit.displayName ? `:${bit.displayName}` : ""}`,
+            )
+            .join("\n"),
         }
       : {
           name: message?.name ?? "",
@@ -119,6 +125,7 @@ export default function SchemaEditor({
       }
       if (!["uint8", "uint16", "uint32", "uint64"].includes(values.type)) properties.lengthOf = "";
       if (!/^u?int(8|16|32|64)$/.test(values.type)) properties.enum = "";
+      if (!/^uint(8|16|32|64)$/.test(values.type)) properties.bits = "";
     }
     if (
       await onSave({
@@ -243,6 +250,22 @@ export default function SchemaEditor({
                       rows={4}
                       placeholder={"Off=0\nOn=1"}
                       onChange={(event) => update("enum", event.target.value)}
+                    />
+                  </label>
+                )}
+                {/^(uint)(8|16|32|64)$/.test(values.type) && (
+                  <label>
+                    {locale === "zh-CN"
+                      ? "位域（每行：名称=起始位:位宽[:显示名称]）"
+                      : "Bits (name=offset:width[:display name] per line)"}
+                    <textarea
+                      name="bits"
+                      value={values.bits}
+                      disabled={busy}
+                      maxLength={4096}
+                      rows={4}
+                      placeholder={"ready=0:1\nmode=1:3"}
+                      onChange={(event) => update("bits", event.target.value)}
                     />
                   </label>
                 )}

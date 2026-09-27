@@ -57,6 +57,13 @@ struct EnumValue {
     std::string value;
 };
 
+struct BitDefinition {
+    std::string name;
+    std::string display_name;
+    std::size_t offset{0};
+    std::size_t width{1};
+};
+
 struct FieldDefinition {
     std::string name;
     std::string display_name;
@@ -68,6 +75,7 @@ struct FieldDefinition {
     std::optional<FieldType> element_type;
     std::optional<std::size_t> count;
     std::vector<EnumValue> enum_values;
+    std::vector<BitDefinition> bits;
 };
 
 struct ChecksumDefinition {
@@ -138,6 +146,9 @@ enum class SchemaErrorCode {
     enum_value_invalid,
     enum_duplicate_name,
     enum_duplicate_value,
+    bit_type_unsupported,
+    bit_invalid,
+    bit_overlap,
     checksum_field_not_found,
     checksum_target_invalid,
     checksum_range_invalid,
@@ -166,6 +177,7 @@ struct MessageMatch {
 [[nodiscard]] std::optional<std::size_t> wire_size(const FieldDefinition& field) noexcept;
 [[nodiscard]] std::optional<std::string_view> enum_name(const FieldDefinition& field,
                                                         std::string_view value) noexcept;
+[[nodiscard]] std::uint64_t bit_value(std::uint64_t raw, const BitDefinition& bit) noexcept;
 [[nodiscard]] std::string_view to_string(ByteOrder byte_order) noexcept;
 [[nodiscard]] std::string_view to_string(FieldType type) noexcept;
 [[nodiscard]] std::string_view to_string(SchemaErrorCode code) noexcept;

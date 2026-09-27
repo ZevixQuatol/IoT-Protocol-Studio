@@ -6,6 +6,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <optional>
 #include <span>
 #include <string>
 #include <string_view>
@@ -33,6 +34,8 @@ struct FieldRange {
     std::string path;
     std::size_t offset;
     std::size_t length;
+    std::optional<std::size_t> bit_offset;
+    std::optional<std::size_t> bit_width;
 };
 
 struct DecodedMessage {

@@ -369,6 +369,22 @@ struct TcpSession::Impl {
                                                         std::string{schema::to_string(field_definition->type)},
                                                         std::move(value), range->offset, range->length,
                                                         std::move(enum_name)});
+                                                    if (const auto* raw = std::get_if<std::uint64_t>(&field.value)) {
+                                                        auto& parsed_field = parsed->fields.back();
+                                                        const auto order = field_definition->byte_order.value_or(
+                                                            bound_protocol->protocol.default_byte_order);
+                                                        for (const auto& bit : field_definition->bits) {
+                                                            const auto low = bit.offset / 8;
+                                                            const auto high = (bit.offset + bit.width - 1) / 8;
+                                                            const auto first = order == schema::ByteOrder::little_endian
+                                                                                   ? low : range->length - 1 - high;
+                                                            parsed_field.bits.push_back({
+                                                                bit.name, bit.display_name,
+                                                                std::to_string(schema::bit_value(*raw, bit)),
+                                                                range->offset + first, high - low + 1,
+                                                                bit.offset, bit.width});
+                                                        }
+                                                    }
                                                 }
                                             }
                                         }

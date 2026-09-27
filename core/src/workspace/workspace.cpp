@@ -1233,7 +1233,7 @@ ProjectLoadResult edit_schema(const std::filesystem::path& project_directory,
             return make_error(WorkspaceErrorCode::workspace_operation_failed, "$request.action",
                               "unknown schema edit action");
         const bool patch = action.starts_with("add") || action.starts_with("update");
-        if ((!patch && !request.properties.empty()) || request.properties.size() > 10)
+        if ((!patch && !request.properties.empty()) || request.properties.size() > 11)
             return make_error(WorkspaceErrorCode::workspace_operation_failed, "$request.properties",
                               "unexpected properties");
         std::set<std::string> keys;
@@ -1242,7 +1242,7 @@ ProjectLoadResult edit_schema(const std::filesystem::path& project_directory,
             const auto allowed = is_message
                                      ? std::string_view{"|name|displayName|typeId|"}
                                      : std::string_view{"|name|displayName|type|endian|length|"
-                                                        "offset|lengthOf|elementType|count|enum|"};
+                                                        "offset|lengthOf|elementType|count|enum|bits|"};
             if (key.empty() || key.find('|') != std::string::npos ||
                 allowed.find("|" + key + "|") == std::string_view::npos ||
                 !keys.insert(key).second || value.size() > 4096)
@@ -1343,6 +1343,34 @@ ProjectLoadResult edit_schema(const std::filesystem::path& project_directory,
                     if (count == 0)
                         return make_error(WorkspaceErrorCode::protocol_schema_invalid,
                                           "$request.enum", "enum requires at least one value");
+                } else if (is_field && key == "bits" && !value.empty()) {
+                    if (target.has_child("bits")) target.remove_child("bits");
+                    auto mapping = target["bits"];
+                    mapping.set_map();
+                    std::istringstream lines{value};
+                    std::string line;
+                    std::size_t count = 0;
+                    while (std::getline(lines, line)) {
+                        if (!line.empty() && line.back() == '\r') line.pop_back();
+                        if (line.empty()) continue;
+                        const auto equals = line.find('=');
+                        const auto colon = line.find(':', equals == std::string::npos ? 0 : equals + 1);
+                        if (equals == std::string::npos || equals == 0 || colon == std::string::npos ||
+                            colon == equals + 1 || colon == line.size() - 1 || ++count > 64)
+                            return make_error(WorkspaceErrorCode::protocol_schema_invalid,
+                                              "$request.bits", "use name=offset:width[:displayName] (max 64)");
+                        const auto second_colon = line.find(':', colon + 1);
+                        auto item = mapping.append_child();
+                        item.set_key_serialized(line.substr(0, equals), ryml::KEY_DQUO);
+                        item.set_map();
+                        item["offset"].save(line.substr(equals + 1, colon - equals - 1));
+                        item["width"].save(line.substr(colon + 1, second_colon - colon - 1));
+                        if (second_colon != std::string::npos)
+                            item["displayName"].save(line.substr(second_colon + 1));
+                    }
+                    if (count == 0)
+                        return make_error(WorkspaceErrorCode::protocol_schema_invalid,
+                                          "$request.bits", "bits requires at least one entry");
                 } else if (value.empty()) {
                     if (target.has_child(ryml::to_csubstr(key)))
                         target.remove_child(ryml::to_csubstr(key));

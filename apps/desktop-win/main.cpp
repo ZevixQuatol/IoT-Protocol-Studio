@@ -335,6 +335,16 @@ void append_protocol_schema(std::ostringstream& response,
                          << ",\"value\":" << json_string(field.enum_values[index].value) << '}';
             }
             response << ']';
+            response << ",\"bits\":[";
+            for (std::size_t index = 0; index < field.bits.size(); ++index) {
+                if (index) response << ',';
+                const auto& bit = field.bits[index];
+                response << "{\"name\":" << json_string(bit.name)
+                         << ",\"displayName\":" << json_string(bit.display_name)
+                         << ",\"offset\":" << bit.offset
+                         << ",\"width\":" << bit.width << '}';
+            }
+            response << ']';
             response << '}';
         }
         response << "]}";
@@ -826,6 +836,27 @@ decode_debug_message(const std::string& request,
         if (!definition->enum_values.empty())
             json << ",\"enumName\":" << json_string(std::string{
                 iotps::core::schema::enum_name(*definition, value).value_or("")});
+        if (!definition->bits.empty()) {
+            const auto* raw = std::get_if<std::uint64_t>(&field.value);
+            if (!raw) return encode_error_response("decode_failed", "Invalid bit container value");
+            const auto order = definition->byte_order.value_or(protocol->schema.protocol.default_byte_order);
+            json << ",\"bits\":[";
+            for (std::size_t index = 0; index < definition->bits.size(); ++index) {
+                if (index) json << ',';
+                const auto& bit = definition->bits[index];
+                const auto low = bit.offset / 8, high = (bit.offset + bit.width - 1) / 8;
+                const auto first = order == iotps::core::schema::ByteOrder::little_endian
+                                       ? low : range->length - 1 - high;
+                json << "{\"name\":" << json_string(bit.name)
+                     << ",\"displayName\":" << json_string(bit.display_name)
+                     << ",\"value\":" << json_string(std::to_string(iotps::core::schema::bit_value(*raw, bit)))
+                     << ",\"offset\":" << range->offset + first
+                     << ",\"length\":" << high - low + 1
+                     << ",\"bitOffset\":" << bit.offset
+                     << ",\"width\":" << bit.width << '}';
+            }
+            json << ']';
+        }
         json << '}';
     }
     json << "]}";
@@ -1099,12 +1130,14 @@ window.addEventListener("DOMContentLoaded", () => {
               renamed.schema.messages[0].typeId !== "18446744073709551615") {
             report("schema-edit-bridge-failed"); return;
           }
-          const enumerated = await edit("updateField", "packet", "flag", "enum", "Off=0\nOn=1");
+          const enumerated = await edit("updateField", "packet", "flag", "enum", "Off=0\nOn=1", "bits", "ready=0:1\nmode=1:2:Mode");
           const known = await window.iotpsDebugDecode(path, "packet", "34 12 01");
           const unknown = await window.iotpsDebugDecode(path, "packet", "34 12 09");
           const encodedUnknown = await window.iotpsEncodeProtocolMessage(path, "packet", "reading", "4660", "flag", "9");
           if (enumerated.schema.messages[0].fields[1].enumValues?.[1]?.name !== "On" ||
+              enumerated.schema.messages[0].fields[1].bits?.[1]?.displayName !== "Mode" ||
               known.fields?.[1]?.enumName !== "On" || known.fields[1].value !== "1" ||
+              known.fields[1].bits?.[0]?.value !== "1" || known.fields[1].bits[0].offset !== 2 ||
               unknown.fields?.[1]?.enumName !== "" || unknown.fields[1].value !== "9" ||
               unknown.fields[1].offset !== 2 || encodedUnknown.normalizedHex !== "34 12 09") {
             report("enum-bridge-failed"); return;
@@ -1623,6 +1656,21 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR command_line, int) {
                                 << ",\"length\":" << field.length;
                             if (field.enum_name)
                                 out << ",\"enumName\":" << json_string(*field.enum_name);
+                            if (!field.bits.empty()) {
+                                out << ",\"bits\":[";
+                                for (std::size_t index = 0; index < field.bits.size(); ++index) {
+                                    if (index) out << ',';
+                                    const auto& bit = field.bits[index];
+                                    out << "{\"name\":" << json_string(bit.name)
+                                        << ",\"displayName\":" << json_string(bit.display_name)
+                                        << ",\"value\":" << json_string(bit.value)
+                                        << ",\"offset\":" << bit.offset
+                                        << ",\"length\":" << bit.length
+                                        << ",\"bitOffset\":" << bit.bit_offset
+                                        << ",\"width\":" << bit.width << '}';
+                                }
+                                out << ']';
+                            }
                             out << '}';
                         }
                         out << "]}";

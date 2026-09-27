@@ -253,6 +253,28 @@ function defaultMessageFieldValue(
   return "0";
 }
 
+function bitPart(raw: string, offset: number, width: number): string {
+  try {
+    const value = BigInt(raw || "0");
+    return value < 0n ? "0" : ((value >> BigInt(offset)) & ((1n << BigInt(width)) - 1n)).toString();
+  } catch {
+    return "0";
+  }
+}
+
+function replaceBitPart(raw: string, offset: number, width: number, part: string): string {
+  try {
+    const current = BigInt(raw || "0");
+    const next = BigInt(part);
+    const mask = (1n << BigInt(width)) - 1n;
+    if (current < 0n || next < 0n || next > mask) return raw;
+    const shifted = mask << BigInt(offset);
+    return ((current & ~shifted) | (next << BigInt(offset))).toString();
+  } catch {
+    return raw;
+  }
+}
+
 type TreeItemsProps = {
   nodes: TreeNode[];
   depth: number;
@@ -589,6 +611,16 @@ export default function App() {
                 locale === "zh-CN" ? "枚举" : "Enum",
                 selectedStructureField.enumValues
                   .map((item) => `${item.name}=${item.value}`)
+                  .join(", "),
+              ],
+            ]
+          : []),
+        ...(selectedStructureField.bits?.length
+          ? [
+              [
+                locale === "zh-CN" ? "位域" : "Bits",
+                selectedStructureField.bits
+                  .map((bit) => `${bit.name}=${bit.offset}:${bit.width}`)
                   .join(", "),
               ],
             ]
@@ -2492,6 +2524,76 @@ export default function App() {
                                         <div className="message-derived-value">
                                           <strong>{translation.messageStudio.derived}</strong>
                                           <span>{translation.messageStudio.automatic}</span>
+                                        </div>
+                                      ) : field.bits?.length ? (
+                                        <div className="message-value-input">
+                                          <input
+                                            disabled={busy}
+                                            aria-label={`${translation.messageStudio.fieldValue}: ${field.name}`}
+                                            value={messageFieldValues[field.name] ?? ""}
+                                            onChange={(event) =>
+                                              setMessageFieldValues((current) => ({
+                                                ...current,
+                                                [field.name]: event.target.value,
+                                              }))
+                                            }
+                                          />
+                                          {field.bits.map((bit) => (
+                                            <label className="message-bit-row" key={bit.name}>
+                                              <span>
+                                                {bit.displayName || bit.name} · bit {bit.offset}–
+                                                {bit.offset + bit.width - 1}
+                                              </span>
+                                              {bit.width === 1 ? (
+                                                <input
+                                                  type="checkbox"
+                                                  disabled={busy}
+                                                  checked={
+                                                    bitPart(
+                                                      messageFieldValues[field.name] ?? "0",
+                                                      bit.offset,
+                                                      1,
+                                                    ) === "1"
+                                                  }
+                                                  onChange={(event) =>
+                                                    setMessageFieldValues((current) => ({
+                                                      ...current,
+                                                      [field.name]: replaceBitPart(
+                                                        current[field.name] ?? "0",
+                                                        bit.offset,
+                                                        1,
+                                                        event.target.checked ? "1" : "0",
+                                                      ),
+                                                    }))
+                                                  }
+                                                />
+                                              ) : (
+                                                <input
+                                                  type="number"
+                                                  min="0"
+                                                  max={((1n << BigInt(bit.width)) - 1n).toString()}
+                                                  disabled={busy}
+                                                  aria-label={`${bit.displayName || bit.name} (bit ${bit.offset}–${bit.offset + bit.width - 1})`}
+                                                  value={bitPart(
+                                                    messageFieldValues[field.name] ?? "0",
+                                                    bit.offset,
+                                                    bit.width,
+                                                  )}
+                                                  onChange={(event) =>
+                                                    setMessageFieldValues((current) => ({
+                                                      ...current,
+                                                      [field.name]: replaceBitPart(
+                                                        current[field.name] ?? "0",
+                                                        bit.offset,
+                                                        bit.width,
+                                                        event.target.value,
+                                                      ),
+                                                    }))
+                                                  }
+                                                />
+                                              )}
+                                            </label>
+                                          ))}
                                         </div>
                                       ) : field.enumValues?.length ? (
                                         <label className="message-value-input">

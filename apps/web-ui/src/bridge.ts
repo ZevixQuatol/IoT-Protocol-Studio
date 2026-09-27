@@ -100,6 +100,7 @@ export type WorkspaceField = {
   elementType: string | null;
   count: string | null;
   enumValues?: { name: string; value: string }[];
+  bits?: { name: string; displayName: string; offset: number; width: number }[];
 };
 
 export type WorkspaceMessage = {
@@ -317,6 +318,15 @@ export type DebugField = {
   offset: number;
   length: number;
   enumName?: string;
+  bits?: {
+    name: string;
+    displayName: string;
+    value: string;
+    offset: number;
+    length: number;
+    bitOffset: number;
+    width: number;
+  }[];
 };
 export type DebugToolResult =
   { ok: true; text: string; hex: string; matches: number[] } | DebugFailure;

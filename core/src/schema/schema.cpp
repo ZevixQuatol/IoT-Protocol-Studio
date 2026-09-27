@@ -161,6 +161,29 @@ SchemaValidation validate(const ProtocolSchema& schema) {
                         add_diagnostic(validation, SchemaErrorCode::enum_duplicate_value, path);
                 }
             }
+            if (!field.bits.empty()) {
+                const auto path = field_path(message_index, field_index, "bits");
+                if (!is_unsigned_integer(field.type) || field.bits.size() > 64)
+                    add_diagnostic(validation, SchemaErrorCode::bit_type_unsupported, path);
+                std::unordered_map<std::string, bool> names;
+                std::uint64_t occupied = 0;
+                const auto capacity = primitive_width(field.type).value_or(0) * 8;
+                for (const auto& bit : field.bits) {
+                    if (bit.name.empty() || bit.name.size() > 100 ||
+                        std::ranges::any_of(bit.name, [](unsigned char c) { return c < 32; }) ||
+                        !names.emplace(bit.name, true).second || bit.width == 0 ||
+                        bit.offset >= capacity || bit.width > capacity - bit.offset) {
+                        add_diagnostic(validation, SchemaErrorCode::bit_invalid, path);
+                        continue;
+                    }
+                    const auto mask = (bit.width == 64 ? ~std::uint64_t{0}
+                                                       : ((std::uint64_t{1} << bit.width) - 1))
+                                      << bit.offset;
+                    if (occupied & mask)
+                        add_diagnostic(validation, SchemaErrorCode::bit_overlap, path);
+                    occupied |= mask;
+                }
+            }
 
             if (field.type == FieldType::array) {
                 if (!field.element_type.has_value()) {
@@ -346,6 +369,13 @@ std::optional<std::string_view> enum_name(const FieldDefinition& field,
     return std::nullopt;
 }
 
+std::uint64_t bit_value(const std::uint64_t raw, const BitDefinition& bit) noexcept {
+    if (bit.offset >= 64 || bit.width == 0 || bit.width > 64 - bit.offset) return 0;
+    const auto mask = bit.width == 64 ? ~std::uint64_t{0}
+                                      : (std::uint64_t{1} << bit.width) - 1;
+    return (raw >> bit.offset) & mask;
+}
+
 MessageMatch identify_message(const ProtocolSchema& schema,
                               const std::span<const std::uint8_t> bytes) {
     if (schema.protocol.message_type_field.empty())
@@ -523,6 +553,12 @@ std::string_view to_string(const SchemaErrorCode code) noexcept {
         return "enum_duplicate_name";
     case SchemaErrorCode::enum_duplicate_value:
         return "enum_duplicate_value";
+    case SchemaErrorCode::bit_type_unsupported:
+        return "bit_type_unsupported";
+    case SchemaErrorCode::bit_invalid:
+        return "bit_invalid";
+    case SchemaErrorCode::bit_overlap:
+        return "bit_overlap";
     case SchemaErrorCode::checksum_field_not_found:
         return "checksum_field_not_found";
     case SchemaErrorCode::checksum_target_invalid:
