@@ -1,8 +1,8 @@
 #include "iotps/core/schema/schema.hpp"
 
 #include <algorithm>
-#include <functional>
 #include <charconv>
+#include <functional>
 #include <limits>
 #include <string>
 #include <unordered_map>
@@ -45,6 +45,7 @@ std::optional<std::size_t> primitive_width(const FieldType type) {
     case FieldType::bytes:
     case FieldType::string:
     case FieldType::array:
+    case FieldType::structure:
         return std::nullopt;
     }
     return std::nullopt;
@@ -75,7 +76,8 @@ bool is_unsigned_integer(const FieldType type) {
 
 bool valid_enum_value(const FieldType type, const std::string_view text) {
     const auto bits = primitive_width(type).value_or(0) * 8;
-    if (bits == 0 || text.empty()) return false;
+    if (bits == 0 || text.empty())
+        return false;
     if (is_unsigned_integer(type)) {
         std::uint64_t value = 0;
         const auto [end, error] = std::from_chars(text.data(), text.data() + text.size(), value);
@@ -83,13 +85,14 @@ bool valid_enum_value(const FieldType type, const std::string_view text) {
                std::to_string(value) == text && (bits == 64 || value < (std::uint64_t{1} << bits));
     }
     if (type != FieldType::int8 && type != FieldType::int16 && type != FieldType::int32 &&
-        type != FieldType::int64) return false;
+        type != FieldType::int64)
+        return false;
     std::int64_t value = 0;
     const auto [end, error] = std::from_chars(text.data(), text.data() + text.size(), value);
     return error == std::errc{} && end == text.data() + text.size() &&
            std::to_string(value) == text &&
-           (bits == 64 || (value >= -(std::int64_t{1} << (bits - 1)) &&
-                           value < (std::int64_t{1} << (bits - 1))));
+           (bits == 64 ||
+            (value >= -(std::int64_t{1} << (bits - 1)) && value < (std::int64_t{1} << (bits - 1))));
 }
 
 } // namespace
@@ -115,6 +118,10 @@ SchemaValidation validate(const ProtocolSchema& schema) {
 
     for (std::size_t message_index = 0; message_index < schema.messages.size(); ++message_index) {
         const auto& message = schema.messages[message_index];
+        const bool dynamic_layout = std::ranges::any_of(message.fields, [](const auto& field) {
+            return field.type == FieldType::structure || field.when_field || field.count_from ||
+                   field.element_type == FieldType::structure;
+        });
         if (message.name.empty()) {
             add_diagnostic(validation, SchemaErrorCode::message_name_required,
                            message_path(message_index, "name"));
@@ -145,8 +152,8 @@ SchemaValidation validate(const ProtocolSchema& schema) {
                 if (field.enum_values.size() > 64)
                     add_diagnostic(validation, SchemaErrorCode::enum_count_exceeded, path);
                 if (!is_unsigned_integer(field.type) && field.type != FieldType::int8 &&
-                     field.type != FieldType::int16 && field.type != FieldType::int32 &&
-                     field.type != FieldType::int64)
+                    field.type != FieldType::int16 && field.type != FieldType::int32 &&
+                    field.type != FieldType::int64)
                     add_diagnostic(validation, SchemaErrorCode::enum_type_unsupported, path);
                 std::unordered_map<std::string, bool> names, values;
                 for (const auto& item : field.enum_values) {
@@ -189,19 +196,20 @@ SchemaValidation validate(const ProtocolSchema& schema) {
                 if (!field.element_type.has_value()) {
                     add_diagnostic(validation, SchemaErrorCode::array_element_type_required,
                                    field_path(message_index, field_index, "elementType"));
-                } else if (!primitive_width(*field.element_type).has_value()) {
+                } else if (!primitive_width(*field.element_type).has_value() &&
+                           *field.element_type != FieldType::structure) {
                     add_diagnostic(validation, SchemaErrorCode::array_element_type_unsupported,
                                    field_path(message_index, field_index, "elementType"));
                 }
-                if (!field.count.has_value()) {
+                if (!field.count.has_value() && !field.count_from.has_value()) {
                     add_diagnostic(validation, SchemaErrorCode::array_count_required,
                                    field_path(message_index, field_index, "count"));
-                } else if (*field.count == 0) {
+                } else if (field.count && *field.count == 0) {
                     add_diagnostic(validation, SchemaErrorCode::array_count_zero,
                                    field_path(message_index, field_index, "count"));
                 } else if (field.element_type.has_value()) {
                     if (const auto element_width = primitive_width(*field.element_type);
-                        element_width.has_value() &&
+                        element_width.has_value() && field.count.has_value() &&
                         *field.count > std::numeric_limits<std::size_t>::max() / *element_width) {
                         add_diagnostic(validation, SchemaErrorCode::array_length_overflow,
                                        field_path(message_index, field_index, "count"));
@@ -226,7 +234,8 @@ SchemaValidation validate(const ProtocolSchema& schema) {
                 }
 
                 const auto width = primitive_width(field.type);
-                if (!width.has_value() && !field.length.has_value()) {
+                if (!width.has_value() && !field.length.has_value() &&
+                    field.type != FieldType::structure) {
                     add_diagnostic(validation, SchemaErrorCode::field_length_required,
                                    field_path(message_index, field_index, "length"));
                 }
@@ -234,6 +243,50 @@ SchemaValidation validate(const ProtocolSchema& schema) {
                     add_diagnostic(validation, SchemaErrorCode::field_length_mismatch,
                                    field_path(message_index, field_index, "length"));
                 }
+            }
+
+            if (field.type == FieldType::structure || field.element_type == FieldType::structure) {
+                if (!field.struct_ref ||
+                    std::ranges::none_of(schema.structures, [&](const auto& item) {
+                        return item.name == *field.struct_ref;
+                    }))
+                    add_diagnostic(validation, SchemaErrorCode::structure_not_found,
+                                   field_path(message_index, field_index, "structRef"));
+            } else if (field.struct_ref) {
+                add_diagnostic(validation, SchemaErrorCode::structure_not_found,
+                               field_path(message_index, field_index, "structRef"));
+            }
+            if (field.type == FieldType::structure && field.length)
+                add_diagnostic(validation, SchemaErrorCode::field_length_mismatch,
+                               field_path(message_index, field_index, "length"));
+            if (field.when_field) {
+                const auto source = field_names.find(*field.when_field);
+                if (!field.when_equals || source == field_names.end() ||
+                    source->second >= field_index ||
+                    !is_unsigned_integer(message.fields[source->second].type) ||
+                    message.fields[source->second].when_field ||
+                    message.fields[source->second].length_of ||
+                    (source != field_names.end() && source->second < field_index &&
+                     primitive_width(message.fields[source->second].type).value_or(0) < 8 &&
+                     (*field.when_equals >>
+                      (primitive_width(message.fields[source->second].type).value_or(0) * 8)) != 0))
+                    add_diagnostic(validation, SchemaErrorCode::dependency_invalid,
+                                   field_path(message_index, field_index, "whenField"));
+            } else if (field.when_equals) {
+                add_diagnostic(validation, SchemaErrorCode::dependency_invalid,
+                               field_path(message_index, field_index, "whenEquals"));
+            }
+            if (field.count_from || field.max_count) {
+                const auto source =
+                    field.count_from ? field_names.find(*field.count_from) : field_names.end();
+                if (field.type != FieldType::array || !field.count_from || !field.max_count ||
+                    *field.max_count == 0 || *field.max_count > 1024 || field.count ||
+                    source == field_names.end() || source->second >= field_index ||
+                    !is_unsigned_integer(message.fields[source->second].type) ||
+                    message.fields[source->second].when_field ||
+                    message.fields[source->second].length_of)
+                    add_diagnostic(validation, SchemaErrorCode::dynamic_array_invalid,
+                                   field_path(message_index, field_index, "countFrom"));
             }
 
             const auto effective_length = fixed_width(field);
@@ -254,8 +307,15 @@ SchemaValidation validate(const ProtocolSchema& schema) {
                                message_path(message_index, "fields"));
             } else {
                 const auto& field = message.fields[found->second];
-                if (!is_unsigned_integer(field.type) || field.length_of ||
-                    (message.checksum && message.checksum->target_field == field.name)) {
+                if (!is_unsigned_integer(field.type) || field.length_of || field.when_field ||
+                    (message.checksum && message.checksum->target_field == field.name) ||
+                    std::ranges::any_of(message.fields.begin(),
+                                        message.fields.begin() + found->second,
+                                        [](const auto& prior) {
+                                            return prior.type == FieldType::structure ||
+                                                   prior.when_field || prior.count_from ||
+                                                   prior.element_type == FieldType::structure;
+                                        })) {
                     add_diagnostic(validation, SchemaErrorCode::message_type_field_invalid,
                                    field_path(message_index, found->second, "type"));
                 } else if (message.type_id) {
@@ -321,7 +381,7 @@ SchemaValidation validate(const ProtocolSchema& schema) {
             if (offset > std::numeric_limits<std::size_t>::max() - length) {
                 continue;
             }
-            if (offset < cursor) {
+            if (!dynamic_layout && offset < cursor) {
                 add_diagnostic(validation, SchemaErrorCode::field_layout_overlap,
                                field_path(message_index, field_index, "offset"));
             }
@@ -339,7 +399,7 @@ SchemaValidation validate(const ProtocolSchema& schema) {
                 const auto expected = checksum.algorithm == ChecksumAlgorithm::crc16_modbus
                                           ? FieldType::uint16
                                           : FieldType::uint8;
-                if (field.type != expected || field.length_of.has_value()) {
+                if (field.type != expected || field.length_of.has_value() || field.when_field) {
                     add_diagnostic(validation, SchemaErrorCode::checksum_target_invalid,
                                    message_path(message_index, "checksum.targetField"));
                 }
@@ -350,7 +410,8 @@ SchemaValidation validate(const ProtocolSchema& schema) {
             }
             const auto start = checksum.range_start.value_or(0);
             const auto end = checksum.range_end.value_or(cursor);
-            if (start >= end || end > cursor) {
+            if ((!dynamic_layout && (start >= end || end > cursor)) ||
+                (dynamic_layout && checksum.range_end && start >= end)) {
                 add_diagnostic(validation, SchemaErrorCode::checksum_range_invalid,
                                message_path(message_index, end > cursor || !checksum.range_start
                                                                ? "checksum.rangeEnd"
@@ -359,20 +420,147 @@ SchemaValidation validate(const ProtocolSchema& schema) {
         }
     }
 
+    // Structures are reusable field lists. Dependencies resolve within each list, and
+    // recursive references are limited to four structure levels.
+    std::function<void(const MessageDefinition&, std::vector<std::string>)> check_structure =
+        [&](const MessageDefinition& structure, std::vector<std::string> stack) {
+            if (stack.size() >= 4 || std::ranges::find(stack, structure.name) != stack.end()) {
+                add_diagnostic(validation, SchemaErrorCode::structure_recursion,
+                               "structures." + structure.name);
+                return;
+            }
+            stack.push_back(structure.name);
+            std::unordered_map<std::string, std::size_t> seen;
+            for (std::size_t i = 0; i < structure.fields.size(); ++i) {
+                const auto& field = structure.fields[i];
+                const auto path =
+                    "structures." + structure.name + ".fields[" + std::to_string(i) + "]";
+                if (field.name.empty() || !seen.emplace(field.name, i).second)
+                    add_diagnostic(validation, SchemaErrorCode::duplicate_field_name,
+                                   path + ".name");
+                if (const auto width = primitive_width(field.type);
+                    width && field.length && *field.length != *width)
+                    add_diagnostic(validation, SchemaErrorCode::field_length_mismatch,
+                                   path + ".length");
+                if (!field.enum_values.empty()) {
+                    std::unordered_map<std::string, bool> names, values;
+                    if (field.enum_values.size() > 64 ||
+                        (!is_unsigned_integer(field.type) && field.type != FieldType::int8 &&
+                         field.type != FieldType::int16 && field.type != FieldType::int32 &&
+                         field.type != FieldType::int64))
+                        add_diagnostic(validation, SchemaErrorCode::enum_type_unsupported,
+                                       path + ".enum");
+                    for (const auto& item : field.enum_values)
+                        if (item.name.empty() || !valid_enum_value(field.type, item.value) ||
+                            !names.emplace(item.name, true).second ||
+                            !values.emplace(item.value, true).second)
+                            add_diagnostic(validation, SchemaErrorCode::enum_value_invalid,
+                                           path + ".enum");
+                }
+                if (!field.bits.empty()) {
+                    const auto capacity = primitive_width(field.type).value_or(0) * 8;
+                    std::uint64_t occupied = 0;
+                    std::unordered_map<std::string, bool> names;
+                    if (!is_unsigned_integer(field.type) || field.bits.size() > 64)
+                        add_diagnostic(validation, SchemaErrorCode::bit_type_unsupported,
+                                       path + ".bits");
+                    for (const auto& bit : field.bits) {
+                        if (bit.name.empty() || !names.emplace(bit.name, true).second ||
+                            bit.width == 0 || bit.offset >= capacity ||
+                            bit.width > capacity - bit.offset) {
+                            add_diagnostic(validation, SchemaErrorCode::bit_invalid,
+                                           path + ".bits");
+                            continue;
+                        }
+                        const auto mask = (bit.width == 64 ? ~std::uint64_t{0}
+                                                           : ((std::uint64_t{1} << bit.width) - 1))
+                                          << bit.offset;
+                        if (occupied & mask)
+                            add_diagnostic(validation, SchemaErrorCode::bit_overlap,
+                                           path + ".bits");
+                        occupied |= mask;
+                    }
+                }
+                if (field.when_field.has_value() != field.when_equals.has_value())
+                    add_diagnostic(validation, SchemaErrorCode::dependency_invalid,
+                                   path + ".whenField");
+                if (field.type == FieldType::array) {
+                    if (!field.element_type ||
+                        (!primitive_width(*field.element_type) &&
+                         *field.element_type != FieldType::structure) ||
+                        (!field.count && !field.count_from) || (field.count && *field.count == 0))
+                        add_diagnostic(validation, SchemaErrorCode::dynamic_array_invalid, path);
+                    if (field.max_count && !field.count_from)
+                        add_diagnostic(validation, SchemaErrorCode::dynamic_array_invalid, path);
+                } else if (field.count || field.count_from || field.max_count || field.element_type)
+                    add_diagnostic(validation, SchemaErrorCode::dynamic_array_invalid, path);
+                if (field.type == FieldType::structure && field.length)
+                    add_diagnostic(validation, SchemaErrorCode::field_length_mismatch,
+                                   path + ".length");
+                if (field.struct_ref && field.type != FieldType::structure &&
+                    field.element_type != FieldType::structure)
+                    add_diagnostic(validation, SchemaErrorCode::structure_not_found,
+                                   path + ".structRef");
+                if ((field.type == FieldType::bytes || field.type == FieldType::string) &&
+                    (!field.length || *field.length == 0))
+                    add_diagnostic(validation, SchemaErrorCode::field_length_required,
+                                   path + ".length");
+                for (const auto& dependency : {field.when_field, field.count_from}) {
+                    if (!dependency)
+                        continue;
+                    const auto source = seen.find(*dependency);
+                    if (source == seen.end() || source->second >= i ||
+                        !is_unsigned_integer(structure.fields[source->second].type) ||
+                        structure.fields[source->second].when_field ||
+                        structure.fields[source->second].length_of)
+                        add_diagnostic(validation, SchemaErrorCode::dependency_invalid, path);
+                }
+                if (field.when_field && field.when_equals) {
+                    const auto source = seen.find(*field.when_field);
+                    if (source != seen.end() && source->second < i) {
+                        const auto width =
+                            primitive_width(structure.fields[source->second].type).value_or(0);
+                        if (width < 8 && (*field.when_equals >> (width * 8)) != 0)
+                            add_diagnostic(validation, SchemaErrorCode::dependency_invalid, path);
+                    }
+                }
+                if (field.type == FieldType::array && field.count_from &&
+                    (!field.max_count || *field.max_count == 0 || *field.max_count > 1024 ||
+                     field.count))
+                    add_diagnostic(validation, SchemaErrorCode::dynamic_array_invalid, path);
+                if (field.type == FieldType::structure ||
+                    field.element_type == FieldType::structure) {
+                    const auto ref =
+                        field.struct_ref
+                            ? std::ranges::find_if(
+                                  schema.structures,
+                                  [&](const auto& item) { return item.name == *field.struct_ref; })
+                            : schema.structures.end();
+                    if (ref == schema.structures.end())
+                        add_diagnostic(validation, SchemaErrorCode::structure_not_found, path);
+                    else
+                        check_structure(*ref, stack);
+                }
+            }
+        };
+    for (const auto& structure : schema.structures)
+        check_structure(structure, {});
+
     return validation;
 }
 
 std::optional<std::string_view> enum_name(const FieldDefinition& field,
                                           const std::string_view value) noexcept {
     for (const auto& item : field.enum_values)
-        if (item.value == value) return item.name;
+        if (item.value == value)
+            return item.name;
     return std::nullopt;
 }
 
 std::uint64_t bit_value(const std::uint64_t raw, const BitDefinition& bit) noexcept {
-    if (bit.offset >= 64 || bit.width == 0 || bit.width > 64 - bit.offset) return 0;
-    const auto mask = bit.width == 64 ? ~std::uint64_t{0}
-                                      : (std::uint64_t{1} << bit.width) - 1;
+    if (bit.offset >= 64 || bit.width == 0 || bit.width > 64 - bit.offset)
+        return 0;
+    const auto mask = bit.width == 64 ? ~std::uint64_t{0} : (std::uint64_t{1} << bit.width) - 1;
     return (raw >> bit.offset) & mask;
 }
 
@@ -396,10 +584,12 @@ MessageMatch identify_message(const ProtocolSchema& schema,
                     incomplete = true;
                 } else {
                     std::uint64_t value = 0;
-                    const bool little = field.byte_order.value_or(schema.protocol.default_byte_order) ==
-                                        ByteOrder::little_endian;
+                    const bool little =
+                        field.byte_order.value_or(schema.protocol.default_byte_order) ==
+                        ByteOrder::little_endian;
                     for (std::size_t index = 0; index < *width; ++index)
-                        value = (value << 8) | bytes[offset + (little ? *width - index - 1 : index)];
+                        value =
+                            (value << 8) | bytes[offset + (little ? *width - index - 1 : index)];
                     if (message.type_id && value == *message.type_id) {
                         if (!matched.empty())
                             return {.status = MatchStatus::ambiguous,
@@ -416,8 +606,7 @@ MessageMatch identify_message(const ProtocolSchema& schema,
         return {.status = MatchStatus::incomplete,
                 .reason = "Frame is too short to evaluate every message rule"};
     if (matched.empty())
-        return {.status = MatchStatus::unknown,
-                .reason = "No message rule matches the frame"};
+        return {.status = MatchStatus::unknown, .reason = "No message rule matches the frame"};
     return {.status = MatchStatus::matched, .message = std::move(matched)};
 }
 
@@ -459,6 +648,8 @@ std::string_view to_string(const FieldType type) noexcept {
         return "string";
     case FieldType::array:
         return "array";
+    case FieldType::structure:
+        return "struct";
     }
     return "unknown";
 }
@@ -559,6 +750,14 @@ std::string_view to_string(const SchemaErrorCode code) noexcept {
         return "bit_invalid";
     case SchemaErrorCode::bit_overlap:
         return "bit_overlap";
+    case SchemaErrorCode::structure_not_found:
+        return "structure_not_found";
+    case SchemaErrorCode::structure_recursion:
+        return "structure_recursion";
+    case SchemaErrorCode::dependency_invalid:
+        return "dependency_invalid";
+    case SchemaErrorCode::dynamic_array_invalid:
+        return "dynamic_array_invalid";
     case SchemaErrorCode::checksum_field_not_found:
         return "checksum_field_not_found";
     case SchemaErrorCode::checksum_target_invalid:

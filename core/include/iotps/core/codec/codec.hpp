@@ -42,6 +42,7 @@ struct DecodedMessage {
     StructuredMessage message;
     std::vector<FieldRange> field_ranges;
     std::vector<FieldRange> element_ranges;
+    std::vector<schema::FieldDefinition> concrete_fields;
 };
 
 enum class CodecErrorCode {

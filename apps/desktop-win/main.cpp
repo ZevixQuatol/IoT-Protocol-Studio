@@ -260,16 +260,13 @@ string_arguments(const std::string_view request) {
            ",\"column\":" + std::to_string(column) + "}}";
 }
 
-void append_protocol_schema(std::ostringstream& response,
-                            const iotps::core::schema::ProtocolSchema& schema) {
-    response << "{\"version\":" << json_string(schema.schema_version)
-             << ",\"protocolVersion\":" << json_string(schema.protocol.version)
-             << ",\"defaultByteOrder\":"
-             << json_string(iotps::core::schema::to_string(schema.protocol.default_byte_order))
-             << ",\"messageTypeField\":" << json_string(schema.protocol.message_type_field)
-             << ",\"messages\":[";
-    for (std::size_t message_index = 0; message_index < schema.messages.size(); ++message_index) {
-        const auto& message = schema.messages[message_index];
+void append_schema_definitions(
+    std::ostringstream& response,
+    const std::vector<iotps::core::schema::MessageDefinition>& definitions,
+    const iotps::core::schema::ByteOrder default_order) {
+    response << '[';
+    for (std::size_t message_index = 0; message_index < definitions.size(); ++message_index) {
+        const auto& message = definitions[message_index];
         if (message_index != 0) {
             response << ',';
         }
@@ -285,26 +282,33 @@ void append_protocol_schema(std::ostringstream& response,
                  << ",\"fields\":[";
 
         std::size_t cursor = 0;
+        bool runtime_layout = false;
         for (std::size_t field_index = 0; field_index < message.fields.size(); ++field_index) {
             const auto& field = message.fields[field_index];
             const auto length = iotps::core::schema::wire_size(field);
             const auto offset = field.offset.value_or(cursor);
+            const bool dynamic = field.type == iotps::core::schema::FieldType::structure ||
+                                 field.when_field || field.count_from ||
+                                 field.element_type == iotps::core::schema::FieldType::structure;
             if (field_index != 0) {
                 response << ',';
             }
             response << "{\"name\":" << json_string(field.name)
                      << ",\"displayName\":" << json_string(field.display_name)
                      << ",\"type\":" << json_string(iotps::core::schema::to_string(field.type))
-                     << ",\"offset\":" << json_string(std::to_string(offset)) << ",\"length\":";
+                     << ",\"offset\":"
+                     << json_string(runtime_layout || dynamic ? "runtime" : std::to_string(offset))
+                     << ",\"length\":";
             if (length.has_value()) {
                 response << json_string(std::to_string(*length));
-                cursor = offset + *length;
+                if (!runtime_layout && !dynamic)
+                    cursor = offset + *length;
             } else {
                 response << "null";
             }
             response << ",\"byteOrder\":"
                      << json_string(iotps::core::schema::to_string(
-                            field.byte_order.value_or(schema.protocol.default_byte_order)))
+                            field.byte_order.value_or(default_order)))
                      << ",\"byteOrderInherited\":"
                      << (field.byte_order.has_value() ? "false" : "true") << ",\"lengthOf\":";
             if (field.length_of.has_value()) {
@@ -330,26 +334,54 @@ void append_protocol_schema(std::ostringstream& response,
             }
             response << ",\"enumValues\":[";
             for (std::size_t index = 0; index < field.enum_values.size(); ++index) {
-                if (index) response << ',';
+                if (index)
+                    response << ',';
                 response << "{\"name\":" << json_string(field.enum_values[index].name)
                          << ",\"value\":" << json_string(field.enum_values[index].value) << '}';
             }
             response << ']';
             response << ",\"bits\":[";
             for (std::size_t index = 0; index < field.bits.size(); ++index) {
-                if (index) response << ',';
+                if (index)
+                    response << ',';
                 const auto& bit = field.bits[index];
                 response << "{\"name\":" << json_string(bit.name)
                          << ",\"displayName\":" << json_string(bit.display_name)
-                         << ",\"offset\":" << bit.offset
-                         << ",\"width\":" << bit.width << '}';
+                         << ",\"offset\":" << bit.offset << ",\"width\":" << bit.width << '}';
             }
             response << ']';
+            const auto optional_text = [&](const char* key,
+                                           const std::optional<std::string>& value) {
+                response << ",\"" << key << "\":" << (value ? json_string(*value) : "null");
+            };
+            optional_text("structRef", field.struct_ref);
+            optional_text("whenField", field.when_field);
+            optional_text("countFrom", field.count_from);
+            response << ",\"whenEquals\":"
+                     << (field.when_equals ? json_string(std::to_string(*field.when_equals))
+                                           : "null")
+                     << ",\"maxCount\":"
+                     << (field.max_count ? json_string(std::to_string(*field.max_count)) : "null");
             response << '}';
+            runtime_layout |= dynamic;
         }
         response << "]}";
     }
-    response << "]}";
+    response << ']';
+}
+
+void append_protocol_schema(std::ostringstream& response,
+                            const iotps::core::schema::ProtocolSchema& schema) {
+    response << "{\"version\":" << json_string(schema.schema_version)
+             << ",\"protocolVersion\":" << json_string(schema.protocol.version)
+             << ",\"defaultByteOrder\":"
+             << json_string(iotps::core::schema::to_string(schema.protocol.default_byte_order))
+             << ",\"messageTypeField\":" << json_string(schema.protocol.message_type_field)
+             << ",\"messages\":";
+    append_schema_definitions(response, schema.messages, schema.protocol.default_byte_order);
+    response << ",\"structures\":";
+    append_schema_definitions(response, schema.structures, schema.protocol.default_byte_order);
+    response << '}';
 }
 
 [[nodiscard]] std::string workspace_project_response(const iotps::core::workspace::Project& project,
@@ -687,6 +719,36 @@ encode_error_response(const std::string_view code, const std::string_view messag
     return response;
 }
 
+[[nodiscard]] const iotps::core::schema::FieldDefinition*
+find_input_field(const iotps::core::schema::ProtocolSchema& schema,
+                 const iotps::core::schema::MessageDefinition& message, std::string_view path) {
+    const auto* fields = &message.fields;
+    const iotps::core::schema::FieldDefinition* found = nullptr;
+    while (!path.empty()) {
+        const auto dot = path.find('.');
+        auto segment = path.substr(0, dot);
+        if (const auto bracket = segment.find('['); bracket != std::string_view::npos)
+            segment = segment.substr(0, bracket);
+        const auto item =
+            std::ranges::find_if(*fields, [&](const auto& field) { return field.name == segment; });
+        if (item == fields->end())
+            return nullptr;
+        found = &*item;
+        if (dot == std::string_view::npos)
+            return found;
+        if (!found->struct_ref)
+            return nullptr;
+        const auto structure = std::ranges::find_if(schema.structures, [&](const auto& candidate) {
+            return candidate.name == *found->struct_ref;
+        });
+        if (structure == schema.structures.end())
+            return nullptr;
+        fields = &structure->fields;
+        path.remove_prefix(dot + 1);
+    }
+    return found;
+}
+
 [[nodiscard]] std::string
 encode_protocol_message(const std::string_view request,
                         const std::optional<std::filesystem::path>& current_project) {
@@ -730,9 +792,9 @@ encode_protocol_message(const std::string_view request,
     structured.fields.reserve((arguments->size() - 2) / 2);
     for (std::size_t index = 2; index < arguments->size(); index += 2) {
         const auto& field_name = (*arguments)[index];
-        const auto field = std::ranges::find_if(
-            message->fields, [&](const auto& candidate) { return candidate.name == field_name; });
-        if (field == message->fields.end()) {
+        const auto* field = find_input_field(protocol->schema, *message, field_name);
+        if (!field || field->type == iotps::core::schema::FieldType::structure ||
+            field->element_type == iotps::core::schema::FieldType::structure) {
             return encode_error_response("protocol_field_not_found",
                                          "field was not found in message '" + (*arguments)[1] +
                                              "': '" + field_name + "'",
@@ -821,7 +883,9 @@ decode_debug_message(const std::string& request,
             json << ',';
         const auto& field = data.message.fields[i];
         const auto definition = std::ranges::find_if(
-            message->fields, [&](const auto& item) { return item.name == field.name; });
+            data.concrete_fields, [&](const auto& item) { return item.name == field.name; });
+        if (definition == data.concrete_fields.end())
+            return encode_error_response("decode_failed", "Missing concrete field definition");
         const auto range = std::ranges::find_if(data.field_ranges, [&](const auto& item) {
             return item.path == message->name + "." + field.name;
         });
@@ -831,33 +895,53 @@ decode_debug_message(const std::string& request,
         json << "{\"name\":" << json_string(field.name)
              << ",\"displayName\":" << json_string(definition->display_name)
              << ",\"type\":" << json_string(iotps::core::schema::to_string(definition->type))
-             << ",\"value\":" << json_string(value)
-             << ",\"offset\":" << range->offset << ",\"length\":" << range->length;
+             << ",\"value\":" << json_string(value) << ",\"offset\":" << range->offset
+             << ",\"length\":" << range->length;
         if (!definition->enum_values.empty())
-            json << ",\"enumName\":" << json_string(std::string{
-                iotps::core::schema::enum_name(*definition, value).value_or("")});
+            json << ",\"enumName\":"
+                 << json_string(std::string{
+                        iotps::core::schema::enum_name(*definition, value).value_or("")});
         if (!definition->bits.empty()) {
             const auto* raw = std::get_if<std::uint64_t>(&field.value);
-            if (!raw) return encode_error_response("decode_failed", "Invalid bit container value");
-            const auto order = definition->byte_order.value_or(protocol->schema.protocol.default_byte_order);
+            if (!raw)
+                return encode_error_response("decode_failed", "Invalid bit container value");
+            const auto order =
+                definition->byte_order.value_or(protocol->schema.protocol.default_byte_order);
             json << ",\"bits\":[";
             for (std::size_t index = 0; index < definition->bits.size(); ++index) {
-                if (index) json << ',';
+                if (index)
+                    json << ',';
                 const auto& bit = definition->bits[index];
                 const auto low = bit.offset / 8, high = (bit.offset + bit.width - 1) / 8;
                 const auto first = order == iotps::core::schema::ByteOrder::little_endian
-                                       ? low : range->length - 1 - high;
+                                       ? low
+                                       : range->length - 1 - high;
                 json << "{\"name\":" << json_string(bit.name)
-                     << ",\"displayName\":" << json_string(bit.display_name)
-                     << ",\"value\":" << json_string(std::to_string(iotps::core::schema::bit_value(*raw, bit)))
-                     << ",\"offset\":" << range->offset + first
-                     << ",\"length\":" << high - low + 1
-                     << ",\"bitOffset\":" << bit.offset
-                     << ",\"width\":" << bit.width << '}';
+                     << ",\"displayName\":" << json_string(bit.display_name) << ",\"value\":"
+                     << json_string(std::to_string(iotps::core::schema::bit_value(*raw, bit)))
+                     << ",\"offset\":" << range->offset + first << ",\"length\":" << high - low + 1
+                     << ",\"bitOffset\":" << bit.offset << ",\"width\":" << bit.width << '}';
             }
             json << ']';
         }
         json << '}';
+    }
+    json << "],\"ranges\":[";
+    bool first_range = true;
+    for (const auto& range : data.element_ranges) {
+        const auto prefix = message->name + ".";
+        if (!range.path.starts_with(prefix))
+            continue;
+        const auto* source = find_input_field(protocol->schema, *message,
+                                              std::string_view{range.path}.substr(prefix.size()));
+        if (!source || (source->type != iotps::core::schema::FieldType::structure &&
+                        source->element_type != iotps::core::schema::FieldType::structure))
+            continue;
+        if (!first_range)
+            json << ',';
+        first_range = false;
+        json << "{\"path\":" << json_string(range.path) << ",\"offset\":" << range.offset
+             << ",\"length\":" << range.length << '}';
     }
     json << "]}";
     return json.str();
@@ -1142,6 +1226,29 @@ window.addEventListener("DOMContentLoaded", () => {
               unknown.fields[1].offset !== 2 || encodedUnknown.normalizedHex !== "34 12 09") {
             report("enum-bridge-failed"); return;
           }
+          await edit("addStructure", "", "", "name", "Pair");
+          await edit("addStructureField", "Pair", "", "name", "child", "type", "uint8");
+          await edit("addField", "packet", "", "name", "count", "type", "uint8");
+          const advanced = await edit("addField", "packet", "", "name", "items", "type", "array",
+                                      "elementType", "struct", "structRef", "Pair",
+                                      "countFrom", "count", "maxCount", "2");
+          await edit("addField", "packet", "", "name", "optional", "type", "uint8",
+                     "whenField", "flag", "whenEquals", "1");
+          const advancedEncoded = await window.iotpsEncodeProtocolMessage(path, "packet",
+              "reading", "4660", "flag", "1", "count", "2",
+              "items[0].child", "3", "items[1].child", "4", "optional", "5");
+          const advancedDecoded = await window.iotpsDebugDecode(path, "packet", "34 12 01 02 03 04 05");
+          if (advanced.schema.structures?.[0]?.fields?.[0]?.name !== "child" ||
+              advancedEncoded.normalizedHex !== "34 12 01 02 03 04 05" ||
+              advancedDecoded.fields?.[3]?.name !== "items[0].child" ||
+              advancedDecoded.fields[3].offset !== 4 ||
+              advancedDecoded.ranges?.some((range) => range.path === "packet.items" && range.length === 2) !== true) {
+            report("advanced-schema-bridge-failed"); return;
+          }
+          await edit("deleteField", "packet", "optional");
+          await edit("deleteField", "packet", "items");
+          await edit("deleteField", "packet", "count");
+          await edit("deleteStructure", "Pair", "");
           const moved = await edit("moveFieldUp", "packet", "flag");
           if (moved.schema.messages[0].fields[0].name !== "flag") {
             report("schema-reorder-bridge-failed"); return;
@@ -1612,8 +1719,7 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR command_line, int) {
                     << ",\"queued\":" << state.queued_bytes << ",\"dropped\":" << state.dropped
                     << ",\"retries\":" << state.retries << ",\"cursor\":" << state.cursor
                     << ",\"protocolPath\":" << json_string(state.protocol_path)
-                    << ",\"messageName\":" << json_string(state.message_name)
-                    << ",\"peers\":[";
+                    << ",\"messageName\":" << json_string(state.message_name) << ",\"peers\":[";
                 bool first = true;
                 for (const auto& peer : state.peers) {
                     if (!first)
@@ -1637,8 +1743,7 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR command_line, int) {
                         << ",\"detail\":" << json_string(record.detail);
                     if (record.parsed) {
                         const auto& parsed = *record.parsed;
-                        out << ",\"parsed\":{\"protocolPath\":"
-                            << json_string(parsed.protocol_path)
+                        out << ",\"parsed\":{\"protocolPath\":" << json_string(parsed.protocol_path)
                             << ",\"messageName\":" << json_string(parsed.message_name)
                             << ",\"status\":" << json_string(parsed.status)
                             << ",\"checksum\":" << json_string(parsed.checksum)
@@ -1652,14 +1757,14 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR command_line, int) {
                                 << ",\"displayName\":" << json_string(field.display_name)
                                 << ",\"type\":" << json_string(field.type)
                                 << ",\"value\":" << json_string(field.value)
-                                << ",\"offset\":" << field.offset
-                                << ",\"length\":" << field.length;
+                                << ",\"offset\":" << field.offset << ",\"length\":" << field.length;
                             if (field.enum_name)
                                 out << ",\"enumName\":" << json_string(*field.enum_name);
                             if (!field.bits.empty()) {
                                 out << ",\"bits\":[";
                                 for (std::size_t index = 0; index < field.bits.size(); ++index) {
-                                    if (index) out << ',';
+                                    if (index)
+                                        out << ',';
                                     const auto& bit = field.bits[index];
                                     out << "{\"name\":" << json_string(bit.name)
                                         << ",\"displayName\":" << json_string(bit.display_name)

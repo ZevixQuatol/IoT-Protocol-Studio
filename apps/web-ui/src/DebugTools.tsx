@@ -137,6 +137,7 @@ export default function DebugTools(props: Props) {
   const [protocolPath, setProtocolPath] = useState("");
   const [messageName, setMessageName] = useState("");
   const [fields, setFields] = useState<DebugField[]>([]);
+  const [ranges, setRanges] = useState<{ path: string; offset: number; length: number }[]>([]);
   const [activeField, setActiveField] = useState<string>();
   const updateCrc = (index: number, value: string) => {
     setAlgorithm("Custom CRC");
@@ -179,6 +180,7 @@ export default function DebugTools(props: Props) {
   }, [snapshot]);
   useEffect(() => {
     setFields([]);
+    setRanges([]);
     setActiveField(undefined);
     setMatches([]);
     setMatchIndex(-1);
@@ -213,7 +215,7 @@ export default function DebugTools(props: Props) {
 
   const focusField = (field: DebugField, scrollBytes: boolean) => {
     setActiveField(field.name);
-    props.onRange({ start: field.offset, end: field.offset + field.length - 1 });
+    if (field.length) props.onRange({ start: field.offset, end: field.offset + field.length - 1 });
     if (scrollBytes)
       document.getElementById(`debug-byte-${field.offset}`)?.scrollIntoView({ block: "nearest" });
     else document.getElementById(`debug-field-${field.name}`)?.scrollIntoView({ block: "nearest" });
@@ -716,9 +718,13 @@ export default function DebugTools(props: Props) {
             onClick={() =>
               void run(async (current) => {
                 setFields([]);
+                setRanges([]);
                 props.onRange(null);
                 const result = assertOk(await debugDecode(protocolPath, messageName, props.input));
-                if (current()) setFields(result.fields);
+                if (current()) {
+                  setFields(result.fields);
+                  setRanges(result.ranges ?? []);
+                }
               })
             }
           >
@@ -726,6 +732,33 @@ export default function DebugTools(props: Props) {
           </button>
           {!!fields.length && (
             <div className="debug-field-list" aria-label={t("解析字段列表", "Decoded fields")}>
+              {ranges
+                .filter((range) => range.length > 0)
+                .map((range) => (
+                  <button
+                    key={range.path}
+                    type="button"
+                    className="debug-bit-field"
+                    onClick={() =>
+                      focusField(
+                        {
+                          name: range.path,
+                          displayName: "",
+                          type: "struct",
+                          value: "",
+                          offset: range.offset,
+                          length: range.length,
+                        },
+                        true,
+                      )
+                    }
+                  >
+                    <strong>{range.path}</strong>
+                    <small>
+                      byte {range.offset}–{range.offset + range.length - 1}
+                    </small>
+                  </button>
+                ))}
               {fields.map((field) => (
                 <div key={field.name}>
                   <button
@@ -737,7 +770,8 @@ export default function DebugTools(props: Props) {
                   >
                     <strong>{field.displayName || field.name}</strong>
                     <small>
-                      {field.name} · {field.type} · {field.offset}–{field.offset + field.length - 1}
+                      {field.name} · {field.type} ·{" "}
+                      {field.length ? `${field.offset}–${field.offset + field.length - 1}` : "0 B"}
                     </small>
                     <code>
                       {field.enumName === undefined

@@ -86,6 +86,7 @@ std::optional<std::size_t> primitive_width(const schema::FieldType type) {
     case schema::FieldType::bytes:
     case schema::FieldType::string:
     case schema::FieldType::array:
+    case schema::FieldType::structure:
         return std::nullopt;
     }
     return std::nullopt;
@@ -379,7 +380,7 @@ Result<LayoutPlan, CodecError> build_layout(const schema::MessageDefinition& def
                 return make_error(CodecErrorCode::invalid_layout, path,
                                   field.offset.value_or(cursor), "array field requires count");
             }
-            if (*field.count == 0) {
+            if (*field.count == 0 && !field.count_from) {
                 return make_error(CodecErrorCode::invalid_layout, path,
                                   field.offset.value_or(cursor),
                                   "array count must be greater than zero");
@@ -558,6 +559,183 @@ PrimitiveBitsResult calculate_checksum(const schema::MessageDefinition& definiti
     }
     return make_error(CodecErrorCode::invalid_layout, path, start,
                       "unsupported checksum algorithm");
+}
+
+struct ExpandedLayout {
+    schema::MessageDefinition definition;
+    std::vector<FieldRange> containers;
+    std::vector<std::pair<std::string, std::size_t>> derived_lengths;
+};
+
+bool uses_runtime_layout(const schema::MessageDefinition& definition) {
+    return std::ranges::any_of(definition.fields, [](const auto& field) {
+        return field.type == schema::FieldType::structure || field.when_field || field.count_from ||
+               field.element_type == schema::FieldType::structure;
+    });
+}
+
+Result<ExpandedLayout, CodecError> expand_layout(const schema::ProtocolSchema& protocol,
+                                                 const schema::MessageDefinition& message,
+                                                 const StructuredMessage* input,
+                                                 const std::span<const std::uint8_t> bytes) {
+    ExpandedLayout result{.definition = message};
+    result.definition.fields.clear();
+    std::size_t visited = 0;
+    std::function<Result<std::size_t, CodecError>(const std::vector<schema::FieldDefinition>&,
+                                                  const std::string&, std::size_t, std::size_t)>
+        expand;
+    expand = [&](const auto& fields, const std::string& prefix, const std::size_t start,
+                 const std::size_t depth) -> Result<std::size_t, CodecError> {
+        if (depth > 4)
+            return make_error(CodecErrorCode::invalid_layout, prefix, start,
+                              "structure nesting exceeds four levels");
+        std::size_t cursor = start;
+        for (const auto& field : fields) {
+            if (++visited > 65536)
+                return make_error(CodecErrorCode::invalid_layout, message.name, cursor,
+                                  "runtime layout exceeds field limit");
+            const auto name = prefix + field.name;
+            const auto path = message.name + "." + name;
+            if (field.offset && *field.offset > 1024 * 1024 - start)
+                return make_error(CodecErrorCode::invalid_layout, path, start,
+                                  "field offset exceeds 1 MiB frame limit");
+            const auto offset = field.offset ? start + *field.offset : cursor;
+            if (offset < cursor || offset > 1024 * 1024)
+                return make_error(CodecErrorCode::invalid_layout, path, offset,
+                                  "field offset overlaps or exceeds 1 MiB frame limit");
+            const auto source_value =
+                [&](const std::string& source) -> Result<std::uint64_t, CodecError> {
+                const auto source_name = prefix + source;
+                const auto found =
+                    std::ranges::find_if(result.definition.fields, [&](const auto& item) {
+                        return item.name == source_name;
+                    });
+                if (found == result.definition.fields.end())
+                    return make_error(CodecErrorCode::invalid_layout, path, offset,
+                                      "dependency must be an earlier unsigned field: " + source);
+                if (input) {
+                    const auto value = std::ranges::find_if(
+                        input->fields, [&](const auto& item) { return item.name == source_name; });
+                    if (value == input->fields.end() ||
+                        !std::holds_alternative<std::uint64_t>(value->value))
+                        return make_error(CodecErrorCode::missing_field,
+                                          message.name + "." + source_name, offset,
+                                          "dependency requires an unsigned value");
+                    return std::get<std::uint64_t>(value->value);
+                }
+                const auto width = schema::wire_size(*found);
+                if (!width || *found->offset > bytes.size() ||
+                    bytes.size() - *found->offset < *width)
+                    return make_error(CodecErrorCode::insufficient_data,
+                                      message.name + "." + source_name, found->offset.value_or(0),
+                                      "dependency is truncated");
+                return read_unsigned(
+                    bytes, *found->offset, *width,
+                    found->byte_order.value_or(protocol.protocol.default_byte_order));
+            };
+            if (field.when_field) {
+                auto actual = source_value(*field.when_field);
+                if (!actual.has_value())
+                    return std::move(actual).error();
+                if (actual.value() != field.when_equals.value_or(0))
+                    continue;
+            }
+            std::size_t count = field.count.value_or(0);
+            if (field.count_from) {
+                auto actual = source_value(*field.count_from);
+                if (!actual.has_value())
+                    return std::move(actual).error();
+                if (actual.value() > field.max_count.value_or(0))
+                    return make_error(CodecErrorCode::array_count_mismatch, path, offset,
+                                      "array count exceeds maxCount");
+                count = static_cast<std::size_t>(actual.value());
+            }
+            if (field.type == schema::FieldType::structure ||
+                field.element_type == schema::FieldType::structure) {
+                const auto found =
+                    field.struct_ref
+                        ? std::ranges::find_if(
+                              protocol.structures,
+                              [&](const auto& item) { return item.name == *field.struct_ref; })
+                        : protocol.structures.end();
+                if (found == protocol.structures.end())
+                    return make_error(CodecErrorCode::invalid_layout, path, offset,
+                                      "unknown structure reference");
+                std::size_t end = offset;
+                const auto instances = field.type == schema::FieldType::array ? count : 1;
+                for (std::size_t index = 0; index < instances; ++index) {
+                    const auto item_start = end;
+                    const auto child_prefix =
+                        name +
+                        (field.type == schema::FieldType::array ? "[" + std::to_string(index) + "]"
+                                                                : "") +
+                        ".";
+                    auto next = expand(found->fields, child_prefix, end, depth + 1);
+                    if (!next.has_value())
+                        return std::move(next).error();
+                    end = next.value();
+                    if (field.type == schema::FieldType::array)
+                        result.containers.push_back(
+                            {.path = path + "[" + std::to_string(index) + "]",
+                             .offset = item_start,
+                             .length = end - item_start});
+                }
+                result.containers.push_back(
+                    {.path = path, .offset = offset, .length = end - offset});
+                cursor = end;
+                continue;
+            }
+            auto concrete = field;
+            concrete.name = name;
+            concrete.offset = offset;
+            concrete.when_field.reset();
+            concrete.when_equals.reset();
+            if (concrete.length_of)
+                concrete.length_of = prefix + *concrete.length_of;
+            if (field.type == schema::FieldType::array)
+                concrete.count = count;
+            std::size_t length = 0;
+            if (field.type == schema::FieldType::array) {
+                const auto width =
+                    field.element_type ? primitive_width(*field.element_type) : std::nullopt;
+                if (!width || count > 1024 * 1024 / *width)
+                    return make_error(CodecErrorCode::invalid_layout, path, offset,
+                                      "array length is invalid or exceeds 1 MiB");
+                length = count * *width;
+            } else {
+                const auto width = schema::wire_size(field);
+                if (!width)
+                    return make_error(CodecErrorCode::invalid_layout, path, offset,
+                                      "field length is required");
+                length = *width;
+            }
+            if (length > 1024 * 1024 - offset)
+                return make_error(CodecErrorCode::invalid_layout, path, offset,
+                                  "frame exceeds 1 MiB limit");
+            result.definition.fields.push_back(std::move(concrete));
+            cursor = offset + length;
+        }
+        return cursor;
+    };
+    auto end = expand(message.fields, "", 0, 0);
+    if (!end.has_value())
+        return std::move(end).error();
+    for (auto& field : result.definition.fields) {
+        if (!field.length_of)
+            continue;
+        const auto target = std::ranges::find_if(result.definition.fields, [&](const auto& item) {
+            return item.name == *field.length_of;
+        });
+        if (target != result.definition.fields.end())
+            continue;
+        const auto container = std::ranges::find_if(result.containers, [&](const auto& item) {
+            return item.path == message.name + "." + *field.length_of;
+        });
+        result.derived_lengths.emplace_back(
+            field.name, container == result.containers.end() ? 0 : container->length);
+        field.length_of.reset();
+    }
+    return result;
 }
 
 } // namespace
@@ -758,7 +936,8 @@ DecodeResult FixedLayoutCodec::decode(const schema::MessageDefinition& definitio
                 const auto low = bit.offset / 8;
                 const auto high = (bit.offset + bit.width - 1) / 8;
                 const auto first = order == schema::ByteOrder::little_endian
-                                       ? low : layout_field.length - 1 - high;
+                                       ? low
+                                       : layout_field.length - 1 - high;
                 decoded.element_ranges.push_back({
                     .path = path + "." + bit.name,
                     .offset = layout_field.offset + first,
@@ -827,11 +1006,32 @@ ProtocolDecodeResult decode_protocol_message(const schema::ProtocolSchema& proto
     }
 
     const FixedLayoutCodec codec;
-    auto decoded = codec.decode(*definition, bytes, protocol.protocol.default_byte_order);
+    auto expanded =
+        uses_runtime_layout(*definition)
+            ? expand_layout(protocol, *definition, nullptr, bytes)
+            : Result<ExpandedLayout, CodecError>{ExpandedLayout{.definition = *definition}};
+    if (const auto* error = expanded.error_if())
+        return wrap_codec_error(ProtocolCodecErrorCode::decode_failed, *error);
+    auto decoded =
+        codec.decode(expanded.value().definition, bytes, protocol.protocol.default_byte_order);
     if (const auto* error = decoded.error_if()) {
         return wrap_codec_error(ProtocolCodecErrorCode::decode_failed, *error);
     }
-    return std::move(decoded).value();
+    auto output = std::move(decoded).value();
+    for (const auto& [name, length] : expanded.value().derived_lengths) {
+        const auto found = std::ranges::find_if(
+            output.message.fields, [&](const auto& field) { return field.name == name; });
+        if (found == output.message.fields.end() ||
+            !std::holds_alternative<std::uint64_t>(found->value) ||
+            std::get<std::uint64_t>(found->value) != length)
+            return make_protocol_error(ProtocolCodecErrorCode::decode_failed,
+                                       std::string{message_name} + "." + name, std::nullopt,
+                                       "declared length does not match runtime field length");
+    }
+    output.concrete_fields = std::move(expanded.value().definition.fields);
+    output.element_ranges.insert(output.element_ranges.end(), expanded.value().containers.begin(),
+                                 expanded.value().containers.end());
+    return output;
 }
 
 ProtocolDecodeResult decode_protocol_hex(const schema::ProtocolSchema& protocol,
@@ -858,9 +1058,8 @@ ProtocolEncodeResult encode_protocol_message(const schema::ProtocolSchema& proto
     auto values = message;
     if (!protocol.protocol.message_type_field.empty() && definition->type_id) {
         const auto& field_name = protocol.protocol.message_type_field;
-        const auto provided = std::ranges::find_if(values.fields, [&](const auto& field) {
-            return field.name == field_name;
-        });
+        const auto provided = std::ranges::find_if(
+            values.fields, [&](const auto& field) { return field.name == field_name; });
         if (provided == values.fields.end()) {
             values.fields.push_back({field_name, *definition->type_id});
         } else if (const auto* id = std::get_if<std::uint64_t>(&provided->value);
@@ -871,7 +1070,25 @@ ProtocolEncodeResult encode_protocol_message(const schema::ProtocolSchema& proto
         }
     }
     const FixedLayoutCodec codec;
-    auto encoded = codec.encode(*definition, values, protocol.protocol.default_byte_order);
+    auto expanded =
+        uses_runtime_layout(*definition)
+            ? expand_layout(protocol, *definition, &values, {})
+            : Result<ExpandedLayout, CodecError>{ExpandedLayout{.definition = *definition}};
+    if (const auto* error = expanded.error_if())
+        return wrap_codec_error(ProtocolCodecErrorCode::encode_failed, *error);
+    for (const auto& [name, length] : expanded.value().derived_lengths) {
+        const auto provided = std::ranges::find_if(
+            values.fields, [&](const auto& field) { return field.name == name; });
+        if (provided == values.fields.end())
+            values.fields.push_back({name, static_cast<std::uint64_t>(length)});
+        else if (!std::holds_alternative<std::uint64_t>(provided->value) ||
+                 std::get<std::uint64_t>(provided->value) != length)
+            return make_protocol_error(ProtocolCodecErrorCode::encode_failed,
+                                       message.message_name + "." + name, std::nullopt,
+                                       "declared length does not match runtime field length");
+    }
+    auto encoded =
+        codec.encode(expanded.value().definition, values, protocol.protocol.default_byte_order);
     if (const auto* error = encoded.error_if()) {
         return wrap_codec_error(ProtocolCodecErrorCode::encode_failed, *error);
     }

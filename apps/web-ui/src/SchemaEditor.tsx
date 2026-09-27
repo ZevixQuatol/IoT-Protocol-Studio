@@ -30,6 +30,7 @@ const primitiveTypes = [
 export default function SchemaEditor({
   target,
   protocolPath,
+  structureNames,
   locale,
   busy,
   error,
@@ -38,6 +39,7 @@ export default function SchemaEditor({
 }: {
   target: SchemaEditTarget;
   protocolPath: string;
+  structureNames: string[];
   locale: Locale;
   busy: boolean;
   error?: string;
@@ -47,7 +49,10 @@ export default function SchemaEditor({
   const t = messages[locale];
   const { action, message, field } = target;
   const deleting = action.startsWith("delete");
-  const isField = action.endsWith("Field");
+  const isField = action.includes("Field");
+  const dependencyFields = (message?.fields ?? [])
+    .slice(0, field ? message?.fields.findIndex((item) => item.name === field.name) : undefined)
+    .filter((item) => /^uint(8|16|32|64)$/.test(item.type) && !item.lengthOf && !item.whenField);
   const [values, setValues] = useState<Record<string, string>>((): Record<string, string> =>
     isField
       ? {
@@ -67,6 +72,11 @@ export default function SchemaEditor({
                 `${bit.name}=${bit.offset}:${bit.width}${bit.displayName ? `:${bit.displayName}` : ""}`,
             )
             .join("\n"),
+          structRef: field?.structRef ?? "",
+          whenField: field?.whenField ?? "",
+          whenEquals: field?.whenEquals ?? "",
+          countFrom: field?.countFrom ?? "",
+          maxCount: field?.maxCount ?? "",
         }
       : {
           name: message?.name ?? "",
@@ -110,6 +120,12 @@ export default function SchemaEditor({
     addField: t.structure.addField,
     updateField: t.structure.editField,
     deleteField: t.structure.deleteField,
+    addStructure: locale === "zh-CN" ? "新增结构" : "Add structure",
+    updateStructure: locale === "zh-CN" ? "编辑结构" : "Edit structure",
+    deleteStructure: locale === "zh-CN" ? "删除结构" : "Delete structure",
+    addStructureField: t.structure.addField,
+    updateStructureField: t.structure.editField,
+    deleteStructureField: t.structure.deleteField,
   };
   const submit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -118,11 +134,20 @@ export default function SchemaEditor({
       ? {}
       : { ...values, name: values.name.trim() };
     if (isField && !deleting) {
-      if (values.type === "array") properties.length = "";
+      if (values.type === "array" || values.type === "struct") properties.length = "";
       else {
         properties.elementType = "";
         properties.count = "";
+        properties.countFrom = "";
+        properties.maxCount = "";
       }
+      if (values.type === "array") {
+        if (values.countFrom) properties.count = "";
+        else properties.maxCount = "";
+      }
+      if (values.type !== "struct" && !(values.type === "array" && values.elementType === "struct"))
+        properties.structRef = "";
+      if (!values.whenField) properties.whenEquals = "";
       if (!["uint8", "uint16", "uint32", "uint64"].includes(values.type)) properties.lengthOf = "";
       if (!/^u?int(8|16|32|64)$/.test(values.type)) properties.enum = "";
       if (!/^uint(8|16|32|64)$/.test(values.type)) properties.bits = "";
@@ -172,7 +197,7 @@ export default function SchemaEditor({
                     disabled={busy}
                     onChange={(event) => update("type", event.target.value)}
                   >
-                    {[...primitiveTypes, "string", "bytes", "array"].map((type) => (
+                    {[...primitiveTypes, "string", "bytes", "array", "struct"].map((type) => (
                       <option key={type}>{type}</option>
                     ))}
                   </select>
@@ -192,6 +217,7 @@ export default function SchemaEditor({
                 </label>
                 {text("offset", t.structure.offset, false, true, t.structure.automaticLayout)}
                 {values.type !== "array" &&
+                  values.type !== "struct" &&
                   text(
                     "length",
                     t.structure.length,
@@ -209,14 +235,70 @@ export default function SchemaEditor({
                         disabled={busy}
                         onChange={(event) => update("elementType", event.target.value)}
                       >
-                        {primitiveTypes.map((type) => (
+                        {[...primitiveTypes, "struct"].map((type) => (
                           <option key={type}>{type}</option>
                         ))}
                       </select>
                     </label>
-                    {text("count", t.structure.count, true, true)}
+                    {!values.countFrom && text("count", t.structure.count, true, true)}
+                    <label>
+                      {locale === "zh-CN" ? "数量来源" : "Count from"}
+                      <select
+                        name="countFrom"
+                        value={values.countFrom}
+                        disabled={busy}
+                        onChange={(event) => update("countFrom", event.target.value)}
+                      >
+                        <option value="">{t.structure.none}</option>
+                        {dependencyFields.map((item) => (
+                          <option key={item.name} value={item.name}>
+                            {item.name}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                    {values.countFrom &&
+                      text("maxCount", locale === "zh-CN" ? "最大数量" : "Max count", true, true)}
                   </>
                 )}
+                {(values.type === "struct" ||
+                  (values.type === "array" && values.elementType === "struct")) && (
+                  <label>
+                    {locale === "zh-CN" ? "结构引用" : "Structure reference"}
+                    <select
+                      name="structRef"
+                      value={values.structRef}
+                      disabled={busy}
+                      onChange={(event) => update("structRef", event.target.value)}
+                      required
+                    >
+                      <option value="">{t.structure.none}</option>
+                      {structureNames.map((name) => (
+                        <option key={name} value={name}>
+                          {name}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                )}
+                <label>
+                  {locale === "zh-CN" ? "存在条件：字段" : "Present when field"}
+                  <select
+                    name="whenField"
+                    value={values.whenField}
+                    disabled={busy}
+                    onChange={(event) => update("whenField", event.target.value)}
+                  >
+                    <option value="">{t.structure.none}</option>
+                    {dependencyFields.map((item) => (
+                      <option key={item.name} value={item.name}>
+                        {item.name}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                {values.whenField &&
+                  text("whenEquals", locale === "zh-CN" ? "等于" : "Equals", true, true)}
                 {["uint8", "uint16", "uint32", "uint64"].includes(values.type) && (
                   <label>
                     {t.structure.lengthOf}

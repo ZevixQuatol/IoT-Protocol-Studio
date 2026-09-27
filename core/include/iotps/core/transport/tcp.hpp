@@ -1,8 +1,8 @@
 #pragma once
 
+#include "iotps/core/schema/schema.hpp"
 #include "iotps/core/transport/framing.hpp"
 #include "iotps/core/transport/transport.hpp"
-#include "iotps/core/schema/schema.hpp"
 
 #include <memory>
 #include <vector>
@@ -80,8 +80,8 @@ class TcpSession {
     [[nodiscard]] TransportResult send(std::uint64_t peer, std::span<const std::uint8_t> bytes);
     [[nodiscard]] TransportResult disconnect(std::uint64_t peer);
     [[nodiscard]] TransportResult set_framing(FrameRule rule);
-    [[nodiscard]] TransportResult bind_protocol(schema::ProtocolSchema protocol,
-                                                std::string path, std::string message = {});
+    [[nodiscard]] TransportResult bind_protocol(schema::ProtocolSchema protocol, std::string path,
+                                                std::string message = {});
     void clear_binding();
     void clear_records();
     [[nodiscard]] TcpSnapshot snapshot(std::uint64_t after = 0, std::size_t max_records = 128,

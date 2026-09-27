@@ -3,6 +3,7 @@
 #include "iotps/core/hex.hpp"
 #include "iotps/core/schema/loader.hpp"
 
+#include <algorithm>
 #include <filesystem>
 #include <fstream>
 #include <iostream>
@@ -63,8 +64,8 @@ messages:
             CHECK(decoded.has_value());
             if (const auto* data = decoded.value_if()) {
                 CHECK(std::get<std::uint64_t>(data->message.fields[0].value) == numeric);
-                CHECK(schema::enum_name(definition->messages[0].fields[0],
-                                        std::to_string(numeric)).has_value() == known);
+                CHECK(schema::enum_name(definition->messages[0].fields[0], std::to_string(numeric))
+                          .has_value() == known);
                 const auto encoded = encode_protocol_hex(*definition, data->message);
                 CHECK(encoded.has_value());
                 if (const auto* result = encoded.value_if())
@@ -101,6 +102,109 @@ messages:
             CHECK(encoded.has_value() && encoded.value() == "01 81");
         }
     }
+    const auto advanced_schema = schema::load_yaml(R"yaml(schemaVersion: "0.1"
+protocol: {name: advanced, version: "1"}
+structures:
+  Item:
+    fields:
+      - {name: value, type: uint8}
+      - {name: flag, type: uint8}
+messages:
+  frame:
+    fields:
+      - {name: count, type: uint8}
+      - {name: enabled, type: uint8}
+      - {name: length, type: uint8, lengthOf: samples}
+      - {name: itemLength, type: uint8, lengthOf: items}
+      - {name: samples, type: array, elementType: uint8, countFrom: count, maxCount: 4, whenField: enabled, whenEquals: 1}
+      - {name: items, type: array, elementType: struct, structRef: Item, countFrom: count, maxCount: 4}
+      - {name: crc, type: uint16}
+    checksum: {name: crc, algorithm: crc16-modbus, targetField: crc}
+)yaml");
+    CHECK(advanced_schema.has_value());
+    if (const auto* protocol = advanced_schema.value_if()) {
+        StructuredMessage frame{.message_name = "frame",
+                                .fields = {
+                                    {"count", std::uint64_t{2}},
+                                    {"enabled", std::uint64_t{1}},
+                                    {"samples", ArrayValue{std::uint64_t{7}, std::uint64_t{8}}},
+                                    {"items[0].value", std::uint64_t{9}},
+                                    {"items[0].flag", std::uint64_t{10}},
+                                    {"items[1].value", std::uint64_t{11}},
+                                    {"items[1].flag", std::uint64_t{12}},
+                                }};
+        const auto encoded = encode_protocol_message(*protocol, frame);
+        CHECK(encoded.has_value());
+        if (const auto* bytes = encoded.value_if()) {
+            CHECK(bytes->size() == 12);
+            const auto decoded = decode_protocol_message(*protocol, "frame", *bytes);
+            CHECK(decoded.has_value());
+            if (const auto* data = decoded.value_if()) {
+                CHECK(data->message.fields.size() == 10);
+                if (data->field_ranges.size() > 5) {
+                    CHECK(data->field_ranges[5].path == "frame.items[0].value");
+                    CHECK(data->field_ranges[5].offset == 6);
+                }
+                if (!data->element_ranges.empty()) {
+                    CHECK(data->element_ranges.back().path == "frame.items");
+                    CHECK(data->element_ranges.back().length == 4);
+                    CHECK(std::ranges::any_of(data->element_ranges, [](const auto& range) {
+                        return range.path == "frame.items[1]" && range.offset == 8 &&
+                               range.length == 2;
+                    }));
+                }
+                const auto roundtrip = encode_protocol_message(*protocol, data->message);
+                CHECK(roundtrip.has_value());
+                if (roundtrip.has_value())
+                    CHECK(roundtrip.value() == *bytes);
+            }
+            auto damaged = *bytes;
+            damaged[6] ^= 1;
+            CHECK(!decode_protocol_message(*protocol, "frame", damaged).has_value());
+        }
+        frame.fields[1].value = std::uint64_t{0};
+        frame.fields.erase(frame.fields.begin() + 2);
+        const auto absent = encode_protocol_message(*protocol, frame);
+        CHECK(absent.has_value());
+        if (const auto* bytes = absent.value_if()) {
+            CHECK(bytes->size() == 10);
+            CHECK(decode_protocol_message(*protocol, "frame", *bytes).has_value());
+            auto truncated = *bytes;
+            truncated.pop_back();
+            CHECK(!decode_protocol_message(*protocol, "frame", truncated).has_value());
+        }
+        frame.fields[0].value = std::uint64_t{0};
+        frame.fields.erase(frame.fields.begin() + 2, frame.fields.end());
+        const auto empty = encode_protocol_message(*protocol, frame);
+        CHECK(empty.has_value());
+        if (const auto* bytes = empty.value_if()) {
+            CHECK(bytes->size() == 6);
+            CHECK(decode_protocol_message(*protocol, "frame", *bytes).has_value());
+        }
+        frame.fields[0].value = std::uint64_t{5};
+        CHECK(!encode_protocol_message(*protocol, frame).has_value());
+    }
+    CHECK(!schema::load_yaml(R"yaml(schemaVersion: "0.1"
+protocol: {name: invalid-dependency, version: "1"}
+messages:
+  frame:
+    fields:
+      - {name: payload, type: uint8, whenField: later, whenEquals: 1}
+      - {name: later, type: uint8}
+)yaml")
+               .has_value());
+    CHECK(!schema::load_yaml(R"yaml(schemaVersion: "0.1"
+protocol: {name: recursive, version: "1"}
+structures:
+  Loop:
+    fields:
+      - {name: again, type: struct, structRef: Loop}
+messages:
+  frame:
+    fields:
+      - {name: root, type: struct, structRef: Loop}
+)yaml")
+               .has_value());
 
     const auto parsed_bytes = parse_hex(hex);
     CHECK(parsed_bytes.has_value());
@@ -184,8 +288,7 @@ messages:
     CHECK(identified_schema.has_value());
     if (identified_schema.has_value()) {
         CHECK(identified_schema.value().protocol.message_type_field == "kind");
-        StructuredMessage ping{.message_name = "ping",
-                               .fields = {{"payload", std::uint64_t{7}}}};
+        StructuredMessage ping{.message_name = "ping", .fields = {{"payload", std::uint64_t{7}}}};
         const auto encoded = encode_protocol_message(identified_schema.value(), ping);
         CHECK(encoded.has_value());
         if (encoded.has_value()) {
@@ -196,8 +299,8 @@ messages:
         ping.fields.push_back({"kind", std::uint64_t{3}});
         const auto mismatch = encode_protocol_message(identified_schema.value(), ping);
         CHECK(!mismatch.has_value());
-        CHECK(mismatch.error_if() && mismatch.error_if()->code ==
-                                         ProtocolCodecErrorCode::encode_failed);
+        CHECK(mismatch.error_if() &&
+              mismatch.error_if()->code == ProtocolCodecErrorCode::encode_failed);
     }
 
     const auto checksum_schema = schema::load_yaml(R"yaml(

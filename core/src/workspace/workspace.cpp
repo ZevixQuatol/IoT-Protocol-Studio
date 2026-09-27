@@ -1223,7 +1223,13 @@ ProjectLoadResult edit_schema(const std::filesystem::path& project_directory,
     input.close();
 
     try {
-        const auto& action = request.action;
+        const bool is_structure = request.action.find("Structure") != std::string::npos;
+        std::string action = request.action;
+        if (is_structure)
+            action.erase(action.find("Structure"), 9);
+        // addStructure -> addMessage; addStructureField -> addField.
+        if (is_structure && action.find("Field") == std::string::npos)
+            action += "Message";
         const bool is_message =
             action == "addMessage" || action == "updateMessage" || action == "deleteMessage";
         const bool is_field = action == "addField" || action == "updateField" ||
@@ -1233,16 +1239,17 @@ ProjectLoadResult edit_schema(const std::filesystem::path& project_directory,
             return make_error(WorkspaceErrorCode::workspace_operation_failed, "$request.action",
                               "unknown schema edit action");
         const bool patch = action.starts_with("add") || action.starts_with("update");
-        if ((!patch && !request.properties.empty()) || request.properties.size() > 11)
+        if ((!patch && !request.properties.empty()) || request.properties.size() > 16)
             return make_error(WorkspaceErrorCode::workspace_operation_failed, "$request.properties",
                               "unexpected properties");
         std::set<std::string> keys;
         std::string next_name;
         for (const auto& [key, value] : request.properties) {
-            const auto allowed = is_message
-                                     ? std::string_view{"|name|displayName|typeId|"}
-                                     : std::string_view{"|name|displayName|type|endian|length|"
-                                                        "offset|lengthOf|elementType|count|enum|bits|"};
+            const auto allowed =
+                is_message ? std::string_view{"|name|displayName|typeId|"}
+                           : std::string_view{"|name|displayName|type|endian|length|"
+                                              "offset|lengthOf|elementType|count|enum|bits|"
+                                              "structRef|whenField|whenEquals|countFrom|maxCount|"};
             if (key.empty() || key.find('|') != std::string::npos ||
                 allowed.find("|" + key + "|") == std::string_view::npos ||
                 !keys.insert(key).second || value.size() > 4096)
@@ -1262,7 +1269,14 @@ ProjectLoadResult edit_schema(const std::filesystem::path& project_directory,
         ryml::EventHandlerTree handler{loader_callbacks()};
         ryml::Parser parser(&handler);
         auto tree = ryml::parse_in_arena(&parser, ryml::to_csubstr(yaml));
-        auto messages = tree.rootref()["messages"];
+        auto root = tree.rootref();
+        auto messages = is_structure && !root.has_child("structures")
+                            ? root.append_child()
+                            : root[is_structure ? "structures" : "messages"];
+        if (is_structure && !messages.has_key()) {
+            messages.set_key_serialized("structures", ryml::KEY_DQUO);
+            messages.set_map();
+        }
         const auto message_key = ryml::to_csubstr(request.message_name);
         if (action == "addMessage") {
             if (messages.has_child(ryml::to_csubstr(next_name)))
@@ -1321,20 +1335,24 @@ ProjectLoadResult edit_schema(const std::filesystem::path& project_directory,
                                           "$request.name", "message name already exists");
                     target.set_key_serialized(value, ryml::KEY_DQUO);
                 } else if (is_field && key == "enum" && !value.empty()) {
-                    if (target.has_child("enum")) target.remove_child("enum");
+                    if (target.has_child("enum"))
+                        target.remove_child("enum");
                     auto mapping = target["enum"];
                     mapping.set_map();
                     std::istringstream lines{value};
                     std::string line;
                     std::size_t count = 0;
                     while (std::getline(lines, line)) {
-                        if (!line.empty() && line.back() == '\r') line.pop_back();
-                        if (line.empty()) continue;
+                        if (!line.empty() && line.back() == '\r')
+                            line.pop_back();
+                        if (line.empty())
+                            continue;
                         const auto split = line.find('=');
                         if (split == std::string::npos || split == 0 || split == line.size() - 1 ||
                             ++count > 64)
                             return make_error(WorkspaceErrorCode::protocol_schema_invalid,
-                                              "$request.enum", "use one name=value pair per line (max 64)");
+                                              "$request.enum",
+                                              "use one name=value pair per line (max 64)");
                         auto item = mapping.append_child();
                         item.set_key_serialized(line.substr(0, split), ryml::KEY_DQUO);
                         item.save(line.substr(split + 1));
@@ -1344,21 +1362,27 @@ ProjectLoadResult edit_schema(const std::filesystem::path& project_directory,
                         return make_error(WorkspaceErrorCode::protocol_schema_invalid,
                                           "$request.enum", "enum requires at least one value");
                 } else if (is_field && key == "bits" && !value.empty()) {
-                    if (target.has_child("bits")) target.remove_child("bits");
+                    if (target.has_child("bits"))
+                        target.remove_child("bits");
                     auto mapping = target["bits"];
                     mapping.set_map();
                     std::istringstream lines{value};
                     std::string line;
                     std::size_t count = 0;
                     while (std::getline(lines, line)) {
-                        if (!line.empty() && line.back() == '\r') line.pop_back();
-                        if (line.empty()) continue;
+                        if (!line.empty() && line.back() == '\r')
+                            line.pop_back();
+                        if (line.empty())
+                            continue;
                         const auto equals = line.find('=');
-                        const auto colon = line.find(':', equals == std::string::npos ? 0 : equals + 1);
-                        if (equals == std::string::npos || equals == 0 || colon == std::string::npos ||
-                            colon == equals + 1 || colon == line.size() - 1 || ++count > 64)
+                        const auto colon =
+                            line.find(':', equals == std::string::npos ? 0 : equals + 1);
+                        if (equals == std::string::npos || equals == 0 ||
+                            colon == std::string::npos || colon == equals + 1 ||
+                            colon == line.size() - 1 || ++count > 64)
                             return make_error(WorkspaceErrorCode::protocol_schema_invalid,
-                                              "$request.bits", "use name=offset:width[:displayName] (max 64)");
+                                              "$request.bits",
+                                              "use name=offset:width[:displayName] (max 64)");
                         const auto second_colon = line.find(':', colon + 1);
                         auto item = mapping.append_child();
                         item.set_key_serialized(line.substr(0, equals), ryml::KEY_DQUO);
@@ -1389,11 +1413,35 @@ ProjectLoadResult edit_schema(const std::filesystem::path& project_directory,
                         field["lengthOf"].save(next_name);
                         field["lengthOf"].set_val_style(ryml::VAL_DQUO);
                     }
+                    for (const auto key : {"whenField", "countFrom"}) {
+                        if (field.has_child(key) && scalar(field[key]) == request.field_name) {
+                            field[key].save(next_name);
+                            field[key].set_val_style(ryml::VAL_DQUO);
+                        }
+                    }
                 }
                 if (message.has_child("checksum") && message["checksum"].has_child("targetField") &&
                     scalar(message["checksum"]["targetField"]) == request.field_name) {
                     message["checksum"]["targetField"].save(next_name);
                     message["checksum"]["targetField"].set_val_style(ryml::VAL_DQUO);
+                }
+            }
+            if (is_structure && action == "updateMessage" && keys.contains("name") &&
+                next_name != request.message_name) {
+                for (const auto collection_key : {"messages", "structures"}) {
+                    if (!root.has_child(collection_key))
+                        continue;
+                    for (auto owner : root[collection_key].children()) {
+                        if (!owner.has_child("fields"))
+                            continue;
+                        for (auto field : owner["fields"].children()) {
+                            if (field.has_child("structRef") &&
+                                scalar(field["structRef"]) == request.message_name) {
+                                field["structRef"].save(next_name);
+                                field["structRef"].set_val_style(ryml::VAL_DQUO);
+                            }
+                        }
+                    }
                 }
             }
         }

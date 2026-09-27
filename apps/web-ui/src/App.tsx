@@ -253,6 +253,47 @@ function defaultMessageFieldValue(
   return "0";
 }
 
+function expandInputFields(
+  fields: WorkspaceProtocol["schema"]["messages"][number]["fields"],
+  structures: WorkspaceProtocol["schema"]["structures"],
+  values: Record<string, string>,
+  prefix = "",
+  depth = 0,
+): WorkspaceProtocol["schema"]["messages"][number]["fields"] {
+  if (depth > 4) return [];
+  const output: typeof fields = [];
+  for (const field of fields) {
+    if (field.whenField && values[prefix + field.whenField] !== field.whenEquals) continue;
+    const name = prefix + field.name;
+    const count = field.countFrom
+      ? Number(values[prefix + field.countFrom] ?? "0")
+      : Number(field.count ?? "0");
+    if (field.type === "struct" || field.elementType === "struct") {
+      const structure = structures?.find((item) => item.name === field.structRef);
+      if (!structure) continue;
+      const instances = field.type === "array" ? Math.min(1024, Math.max(0, count || 0)) : 1;
+      for (let index = 0; index < instances; index += 1)
+        output.push(
+          ...expandInputFields(
+            structure.fields,
+            structures,
+            values,
+            `${name}${field.type === "array" ? `[${index}]` : ""}.`,
+            depth + 1,
+          ),
+        );
+    } else {
+      output.push({
+        ...field,
+        name,
+        count: field.countFrom ? String(count || 0) : field.count,
+        offset: prefix || field.whenField || field.countFrom ? "—" : field.offset,
+      });
+    }
+  }
+  return output;
+}
+
 function bitPart(raw: string, offset: number, width: number): string {
   try {
     const value = BigInt(raw || "0");
@@ -550,12 +591,24 @@ export default function App() {
   const selectedMessage = selectedProtocol?.schema.messages.find(
     (message) => message.name === messageName,
   );
-  const selectedStructureMessage = selectedProtocol?.schema.messages.find(
-    (message) => message.name === structureSelection?.messageName,
-  );
+  const reusableStructureSelected = structureSelection?.messageName.startsWith("@") ?? false;
+  const selectedStructureMessage = reusableStructureSelected
+    ? selectedProtocol?.schema.structures?.find(
+        (message) => `@${message.name}` === structureSelection?.messageName,
+      )
+    : selectedProtocol?.schema.messages.find(
+        (message) => message.name === structureSelection?.messageName,
+      );
   const selectedStructureField = structureSelection?.fieldName
     ? selectedStructureMessage?.fields.find((field) => field.name === structureSelection.fieldName)
     : undefined;
+  const visibleMessageFields = selectedMessage
+    ? expandInputFields(
+        selectedMessage.fields,
+        selectedProtocol?.schema.structures,
+        messageFieldValues,
+      )
+    : [];
   const compactDebugInput = debugInput.replace(/\s+/g, "");
   const debugCharacterCount = compactDebugInput.length;
   const debugByteCount = Math.floor(debugCharacterCount / 2);
@@ -599,6 +652,25 @@ export default function App() {
           `${selectedStructureField.byteOrder}${selectedStructureField.byteOrderInherited ? ` · ${translation.structure.inherited}` : ""}`,
         ],
         [translation.structure.lengthOf, selectedStructureField.lengthOf ?? "—"],
+        ...(selectedStructureField.structRef
+          ? [[locale === "zh-CN" ? "结构引用" : "Structure", selectedStructureField.structRef]]
+          : []),
+        ...(selectedStructureField.whenField
+          ? [
+              [
+                locale === "zh-CN" ? "存在条件" : "Condition",
+                `${selectedStructureField.whenField} = ${selectedStructureField.whenEquals}`,
+              ],
+            ]
+          : []),
+        ...(selectedStructureField.countFrom
+          ? [
+              [
+                locale === "zh-CN" ? "动态数量" : "Dynamic count",
+                `${selectedStructureField.countFrom} ≤ ${selectedStructureField.maxCount}`,
+              ],
+            ]
+          : []),
         ...(selectedStructureField.type === "array"
           ? [
               [translation.structure.elementType, selectedStructureField.elementType ?? "—"],
@@ -770,9 +842,13 @@ export default function App() {
       if (!current) {
         return current;
       }
-      const message = selectedProtocol?.schema.messages.find(
-        (candidate) => candidate.name === current.messageName,
-      );
+      const message = current.messageName.startsWith("@")
+        ? selectedProtocol?.schema.structures?.find(
+            (candidate) => `@${candidate.name}` === current.messageName,
+          )
+        : selectedProtocol?.schema.messages.find(
+            (candidate) => candidate.name === current.messageName,
+          );
       if (!message) {
         return undefined;
       }
@@ -963,14 +1039,18 @@ export default function App() {
     const ok = await run(() => editSchema(request), selectedProtocolPath);
     if (ok) {
       setStructureSelection(
-        request.action === "deleteMessage"
+        request.action === "deleteMessage" || request.action === "deleteStructure"
           ? undefined
           : {
-              messageName: request.action.endsWith("Message")
-                ? (request.properties.name ?? request.messageName)
-                : request.messageName,
+              messageName: request.action.includes("Structure")
+                ? `@${request.properties.name ?? request.messageName}`
+                : request.action.endsWith("Message")
+                  ? (request.properties.name ?? request.messageName)
+                  : request.messageName,
               fieldName:
-                request.action === "deleteField" || request.action.endsWith("Message")
+                request.action.includes("delete") ||
+                request.action.endsWith("Message") ||
+                (request.action.includes("Structure") && !request.action.includes("Field"))
                   ? undefined
                   : (request.properties.name ?? request.fieldName),
             },
@@ -984,8 +1064,12 @@ export default function App() {
     setErrorMessage(undefined);
     setSchemaEditTarget({
       action,
-      message: action === "addMessage" ? undefined : selectedStructureMessage,
-      field: action === "addField" ? undefined : selectedStructureField,
+      message:
+        action === "addMessage" || action === "addStructure" ? undefined : selectedStructureMessage,
+      field:
+        action === "addField" || action === "addStructureField"
+          ? undefined
+          : selectedStructureField,
     });
   };
 
@@ -1016,10 +1100,13 @@ export default function App() {
         await encodeProtocolMessage({
           relativePath: selectedProtocol.path,
           messageName: selectedMessage.name,
-          fields: selectedMessage.fields
+          fields: visibleMessageFields
             .filter((field) => !field.lengthOf && field.name !== selectedMessage.checksumTarget)
             .filter((field) => field.name !== selectedProtocol.schema.messageTypeField)
-            .map((field) => ({ name: field.name, value: messageFieldValues[field.name] ?? "" })),
+            .map((field) => ({
+              name: field.name,
+              value: messageFieldValues[field.name] ?? defaultMessageFieldValue(field),
+            })),
         }),
       );
     } catch (error) {
@@ -2184,9 +2271,20 @@ export default function App() {
                               <button
                                 type="button"
                                 disabled={busy || isDirty || !selectedStructureMessage}
-                                onClick={() => openSchemaEdit("addField")}
+                                onClick={() =>
+                                  openSchemaEdit(
+                                    reusableStructureSelected ? "addStructureField" : "addField",
+                                  )
+                                }
                               >
                                 {translation.structure.addField}
+                              </button>
+                              <button
+                                type="button"
+                                disabled={busy || isDirty}
+                                onClick={() => openSchemaEdit("addStructure")}
+                              >
+                                {locale === "zh-CN" ? "新增结构" : "Add structure"}
                               </button>
                             </div>
                             {isDirty && (
@@ -2195,40 +2293,57 @@ export default function App() {
                                 {translation.structure.unsavedHint}
                               </div>
                             )}
-                            {selectedProtocol.schema.messages.length === 0 ? (
+                            {selectedProtocol.schema.messages.length === 0 &&
+                            !selectedProtocol.schema.structures?.length ? (
                               <div className="structure-empty">
                                 <ListTree size={24} />
                                 <span>{translation.structure.empty}</span>
                               </div>
                             ) : (
                               <ul className="message-tree" role="tree">
-                                {selectedProtocol.schema.messages.map((message) => {
+                                {[
+                                  ...selectedProtocol.schema.messages.map((message) => ({
+                                    message,
+                                    reusable: false,
+                                  })),
+                                  ...(selectedProtocol.schema.structures ?? []).map((message) => ({
+                                    message,
+                                    reusable: true,
+                                  })),
+                                ].map(({ message, reusable }) => {
+                                  const selectionName = reusable
+                                    ? `@${message.name}`
+                                    : message.name;
                                   const messageSelected =
                                     selectedStructureMessage?.name === message.name &&
+                                    reusableStructureSelected === reusable &&
                                     !structureSelection?.fieldName;
                                   return (
                                     <li
                                       aria-expanded="true"
                                       aria-selected={messageSelected}
-                                      key={message.name}
+                                      key={selectionName}
                                       role="treeitem"
                                     >
                                       <button
                                         className={`message-node ${messageSelected ? "selected" : ""}`}
                                         onClick={() =>
-                                          setStructureSelection({ messageName: message.name })
+                                          setStructureSelection({ messageName: selectionName })
                                         }
                                         type="button"
                                       >
                                         <ChevronDown size={15} />
                                         <div>
-                                          <strong>{message.displayName || message.name}</strong>
+                                          <strong>
+                                            {reusable ? "▧ " : ""}
+                                            {message.displayName || message.name}
+                                          </strong>
                                           {message.displayName && <code>{message.name}</code>}
                                         </div>
                                         <span>
                                           {message.fields.length} {translation.structure.fields}
                                         </span>
-                                        {message.typeId && (
+                                        {!reusable && message.typeId && (
                                           <span>
                                             {translation.structure.typeId} {message.typeId}
                                           </span>
@@ -2238,6 +2353,7 @@ export default function App() {
                                         {message.fields.map((field, fieldIndex) => {
                                           const fieldSelected =
                                             selectedStructureMessage?.name === message.name &&
+                                            reusableStructureSelected === reusable &&
                                             selectedStructureField?.name === field.name;
                                           return (
                                             <li
@@ -2251,7 +2367,7 @@ export default function App() {
                                                 className={`field-node ${fieldSelected ? "selected" : ""}`}
                                                 onClick={() =>
                                                   setStructureSelection({
-                                                    messageName: message.name,
+                                                    messageName: selectionName,
                                                     fieldName: field.name,
                                                   })
                                                 }
@@ -2325,7 +2441,13 @@ export default function App() {
                                     disabled={busy || isDirty}
                                     onClick={() =>
                                       openSchemaEdit(
-                                        selectedStructureField ? "updateField" : "updateMessage",
+                                        reusableStructureSelected
+                                          ? selectedStructureField
+                                            ? "updateStructureField"
+                                            : "updateStructure"
+                                          : selectedStructureField
+                                            ? "updateField"
+                                            : "updateMessage",
                                       )
                                     }
                                   >
@@ -2338,7 +2460,13 @@ export default function App() {
                                     disabled={busy || isDirty}
                                     onClick={() =>
                                       openSchemaEdit(
-                                        selectedStructureField ? "deleteField" : "deleteMessage",
+                                        reusableStructureSelected
+                                          ? selectedStructureField
+                                            ? "deleteStructureField"
+                                            : "deleteStructure"
+                                          : selectedStructureField
+                                            ? "deleteField"
+                                            : "deleteMessage",
                                       )
                                     }
                                   >
@@ -2361,7 +2489,11 @@ export default function App() {
                                         onClick={() =>
                                           void saveSchemaEdit({
                                             relativePath: selectedProtocol.path,
-                                            action,
+                                            action: reusableStructureSelected
+                                              ? action === "moveFieldUp"
+                                                ? "moveStructureFieldUp"
+                                                : "moveStructureFieldDown"
+                                              : action,
                                             messageName: selectedStructureMessage.name,
                                             fieldName: selectedStructureField.name,
                                             properties: {},
@@ -2374,7 +2506,7 @@ export default function App() {
                                       </button>
                                     ))}
                                 </div>
-                                {selectedStructureField && (
+                                {selectedStructureField && !reusableStructureSelected && (
                                   <form
                                     className="field-property-editor"
                                     onSubmit={submitFieldDisplayName}
@@ -2468,7 +2600,7 @@ export default function App() {
                                 key={`${project?.rootPath}:${selectedProtocol.path}:${selectedMessage.name}:${selectedProtocol.content}`}
                                 path={selectedProtocol.path}
                                 message={selectedMessage.name}
-                                fields={selectedMessage.fields
+                                fields={visibleMessageFields
                                   .filter(
                                     (field) =>
                                       !field.lengthOf &&
@@ -2477,7 +2609,9 @@ export default function App() {
                                   )
                                   .map((field) => ({
                                     name: field.name,
-                                    value: messageFieldValues[field.name] ?? "",
+                                    value:
+                                      messageFieldValues[field.name] ??
+                                      defaultMessageFieldValue(field),
                                   }))}
                                 busy={busy}
                                 disabled={isDirty}
@@ -2497,7 +2631,7 @@ export default function App() {
                                   <span>{translation.structure.type}</span>
                                   <span>{translation.messageStudio.fieldValue}</span>
                                 </div>
-                                {selectedMessage.fields.map((field) => {
+                                {visibleMessageFields.map((field) => {
                                   const hint =
                                     field.type === "bytes"
                                       ? translation.messageStudio.bytesHint
@@ -2530,7 +2664,10 @@ export default function App() {
                                           <input
                                             disabled={busy}
                                             aria-label={`${translation.messageStudio.fieldValue}: ${field.name}`}
-                                            value={messageFieldValues[field.name] ?? ""}
+                                            value={
+                                              messageFieldValues[field.name] ??
+                                              defaultMessageFieldValue(field)
+                                            }
                                             onChange={(event) =>
                                               setMessageFieldValues((current) => ({
                                                 ...current,
@@ -2633,7 +2770,10 @@ export default function App() {
                                             <input
                                               disabled={busy}
                                               aria-label={`${translation.messageStudio.fieldValue}: ${field.name} (${locale === "zh-CN" ? "原始数值" : "raw value"})`}
-                                              value={messageFieldValues[field.name] ?? ""}
+                                              value={
+                                                messageFieldValues[field.name] ??
+                                                defaultMessageFieldValue(field)
+                                              }
                                               onChange={(event) =>
                                                 setMessageFieldValues((current) => ({
                                                   ...current,
@@ -2655,7 +2795,10 @@ export default function App() {
                                               }))
                                             }
                                             placeholder={hint}
-                                            value={messageFieldValues[field.name] ?? ""}
+                                            value={
+                                              messageFieldValues[field.name] ??
+                                              defaultMessageFieldValue(field)
+                                            }
                                           />
                                           {hint && <small>{hint}</small>}
                                         </label>
@@ -2763,6 +2906,7 @@ export default function App() {
           key={`${schemaEditTarget.action}:${schemaEditTarget.message?.name}:${schemaEditTarget.field?.name}`}
           target={schemaEditTarget}
           protocolPath={selectedProtocol.path}
+          structureNames={(selectedProtocol.schema.structures ?? []).map((item) => item.name)}
           locale={locale}
           busy={busy}
           error={errorMessage}

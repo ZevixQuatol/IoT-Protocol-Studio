@@ -34,6 +34,7 @@ enum class FieldType {
     bytes,
     string,
     array,
+    structure,
 };
 
 enum class ChecksumAlgorithm {
@@ -76,6 +77,11 @@ struct FieldDefinition {
     std::optional<std::size_t> count;
     std::vector<EnumValue> enum_values;
     std::vector<BitDefinition> bits;
+    std::optional<std::string> struct_ref;
+    std::optional<std::string> when_field;
+    std::optional<std::uint64_t> when_equals;
+    std::optional<std::string> count_from;
+    std::optional<std::size_t> max_count;
 };
 
 struct ChecksumDefinition {
@@ -99,6 +105,7 @@ struct ProtocolSchema {
     std::string schema_version{current_schema_version};
     ProtocolMetadata protocol;
     std::vector<MessageDefinition> messages;
+    std::vector<MessageDefinition> structures;
 };
 
 enum class SchemaErrorCode {
@@ -149,6 +156,10 @@ enum class SchemaErrorCode {
     bit_type_unsupported,
     bit_invalid,
     bit_overlap,
+    structure_not_found,
+    structure_recursion,
+    dependency_invalid,
+    dynamic_array_invalid,
     checksum_field_not_found,
     checksum_target_invalid,
     checksum_range_invalid,

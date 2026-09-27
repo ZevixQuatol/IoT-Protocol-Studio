@@ -164,6 +164,9 @@ Result<FieldType, SchemaDiagnostic> field_type(const ryml::ConstNodeRef node, st
     if (value == "array") {
         return FieldType::array;
     }
+    if (value == "struct") {
+        return FieldType::structure;
+    }
     return make_error(SchemaErrorCode::yaml_unknown_field_type, std::move(path),
                       "unknown field type '" + value + "'", node, parser);
 }
@@ -342,39 +345,82 @@ load_field(const ryml::ConstNodeRef node, const std::string_view yaml_path,
                               count_node, parser);
         }
     }
+    for (const auto key : {"structRef", "whenField", "countFrom"}) {
+        if (!node.has_child(key))
+            continue;
+        const auto child = node[key];
+        const auto path = std::string{yaml_path} + "." + key;
+        if (const auto error = require_scalar(child, path, parser))
+            return *error;
+        source_map.emplace(std::string{domain_path} + "." + key, child.id());
+        if (std::string_view{key} == "structRef")
+            field.struct_ref = scalar(child);
+        else if (std::string_view{key} == "whenField")
+            field.when_field = scalar(child);
+        else
+            field.count_from = scalar(child);
+    }
+    for (const auto key : {"whenEquals", "maxCount"}) {
+        if (!node.has_child(key))
+            continue;
+        const auto child = node[key];
+        const auto path = std::string{yaml_path} + "." + key;
+        if (const auto error = require_scalar(child, path, parser))
+            return *error;
+        auto value = unsigned_integer(child, path, parser);
+        if (const auto* error = value.error_if())
+            return *error;
+        source_map.emplace(std::string{domain_path} + "." + key, child.id());
+        if (std::string_view{key} == "whenEquals")
+            field.when_equals = value.value();
+        else {
+            field.max_count = static_cast<std::size_t>(value.value());
+            if (value.value() != *field.max_count)
+                return make_error(SchemaErrorCode::yaml_invalid_scalar, path,
+                                  "maxCount is outside size_t range", child, parser);
+        }
+    }
     if (node.has_child("enum")) {
         const auto enum_node = node["enum"];
         const auto enum_path = std::string{yaml_path} + ".enum";
-        if (const auto error = require_mapping(enum_node, enum_path, parser)) return *error;
+        if (const auto error = require_mapping(enum_node, enum_path, parser))
+            return *error;
         source_map.emplace(std::string{domain_path} + ".enum", enum_node.id());
         if (enum_node.num_children() == 0)
             return make_error(SchemaErrorCode::enum_value_invalid, enum_path,
                               "enum mapping must contain at least one value", enum_node, parser);
         for (const auto item : enum_node.children()) {
-            if (const auto error = require_scalar(item, enum_path, parser)) return *error;
+            if (const auto error = require_scalar(item, enum_path, parser))
+                return *error;
             field.enum_values.push_back({to_string(item.key()), scalar(item)});
         }
     }
     if (node.has_child("bits")) {
         const auto bits_node = node["bits"];
         const auto bits_path = std::string{yaml_path} + ".bits";
-        if (const auto error = require_mapping(bits_node, bits_path, parser)) return *error;
+        if (const auto error = require_mapping(bits_node, bits_path, parser))
+            return *error;
         source_map.emplace(std::string{domain_path} + ".bits", bits_node.id());
         if (bits_node.num_children() == 0)
             return make_error(SchemaErrorCode::bit_invalid, bits_path,
                               "bits mapping must contain at least one entry", bits_node, parser);
         for (const auto item : bits_node.children()) {
             const auto path = bits_path + "." + to_string(item.key());
-            if (const auto error = require_mapping(item, path, parser)) return *error;
+            if (const auto error = require_mapping(item, path, parser))
+                return *error;
             if (!item.has_child("offset") || !item.has_child("width"))
                 return missing_node(path + ".offset/width", "scalar", item, parser);
             const auto offset_node = item["offset"], width_node = item["width"];
-            if (const auto error = require_scalar(offset_node, path + ".offset", parser)) return *error;
-            if (const auto error = require_scalar(width_node, path + ".width", parser)) return *error;
+            if (const auto error = require_scalar(offset_node, path + ".offset", parser))
+                return *error;
+            if (const auto error = require_scalar(width_node, path + ".width", parser))
+                return *error;
             auto offset = unsigned_integer(offset_node, path + ".offset", parser);
-            if (const auto* error = offset.error_if()) return *error;
+            if (const auto* error = offset.error_if())
+                return *error;
             auto width = unsigned_integer(width_node, path + ".width", parser);
-            if (const auto* error = width.error_if()) return *error;
+            if (const auto* error = width.error_if())
+                return *error;
             BitDefinition bit{.name = to_string(item.key()),
                               .offset = static_cast<std::size_t>(offset.value()),
                               .width = static_cast<std::size_t>(width.value())};
@@ -627,6 +673,20 @@ SchemaLoadResult load_yaml(const std::string_view yaml, std::string source_name)
             }
             schema.messages.push_back(std::move(message).value());
             ++message_index;
+        }
+        if (root.has_child("structures")) {
+            const auto structures = root["structures"];
+            if (const auto error = require_mapping(structures, "structures", parser))
+                return *error;
+            std::size_t index = 0;
+            for (const auto structure_node : structures.children()) {
+                auto structure =
+                    load_message(structure_node, "structures." + to_string(structure_node.key()),
+                                 index++, parser, source_map);
+                if (const auto* error = structure.error_if())
+                    return *error;
+                schema.structures.push_back(std::move(structure).value());
+            }
         }
 
         const auto validation = validate(schema);

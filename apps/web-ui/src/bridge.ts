@@ -101,6 +101,11 @@ export type WorkspaceField = {
   count: string | null;
   enumValues?: { name: string; value: string }[];
   bits?: { name: string; displayName: string; offset: number; width: number }[];
+  structRef?: string | null;
+  whenField?: string | null;
+  whenEquals?: string | null;
+  countFrom?: string | null;
+  maxCount?: string | null;
 };
 
 export type WorkspaceMessage = {
@@ -121,6 +126,7 @@ export type WorkspaceProtocol = {
     defaultByteOrder: "big" | "little";
     messageTypeField: string;
     messages: WorkspaceMessage[];
+    structures?: WorkspaceMessage[];
   };
 };
 
@@ -169,7 +175,15 @@ export type SchemaEditAction =
   | "updateField"
   | "deleteField"
   | "moveFieldUp"
-  | "moveFieldDown";
+  | "moveFieldDown"
+  | "addStructure"
+  | "updateStructure"
+  | "deleteStructure"
+  | "addStructureField"
+  | "updateStructureField"
+  | "deleteStructureField"
+  | "moveStructureFieldUp"
+  | "moveStructureFieldDown";
 export type SchemaEditRequest = {
   relativePath: string;
   action: SchemaEditAction;
@@ -330,7 +344,9 @@ export type DebugField = {
 };
 export type DebugToolResult =
   { ok: true; text: string; hex: string; matches: number[] } | DebugFailure;
-export type DebugDecodeResult = { ok: true; fields: DebugField[] } | DebugFailure;
+export type DebugDecodeResult =
+  | { ok: true; fields: DebugField[]; ranges?: { path: string; offset: number; length: number }[] }
+  | DebugFailure;
 export type DebugFileResult = { ok: true; cancelled: boolean; content: string } | DebugFailure;
 const debugNativeRequired: DebugFailure = {
   ok: false,
