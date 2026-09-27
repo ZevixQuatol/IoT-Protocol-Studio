@@ -232,6 +232,7 @@ export type EnvironmentVariable = {
   name: string;
   type: "string" | "number" | "boolean";
   defaultValue: string;
+  required: boolean;
 };
 export type EnvironmentConfig = {
   active: string;
@@ -256,6 +257,7 @@ export async function environments(config?: EnvironmentConfig): Promise<Environm
                   variable.name,
                   variable.type,
                   variable.defaultValue,
+                  String(variable.required),
                 ]),
               ]),
             ]

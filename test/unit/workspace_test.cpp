@@ -747,9 +747,10 @@ messages:
     EnvironmentConfig environments{
         .active = "设备 A",
         .environments = {{"设备 A",
-                          {{"server", "string", "127.0.0.1"},
+                          {{"serverAddress", "string", "127.0.0.1"},
                            {"port", "number", "8000"},
-                           {"enabled", "boolean", "true"}}},
+                           {"enabled", "boolean", "true"},
+                           {"deviceId", "string", "meter-001"}}},
                          {"设备 B", {{"server", "string", "192.0.2.2"}}}},
     };
     CHECK(save_environments(managed, environments).has_value());
@@ -758,14 +759,39 @@ messages:
     environments.active = "设备 B";
     CHECK(save_environments(managed, environments).has_value());
     CHECK(load_environments(managed).value().active == "设备 B");
+    environments.environments[0].variables[0].required = true;
+    CHECK(save_environments(managed, environments).has_value());
+    CHECK(load_environments(managed).value().environments[0].variables[0].required);
+    environments.environments[0].variables[0].default_value = "   ";
+    const auto missing_required = save_environments(managed, environments);
+    CHECK(!missing_required.has_value());
+    if (const auto* error = missing_required.error_if())
+        CHECK(error->path == "environments[0].variables[0].default");
+    environments.environments[0].variables[0].default_value = "127.0.0.1";
+    environments.environments[0].variables[1].default_value = "";
+    CHECK(save_environments(managed, environments).has_value());
+    CHECK(load_environments(managed).value().environments[0].variables[1].default_value.empty());
+    environments.environments[0].variables[1].default_value = "8000";
+    CHECK(save_environments(managed, environments).has_value());
     const auto saved_environments = read_file(environments_path);
     environments.environments[0].variables[1].default_value = "invalid";
     CHECK(!save_environments(managed, environments).has_value());
     CHECK(read_file(environments_path) == saved_environments);
     environments.environments[0].variables[1].default_value = "8000";
-    environments.environments[0].variables.push_back({"server", "string", "duplicate"});
+    environments.environments[0].variables.push_back({"serverAddress", "string", "duplicate"});
     CHECK(!save_environments(managed, environments).has_value());
     CHECK(read_file(environments_path) == saved_environments);
+    write_file(environments_path, R"yaml(version: "1"
+active: "legacy"
+environments:
+  - name: "legacy"
+    variables:
+      - name: "deviceId"
+        type: "string"
+        default: "old"
+)yaml");
+    CHECK(!load_environments(managed).value().environments[0].variables[0].required);
+    write_file(environments_path, saved_environments);
     write_file(environments_path, "version: 2\nactive: old\nenvironments: []\n");
     CHECK(!load_environments(managed).has_value());
     CHECK(!save_environments(managed, EnvironmentConfig{}).has_value());

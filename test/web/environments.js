@@ -28,6 +28,7 @@ async function checkEnvironments(page) {
               name: args[index++],
               type: args[index++],
               defaultValue: args[index++],
+              required: args[index++] === "true",
             });
           }
           config.environments.push({ name, variables });
@@ -41,6 +42,36 @@ async function checkEnvironments(page) {
         ),
       };
     };
+    const tcp = { state: "closed", host: "", port: 0 };
+    window.qaTcpStarts = [];
+    window.iotpsTcp = async (_session, action, ...args) => {
+      if (action === "start") {
+        tcp.state = "open";
+        tcp.host = args[1];
+        tcp.port = Number(args[2]);
+        window.qaTcpStarts.push([tcp.host, tcp.port]);
+      }
+      if (action === "stop") tcp.state = "closed";
+      if (action !== "poll") return { ok: true };
+      return {
+        ok: true,
+        state: tcp.state,
+        server: false,
+        host: tcp.host,
+        port: tcp.port,
+        error: "",
+        sent: 0,
+        received: 0,
+        queued: 0,
+        dropped: 0,
+        retries: 0,
+        protocolPath: "",
+        messageName: "",
+        cursor: 0,
+        peers: [],
+        records: [],
+      };
+    };
   });
   await page.reload();
   await page.getByRole("button", { name: "Environments", exact: true }).click();
@@ -51,6 +82,7 @@ async function checkEnvironments(page) {
   const row = page.locator(".environment-variable");
   await row.getByRole("textbox", { name: "Name" }).fill("host");
   await row.getByRole("textbox", { name: "Default value" }).fill("127.0.0.1");
+  await row.getByRole("checkbox", { name: "Required" }).check();
   await page.getByRole("button", { name: "Save changes" }).click();
   await page.getByRole("textbox", { name: "New environment name" }).fill("Lab B");
   await page.getByRole("button", { name: "Create environment" }).click();
@@ -65,10 +97,29 @@ async function checkEnvironments(page) {
   if ((await page.locator(".environment-variable").count()) !== 1) {
     throw new Error("Saved environment did not reload");
   }
+  if (!(await row.getByRole("checkbox", { name: "Required" }).isChecked())) {
+    throw new Error("Required setting did not reload");
+  }
   await page.getByRole("textbox", { name: "Environment name", exact: true }).fill("Lab Alpha");
   await page.getByRole("button", { name: "Save changes" }).click();
   await page.reload();
   await page.getByRole("button", { name: "Environments", exact: true }).click();
   await page.getByText("Active environment: Lab Alpha").waitFor();
-  return "PASS: create, edit, rename, switch and reload environments";
+  await page.getByRole("button", { name: "Connections", exact: true }).click();
+  await page.getByRole("textbox", { name: "IP", exact: true }).fill("127.0.0.9");
+  await page.getByRole("spinbutton", { name: "Port" }).fill("9011");
+  await page.getByRole("button", { name: "Connect", exact: true }).click();
+  await page.getByRole("textbox", { name: "IP", exact: true }).waitFor({ state: "visible" });
+  await page.getByRole("button", { name: "Environments", exact: true }).click();
+  await page.getByRole("combobox", { name: "Active environment" }).selectOption("Lab B");
+  await page.getByRole("button", { name: "Connections", exact: true }).click();
+  const ip = page.getByRole("textbox", { name: "IP", exact: true });
+  if ((await ip.inputValue()) !== "127.0.0.9" || !(await ip.isDisabled())) {
+    throw new Error("Running connection inputs changed after environment switch");
+  }
+  const starts = await page.evaluate(() => window.qaTcpStarts);
+  if (starts.length !== 1 || starts[0][1] !== 9011) {
+    throw new Error("Environment switch restarted the connection");
+  }
+  return "PASS: required variable persists; environment switch preserves running TCP connection";
 }

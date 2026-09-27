@@ -23,7 +23,10 @@ export default function Environments({ rootPath, locale }: { rootPath?: string; 
       .then((result) => {
         if (cancelled) return;
         if (result.ok) setConfig(result.config);
-        else setError(`${result.error.message} [${result.error.code}]`);
+        else
+          setError(
+            `${result.error.message} [${result.error.code}]${result.error.path ? ` (${result.error.path})` : ""}`,
+          );
       })
       .catch((cause) => {
         if (!cancelled) setError(String(cause));
@@ -47,7 +50,9 @@ export default function Environments({ rootPath, locale }: { rootPath?: string; 
         setStatus(zh ? "已保存" : "Saved");
         return true;
       }
-      setError(`${result.error.message} [${result.error.code}]`);
+      setError(
+        `${result.error.message} [${result.error.code}]${result.error.path ? ` (${result.error.path})` : ""}`,
+      );
     } catch (cause) {
       setError(String(cause));
     } finally {
@@ -66,7 +71,11 @@ export default function Environments({ rootPath, locale }: { rootPath?: string; 
       ),
     }));
   };
-  const updateVariable = (index: number, property: keyof EnvironmentVariable, value: string) => {
+  const updateVariable = <K extends keyof EnvironmentVariable>(
+    index: number,
+    property: K,
+    value: EnvironmentVariable[K],
+  ) => {
     edit((item) => ({
       ...item,
       variables: item.variables.map((variable, position) =>
@@ -93,6 +102,11 @@ export default function Environments({ rootPath, locale }: { rootPath?: string; 
           <p>{zh ? "请先打开项目。" : "Open a project first."}</p>
         ) : (
           <>
+            <p className="environment-hint">
+              {zh
+                ? "变量可用于服务器地址、设备编号等配置。切换环境不会修改正在运行的 TCP 连接。"
+                : "Store server addresses, device IDs and other values here. Switching environments does not change running TCP connections."}
+            </p>
             <div className="environment-toolbar">
               <label>
                 {zh ? "切换环境" : "Switch environment"}
@@ -184,6 +198,9 @@ export default function Environments({ rootPath, locale }: { rootPath?: string; 
                       <input
                         disabled={busy}
                         maxLength={100}
+                        placeholder={
+                          zh ? "如 serverAddress、deviceId" : "e.g. serverAddress, deviceId"
+                        }
                         onChange={(event) => updateVariable(index, "name", event.target.value)}
                         value={variable.name}
                       />
@@ -192,7 +209,13 @@ export default function Environments({ rootPath, locale }: { rootPath?: string; 
                       {zh ? "类型" : "Type"}
                       <select
                         disabled={busy}
-                        onChange={(event) => updateVariable(index, "type", event.target.value)}
+                        onChange={(event) =>
+                          updateVariable(
+                            index,
+                            "type",
+                            event.target.value as EnvironmentVariable["type"],
+                          )
+                        }
                         value={variable.type}
                       >
                         <option value="string">{zh ? "文本" : "String"}</option>
@@ -209,6 +232,17 @@ export default function Environments({ rootPath, locale }: { rootPath?: string; 
                         }
                         value={variable.defaultValue}
                       />
+                    </label>
+                    <label className="environment-required">
+                      <input
+                        checked={variable.required}
+                        disabled={busy}
+                        onChange={(event) =>
+                          updateVariable(index, "required", event.target.checked)
+                        }
+                        type="checkbox"
+                      />
+                      {zh ? "必填" : "Required"}
                     </label>
                     <button
                       aria-label={
@@ -237,7 +271,7 @@ export default function Environments({ rootPath, locale }: { rootPath?: string; 
                         ...item,
                         variables: [
                           ...item.variables,
-                          { name: "", type: "string", defaultValue: "" },
+                          { name: "", type: "string", defaultValue: "", required: false },
                         ],
                       }))
                     }

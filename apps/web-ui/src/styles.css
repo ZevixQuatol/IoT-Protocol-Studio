@@ -1970,6 +1970,25 @@ button {
   font-size: 11px;
 }
 
+.environment-hint {
+  margin: 0 0 16px;
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.environment-body .environment-required {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 34px;
+}
+
+.environment-body .environment-required input {
+  width: 15px;
+  height: 15px;
+  min-height: 0;
+}
+
 .environment-body input,
 .environment-body select,
 .environment-body button {
@@ -1999,12 +2018,12 @@ button {
   font-size: 14px;
 }
 
-.environment-variable label:last-of-type {
+.environment-variable label:nth-of-type(3) {
   flex: 1;
   min-width: 180px;
 }
 
-.environment-variable label:last-of-type input {
+.environment-variable label:nth-of-type(3) input {
   width: 100%;
 }
 

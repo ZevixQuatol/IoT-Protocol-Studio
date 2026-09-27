@@ -80,6 +80,7 @@ struct EnvironmentVariable {
     std::string name;
     std::string type;
     std::string default_value;
+    bool required{false};
 };
 
 struct Environment {

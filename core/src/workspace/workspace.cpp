@@ -452,17 +452,26 @@ std::optional<WorkspaceDiagnostic> validate_environments(const EnvironmentConfig
     if (config.environments.size() > 100)
         return invalid("environments", "a project supports up to 100 environments");
     std::set<std::string> environment_names;
-    for (const auto& environment : config.environments) {
+    for (std::size_t environment_index = 0; environment_index < config.environments.size();
+         ++environment_index) {
+        const auto& environment = config.environments[environment_index];
+        const auto environment_path = "environments[" + std::to_string(environment_index) + "]";
         if (environment.name.empty() || environment.name.size() > 100 ||
             std::ranges::all_of(environment.name,
                                 [](unsigned char c) { return std::isspace(c) != 0; }) ||
             std::ranges::any_of(environment.name, [](unsigned char c) { return c < 32; }) ||
             !environment_names.insert(environment.name).second)
-            return invalid("environments.name", "environment names must be unique and nonblank");
+            return invalid(environment_path + ".name",
+                           "environment names must be unique and nonblank");
         if (environment.variables.size() > 200)
-            return invalid("environments.variables", "an environment supports up to 200 variables");
+            return invalid(environment_path + ".variables",
+                           "an environment supports up to 200 variables");
         std::set<std::string> variable_names;
-        for (const auto& variable : environment.variables) {
+        for (std::size_t variable_index = 0; variable_index < environment.variables.size();
+             ++variable_index) {
+            const auto& variable = environment.variables[variable_index];
+            const auto variable_path =
+                environment_path + ".variables[" + std::to_string(variable_index) + "]";
             const auto identifier = [](unsigned char c, bool first) {
                 return c == '_' || (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') ||
                        (!first && c >= '0' && c <= '9');
@@ -472,23 +481,31 @@ std::optional<WorkspaceDiagnostic> validate_environments(const EnvironmentConfig
                 !std::ranges::all_of(variable.name.substr(1),
                                      [&](unsigned char c) { return identifier(c, false); }) ||
                 !variable_names.insert(variable.name).second)
-                return invalid("environments.variables.name",
+                return invalid(variable_path + ".name",
                                "variable names must be unique identifiers");
             if (variable.default_value.size() > 65536)
-                return invalid("environments.variables.default", "variable default is too long");
+                return invalid(variable_path + ".default", "variable default is too long");
+            if (variable.required &&
+                (variable.default_value.empty() ||
+                 std::ranges::all_of(variable.default_value,
+                                     [](unsigned char c) { return std::isspace(c) != 0; })))
+                return invalid(variable_path + ".default", "required variable has no default");
             if (variable.type == "number") {
-                double number{};
-                const auto* begin = variable.default_value.data();
-                const auto* end = begin + variable.default_value.size();
-                const auto parsed = std::from_chars(begin, end, number);
-                if (parsed.ec != std::errc{} || parsed.ptr != end || !std::isfinite(number))
-                    return invalid("environments.variables.default", "invalid number default");
+                if (!variable.default_value.empty()) {
+                    double number{};
+                    const auto* begin = variable.default_value.data();
+                    const auto* end = begin + variable.default_value.size();
+                    const auto parsed = std::from_chars(begin, end, number);
+                    if (parsed.ec != std::errc{} || parsed.ptr != end || !std::isfinite(number))
+                        return invalid(variable_path + ".default", "invalid number default");
+                }
             } else if (variable.type == "boolean") {
-                if (variable.default_value != "true" && variable.default_value != "false")
-                    return invalid("environments.variables.default",
+                if (!variable.default_value.empty() && variable.default_value != "true" &&
+                    variable.default_value != "false")
+                    return invalid(variable_path + ".default",
                                    "boolean default must be true or false");
             } else if (variable.type != "string") {
-                return invalid("environments.variables.type",
+                return invalid(variable_path + ".type",
                                "variable type must be string, number or boolean");
             }
         }
@@ -1764,10 +1781,18 @@ EnvironmentResult load_environments(const std::filesystem::path& project_directo
                 throw std::runtime_error("invalid environment entry");
             Environment environment{text(node, "name"), {}};
             for (const auto value : node["variables"].children()) {
-                if (!value.is_map() || value.num_children() != 3)
+                if (!value.is_map() || (value.num_children() != 3 && value.num_children() != 4) ||
+                    (value.num_children() == 4) != value.has_child("required"))
                     throw std::runtime_error("invalid environment variable");
+                bool required = false;
+                if (value.has_child("required")) {
+                    const auto setting = text(value, "required");
+                    if (setting != "true" && setting != "false")
+                        throw std::runtime_error("invalid variable required setting");
+                    required = setting == "true";
+                }
                 environment.variables.push_back(
-                    {text(value, "name"), text(value, "type"), text(value, "default")});
+                    {text(value, "name"), text(value, "type"), text(value, "default"), required});
             }
             config.environments.push_back(std::move(environment));
         }
@@ -1817,6 +1842,7 @@ EnvironmentResult save_environments(const std::filesystem::path& project_directo
                 put(value, "name", variable.name);
                 put(value, "type", variable.type);
                 put(value, "default", variable.default_value);
+                put(value, "required", variable.required ? "true" : "false");
             }
         }
         std::string output;
