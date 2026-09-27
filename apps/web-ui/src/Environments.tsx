@@ -4,16 +4,36 @@ import type { Locale } from "./i18n";
 
 const empty: EnvironmentConfig = { active: "", environments: [] };
 
-export default function Environments({ rootPath, locale }: { rootPath?: string; locale: Locale }) {
+export default function Environments({
+  rootPath,
+  locale,
+  onSensitiveValues,
+}: {
+  rootPath?: string;
+  locale: Locale;
+  onSensitiveValues?: (values: string[]) => void;
+}) {
   const zh = locale === "zh-CN";
   const [config, setConfig] = useState<EnvironmentConfig>(empty);
   const [newName, setNewName] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [status, setStatus] = useState("");
+  const [visibleSecret, setVisibleSecret] = useState<number | null>(null);
+
+  useEffect(() => {
+    onSensitiveValues?.(
+      config.environments.flatMap((item) =>
+        item.variables
+          .filter((variable) => variable.sensitive)
+          .map((variable) => variable.defaultValue),
+      ),
+    );
+  }, [config, onSensitiveValues]);
 
   useEffect(() => {
     setConfig(empty);
+    setVisibleSecret(null);
     setError("");
     setStatus("");
     if (!rootPath) return;
@@ -28,8 +48,8 @@ export default function Environments({ rootPath, locale }: { rootPath?: string; 
             `${result.error.message} [${result.error.code}]${result.error.path ? ` (${result.error.path})` : ""}`,
           );
       })
-      .catch((cause) => {
-        if (!cancelled) setError(String(cause));
+      .catch(() => {
+        if (!cancelled) setError(zh ? "无法读取环境配置。" : "Could not load environments.");
       })
       .finally(() => {
         if (!cancelled) setBusy(false);
@@ -47,14 +67,15 @@ export default function Environments({ rootPath, locale }: { rootPath?: string; 
       const result = await environments(next);
       if (result.ok) {
         setConfig(result.config);
+        setVisibleSecret(null);
         setStatus(zh ? "已保存" : "Saved");
         return true;
       }
       setError(
         `${result.error.message} [${result.error.code}]${result.error.path ? ` (${result.error.path})` : ""}`,
       );
-    } catch (cause) {
-      setError(String(cause));
+    } catch {
+      setError(zh ? "无法保存环境配置。" : "Could not save environments.");
     } finally {
       setBusy(false);
     }
@@ -105,7 +126,10 @@ export default function Environments({ rootPath, locale }: { rootPath?: string; 
             <p className="environment-hint">
               {zh
                 ? "变量可用于服务器地址、设备编号等配置。切换环境不会修改正在运行的 TCP 连接。"
-                : "Store server addresses, device IDs and other values here. Switching environments does not change running TCP connections."}
+                : "Store server addresses, device IDs and other values here. Switching environments does not change running TCP connections."}{" "}
+              {zh
+                ? "敏感值在界面中隐藏，项目文件仍以明文保存。"
+                : "Sensitive values are hidden in the editor but stored as plain text in the project file."}
             </p>
             <div className="environment-toolbar">
               <label>
@@ -113,7 +137,10 @@ export default function Environments({ rootPath, locale }: { rootPath?: string; 
                 <select
                   aria-label={zh ? "当前生效环境" : "Active environment"}
                   disabled={busy || config.environments.length === 0}
-                  onChange={(event) => void save({ ...config, active: event.target.value })}
+                  onChange={(event) => {
+                    setVisibleSecret(null);
+                    void save({ ...config, active: event.target.value });
+                  }}
                   value={config.active}
                 >
                   {config.environments.length === 0 && (
@@ -223,17 +250,48 @@ export default function Environments({ rootPath, locale }: { rootPath?: string; 
                         <option value="boolean">{zh ? "布尔" : "Boolean"}</option>
                       </select>
                     </label>
-                    <label>
-                      {zh ? "默认值" : "Default value"}
-                      <input
-                        disabled={busy}
-                        onChange={(event) =>
-                          updateVariable(index, "defaultValue", event.target.value)
-                        }
-                        value={variable.defaultValue}
-                      />
-                    </label>
-                    <label className="environment-required">
+                    <div className="environment-value">
+                      <label htmlFor={`environment-value-${index}`}>
+                        {zh ? "默认值" : "Default value"}
+                      </label>
+                      <div className="environment-value-input">
+                        <input
+                          autoComplete="off"
+                          disabled={busy}
+                          id={`environment-value-${index}`}
+                          onChange={(event) =>
+                            updateVariable(index, "defaultValue", event.target.value)
+                          }
+                          type={variable.sensitive && visibleSecret !== index ? "password" : "text"}
+                          value={variable.defaultValue}
+                        />
+                        {variable.sensitive && (
+                          <button
+                            aria-label={
+                              visibleSecret === index
+                                ? zh
+                                  ? "隐藏敏感值"
+                                  : "Hide sensitive value"
+                                : zh
+                                  ? "查看敏感值"
+                                  : "Reveal sensitive value"
+                            }
+                            disabled={busy}
+                            onClick={() => setVisibleSecret(visibleSecret === index ? null : index)}
+                            type="button"
+                          >
+                            {visibleSecret === index
+                              ? zh
+                                ? "隐藏"
+                                : "Hide"
+                              : zh
+                                ? "查看"
+                                : "Reveal"}
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                    <label className="environment-flag">
                       <input
                         checked={variable.required}
                         disabled={busy}
@@ -244,6 +302,18 @@ export default function Environments({ rootPath, locale }: { rootPath?: string; 
                       />
                       {zh ? "必填" : "Required"}
                     </label>
+                    <label className="environment-flag">
+                      <input
+                        checked={variable.sensitive}
+                        disabled={busy}
+                        onChange={(event) => {
+                          setVisibleSecret(null);
+                          updateVariable(index, "sensitive", event.target.checked);
+                        }}
+                        type="checkbox"
+                      />
+                      {zh ? "敏感" : "Sensitive"}
+                    </label>
                     <button
                       aria-label={
                         zh
@@ -251,12 +321,13 @@ export default function Environments({ rootPath, locale }: { rootPath?: string; 
                           : `Remove variable ${variable.name || index + 1}`
                       }
                       disabled={busy}
-                      onClick={() =>
+                      onClick={() => {
+                        setVisibleSecret(null);
                         edit((item) => ({
                           ...item,
                           variables: item.variables.filter((_, position) => position !== index),
-                        }))
-                      }
+                        }));
+                      }}
                       type="button"
                     >
                       ×
@@ -271,7 +342,13 @@ export default function Environments({ rootPath, locale }: { rootPath?: string; 
                         ...item,
                         variables: [
                           ...item.variables,
-                          { name: "", type: "string", defaultValue: "", required: false },
+                          {
+                            name: "",
+                            type: "string",
+                            defaultValue: "",
+                            required: false,
+                            sensitive: false,
+                          },
                         ],
                       }))
                     }

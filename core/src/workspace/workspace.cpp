@@ -1781,8 +1781,10 @@ EnvironmentResult load_environments(const std::filesystem::path& project_directo
                 throw std::runtime_error("invalid environment entry");
             Environment environment{text(node, "name"), {}};
             for (const auto value : node["variables"].children()) {
-                if (!value.is_map() || (value.num_children() != 3 && value.num_children() != 4) ||
-                    (value.num_children() == 4) != value.has_child("required"))
+                if (!value.is_map() || value.num_children() < 3 || value.num_children() > 5 ||
+                    value.num_children() !=
+                        3 + static_cast<std::size_t>(value.has_child("required")) +
+                            static_cast<std::size_t>(value.has_child("sensitive")))
                     throw std::runtime_error("invalid environment variable");
                 bool required = false;
                 if (value.has_child("required")) {
@@ -1791,17 +1793,24 @@ EnvironmentResult load_environments(const std::filesystem::path& project_directo
                         throw std::runtime_error("invalid variable required setting");
                     required = setting == "true";
                 }
-                environment.variables.push_back(
-                    {text(value, "name"), text(value, "type"), text(value, "default"), required});
+                bool sensitive = false;
+                if (value.has_child("sensitive")) {
+                    const auto setting = text(value, "sensitive");
+                    if (setting != "true" && setting != "false")
+                        throw std::runtime_error("invalid variable sensitive setting");
+                    sensitive = setting == "true";
+                }
+                environment.variables.push_back({text(value, "name"), text(value, "type"),
+                                                 text(value, "default"), required, sensitive});
             }
             config.environments.push_back(std::move(environment));
         }
         if (const auto error = validate_environments(config))
             return *error;
         return config;
-    } catch (const std::exception& error) {
+    } catch (const std::exception&) {
         return make_error(WorkspaceErrorCode::environment_invalid, "environments.yaml",
-                          error.what());
+                          "invalid environment file");
     }
 }
 
@@ -1843,6 +1852,7 @@ EnvironmentResult save_environments(const std::filesystem::path& project_directo
                 put(value, "type", variable.type);
                 put(value, "default", variable.default_value);
                 put(value, "required", variable.required ? "true" : "false");
+                put(value, "sensitive", variable.sensitive ? "true" : "false");
             }
         }
         std::string output;
@@ -1864,9 +1874,9 @@ EnvironmentResult save_environments(const std::filesystem::path& project_directo
                               "cannot save environment file: " + error.message());
         }
         return config;
-    } catch (const std::exception& error) {
+    } catch (const std::exception&) {
         return make_error(WorkspaceErrorCode::environment_write_failed, "environments.yaml",
-                          error.what());
+                          "cannot save environment file");
     }
 }
 

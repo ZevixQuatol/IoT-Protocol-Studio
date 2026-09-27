@@ -81,6 +81,7 @@ struct EnvironmentVariable {
     std::string type;
     std::string default_value;
     bool required{false};
+    bool sensitive{false};
 };
 
 struct Environment {

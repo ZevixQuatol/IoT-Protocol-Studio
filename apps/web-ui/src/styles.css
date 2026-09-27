@@ -1976,14 +1976,14 @@ button {
   font-size: 11px;
 }
 
-.environment-body .environment-required {
+.environment-body .environment-flag {
   display: flex;
   align-items: center;
   gap: 6px;
   min-height: 34px;
 }
 
-.environment-body .environment-required input {
+.environment-body .environment-flag input {
   width: 15px;
   height: 15px;
   min-height: 0;
@@ -2018,13 +2018,19 @@ button {
   font-size: 14px;
 }
 
-.environment-variable label:nth-of-type(3) {
+.environment-value {
   flex: 1;
   min-width: 180px;
 }
 
-.environment-variable label:nth-of-type(3) input {
-  width: 100%;
+.environment-value-input {
+  display: flex;
+  gap: 6px;
+}
+
+.environment-value-input input {
+  flex: 1;
+  min-width: 0;
 }
 
 .environment-error {

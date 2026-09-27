@@ -1177,16 +1177,17 @@ window.addEventListener("DOMContentLoaded", () => {
           const editable = await window.iotpsSmokeSchemaFixture();
           if (!editable?.ok) { report("schema-fixture-failed"); return; }
           await window.iotpsWorkspaceOpen(editable.project.rootPath);
-          const savedEnvironment = await window.iotpsEnvironments("save", "Lab A", "2", "Lab A", "1", "host", "string", "127.0.0.1", "true", "Lab B", "1", "port", "number", "9000", "true");
+          const savedEnvironment = await window.iotpsEnvironments("save", "Lab A", "2", "Lab A", "1", "token", "string", "bridge-secret-4.3", "true", "true", "Lab B", "1", "port", "number", "9000", "true", "false");
           await window.iotpsWorkspaceClose();
           await window.iotpsWorkspaceOpen(editable.project.rootPath);
           const reloadedEnvironment = await window.iotpsEnvironments("load");
-          const switchedEnvironment = await window.iotpsEnvironments("save", "Lab B", "2", "Lab A", "1", "host", "string", "127.0.0.1", "true", "Lab B", "1", "port", "number", "9000", "true");
-          const invalidEnvironment = await window.iotpsEnvironments("save", "Lab B", "2", "Lab A", "1", "host", "string", "127.0.0.1", "true", "Lab B", "1", "port", "number", "invalid", "true");
-          const missingRequired = await window.iotpsEnvironments("save", "Lab B", "2", "Lab A", "1", "host", "string", "", "true", "Lab B", "1", "port", "number", "9000", "true");
+          const switchedEnvironment = await window.iotpsEnvironments("save", "Lab B", "2", "Lab A", "1", "token", "string", "bridge-secret-4.3", "true", "true", "Lab B", "1", "port", "number", "9000", "true", "false");
+          const invalidEnvironment = await window.iotpsEnvironments("save", "Lab B", "2", "Lab A", "1", "token", "string", "bridge-secret-4.3", "true", "true", "Lab B", "1", "port", "number", "invalid", "true", "false");
+          const missingRequired = await window.iotpsEnvironments("save", "Lab B", "2", "Lab A", "1", "token", "string", "", "true", "true", "Lab B", "1", "port", "number", "9000", "true", "false");
           if (!savedEnvironment?.ok || reloadedEnvironment?.config?.active !== "Lab A" ||
               reloadedEnvironment.config.environments[1].variables[0].defaultValue !== "9000" ||
               reloadedEnvironment.config.environments[0].variables[0].required !== true ||
+              reloadedEnvironment.config.environments[0].variables[0].sensitive !== true ||
               switchedEnvironment?.config?.active !== "Lab B" || invalidEnvironment?.error?.code !== "environment_invalid" ||
               missingRequired?.error?.code !== "environment_invalid" ||
               (await window.iotpsEnvironments("load")).config?.active !== "Lab B") {
@@ -2005,17 +2006,22 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR command_line, int) {
                     iotps::core::workspace::Environment environment;
                     environment.name = (*args)[index++];
                     const auto variables = count((*args)[index++], 200);
-                    if (!variables || *variables > (args->size() - index) / 4)
+                    if (!variables || *variables > (args->size() - index) / 5)
                         return workspace_error_response("invalid_request",
                                                         "invalid variable count");
                     for (std::size_t j = 0; j < *variables; ++j) {
                         const auto& required = (*args)[index + 3];
+                        const auto& sensitive = (*args)[index + 4];
                         if (required != "true" && required != "false")
                             return workspace_error_response("invalid_request",
                                                             "invalid variable required setting");
+                        if (sensitive != "true" && sensitive != "false")
+                            return workspace_error_response("invalid_request",
+                                                            "invalid variable sensitive setting");
                         environment.variables.push_back({(*args)[index], (*args)[index + 1],
-                                                         (*args)[index + 2], required == "true"});
-                        index += 4;
+                                                         (*args)[index + 2], required == "true",
+                                                         sensitive == "true"});
+                        index += 5;
                     }
                     config.environments.push_back(std::move(environment));
                 }
@@ -2049,7 +2055,8 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR command_line, int) {
                     json << "{\"name\":" << json_string(variable.name)
                          << ",\"type\":" << json_string(variable.type)
                          << ",\"defaultValue\":" << json_string(variable.default_value)
-                         << ",\"required\":" << (variable.required ? "true" : "false") << '}';
+                         << ",\"required\":" << (variable.required ? "true" : "false")
+                         << ",\"sensitive\":" << (variable.sensitive ? "true" : "false") << '}';
                 }
                 json << "]}";
             }

@@ -760,8 +760,11 @@ messages:
     CHECK(save_environments(managed, environments).has_value());
     CHECK(load_environments(managed).value().active == "设备 B");
     environments.environments[0].variables[0].required = true;
+    environments.environments[0].variables[3].default_value = "fixture-secret-4.3";
+    environments.environments[0].variables[3].sensitive = true;
     CHECK(save_environments(managed, environments).has_value());
     CHECK(load_environments(managed).value().environments[0].variables[0].required);
+    CHECK(load_environments(managed).value().environments[0].variables[3].sensitive);
     environments.environments[0].variables[0].default_value = "   ";
     const auto missing_required = save_environments(managed, environments);
     CHECK(!missing_required.has_value());
@@ -791,6 +794,25 @@ environments:
         default: "old"
 )yaml");
     CHECK(!load_environments(managed).value().environments[0].variables[0].required);
+    CHECK(!load_environments(managed).value().environments[0].variables[0].sensitive);
+    write_file(environments_path, R"yaml(version: "1"
+active: "legacy"
+environments:
+  - name: "legacy"
+    variables:
+      - name: "deviceId"
+        type: "string"
+        default: "old"
+        required: "true"
+)yaml");
+    CHECK(load_environments(managed).value().environments[0].variables[0].required);
+    CHECK(!load_environments(managed).value().environments[0].variables[0].sensitive);
+    write_file(environments_path, saved_environments);
+    write_file(environments_path, "fixture-secret-4.3: [\n");
+    const auto malformed_secret = load_environments(managed);
+    CHECK(!malformed_secret.has_value());
+    if (const auto* error = malformed_secret.error_if())
+        CHECK(error->detail.find("fixture-secret-4.3") == std::string::npos);
     write_file(environments_path, saved_environments);
     write_file(environments_path, "version: 2\nactive: old\nenvironments: []\n");
     CHECK(!load_environments(managed).has_value());

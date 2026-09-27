@@ -38,6 +38,7 @@ export default function TcpWorkbench({
   draft,
   onDebug,
   onDiagnostic,
+  redact,
 }: {
   session: string;
   protocols: WorkspaceProtocol[];
@@ -46,6 +47,7 @@ export default function TcpWorkbench({
   draft: { id: number; hex: string } | null;
   onDebug: (record: TcpRecord) => void;
   onDiagnostic: (session: string, message: string, problem: boolean) => void;
+  redact: (value: string) => string;
 }) {
   const zh = locale === "zh-CN";
   const t = (cn: string, en: string) => (zh ? cn : en);
@@ -87,7 +89,32 @@ export default function TcpWorkbench({
   const lastPollError = useRef("");
   const connected = status.state === "open";
   const active = connected || status.state === "opening";
-  const shownRecords = history?.records ?? records;
+  const redactRecord = (item: TcpRecord): TcpRecord => ({
+    ...item,
+    address: redact(item.address),
+    detail: redact(item.detail),
+    parsed: item.parsed && {
+      ...item.parsed,
+      protocolPath: redact(item.parsed.protocolPath),
+      messageName: redact(item.parsed.messageName),
+      error: redact(item.parsed.error),
+      fields: item.parsed.fields.map((field) => ({
+        ...field,
+        name: redact(field.name),
+        displayName: redact(field.displayName),
+        value: redact(field.value),
+        enumName: field.enumName === undefined ? undefined : redact(field.enumName),
+        bits: field.bits?.map((bit) => ({
+          ...bit,
+          name: redact(bit.name),
+          displayName: redact(bit.displayName),
+          value: redact(bit.value),
+        })),
+      })),
+    },
+  });
+  const shownRecords = (history?.records ?? records).map(redactRecord);
+  const selectedRecord = selected && redactRecord(selected);
   const bindProtocol = protocols.find((item) => item.path === bindPath);
 
   useEffect(() => {
@@ -260,7 +287,10 @@ export default function TcpWorkbench({
           records: snapshot.records,
         };
       }
-      const content = action === "save" ? JSON.stringify(current) : "";
+      const content =
+        action === "save"
+          ? JSON.stringify({ ...current, records: current?.records.map(redactRecord) })
+          : "";
       const result = await trafficFile(action, content);
       if (!result.ok) throw new Error(result.error.message);
       if (result.cancelled) return;
@@ -419,7 +449,7 @@ export default function TcpWorkbench({
       </form>
       {(error || status.error) && (
         <p className="tcp-error" role="alert">
-          {error || status.error}
+          {redact(error || status.error)}
         </p>
       )}
       <div className="tcp-peers">
@@ -433,11 +463,11 @@ export default function TcpWorkbench({
               onClick={() => setPeer(String(item.id))}
               aria-pressed={String(item.id) === peer}
             >
-              {item.address} <small>#{item.id}</small>
+              {redact(item.address)} <small>#{item.id}</small>
             </button>
             <button
               type="button"
-              aria-label={`${t("更多操作", "More actions")}: ${item.address}`}
+              aria-label={`${t("更多操作", "More actions")}: ${redact(item.address)}`}
               onClick={() => setPeerMenu(item)}
             >
               <DotsHorizontalIcon size={14} />
@@ -789,26 +819,30 @@ export default function TcpWorkbench({
           <p className="tcp-empty">{t("暂无收发记录", "No traffic records")}</p>
         )}
       </div>
-      {selected && (
+      {selectedRecord && (
         <div className="tcp-record-detail">
           <div>
             <strong>
-              {selected.direction} · {selected.address} · {selected.size} B
+              {selectedRecord.direction} · {selectedRecord.address} · {selectedRecord.size} B
             </strong>
             <button
               type="button"
-              disabled={!selected.hex}
+              disabled={!selectedRecord.hex}
               onClick={(event) => {
                 const owner = event.currentTarget.ownerDocument.defaultView ?? window;
                 void owner.navigator.clipboard
-                  .writeText(selected.hex)
+                  .writeText(selectedRecord.hex)
                   .then(() => setNotice(t("HEX 已复制", "HEX copied")))
                   .catch(() => setError(t("复制失败", "Copy failed")));
               }}
             >
               {t("复制 HEX", "Copy HEX")}
             </button>
-            <button type="button" disabled={!selected.hex} onClick={() => onDebug(selected)}>
+            <button
+              type="button"
+              disabled={!selectedRecord.hex}
+              onClick={() => onDebug(selectedRecord)}
+            >
               {t("送入调试", "Open in Debug")}
             </button>
             <button
@@ -819,24 +853,26 @@ export default function TcpWorkbench({
               <X size={14} />
             </button>
           </div>
-          {selected.detail && <p>{selected.detail}</p>}
-          {selected.parsed && (
+          {selectedRecord.detail && <p>{selectedRecord.detail}</p>}
+          {selectedRecord.parsed && (
             <div
               className="debug-field-list"
               aria-label={t("协议解析结果", "Protocol parse result")}
             >
-              <p role={selected.parsed.status === "ok" ? "status" : "alert"}>
-                {selected.parsed.status === "ok"
+              <p role={selectedRecord.parsed.status === "ok" ? "status" : "alert"}>
+                {selectedRecord.parsed.status === "ok"
                   ? t("解析成功", "Decoded")
-                  : selected.parsed.status === "unmatched"
+                  : selectedRecord.parsed.status === "unmatched"
                     ? t("未匹配消息", "Message not matched")
                     : t("解析失败", "Decode failed")}
-                {selected.parsed.messageName && ` · ${selected.parsed.messageName}`}
-                {selected.parsed.checksum === "pass" && ` · ${t("校验通过", "Checksum passed")}`}
-                {selected.parsed.checksum === "fail" && ` · ${t("校验失败", "Checksum failed")}`}
-                {selected.parsed.error && ` · ${selected.parsed.error}`}
+                {selectedRecord.parsed.messageName && ` · ${selectedRecord.parsed.messageName}`}
+                {selectedRecord.parsed.checksum === "pass" &&
+                  ` · ${t("校验通过", "Checksum passed")}`}
+                {selectedRecord.parsed.checksum === "fail" &&
+                  ` · ${t("校验失败", "Checksum failed")}`}
+                {selectedRecord.parsed.error && ` · ${selectedRecord.parsed.error}`}
               </p>
-              {selected.parsed.fields.map((field) => (
+              {selectedRecord.parsed.fields.map((field) => (
                 <div key={field.name} className="debug-field-preview">
                   <strong>{field.displayName || field.name}</strong>
                   <small>
@@ -868,10 +904,10 @@ export default function TcpWorkbench({
         className="protocol-dialog tree-dialog tree-actions-dialog"
         onCancel={() => setPeerMenu(null)}
       >
-        <h2>{peerMenu?.address}</h2>
+        <h2>{peerMenu?.address && redact(peerMenu.address)}</h2>
         {error && (
           <p className="tcp-error" role="alert">
-            {error}
+            {redact(error)}
           </p>
         )}
         <div className="tree-dialog-actions">

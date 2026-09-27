@@ -154,6 +154,7 @@ export default function TcpWorkspace({
   draft,
   onDebug,
   onDiagnostic,
+  redact,
   focusSession,
 }: {
   visible: boolean;
@@ -162,6 +163,7 @@ export default function TcpWorkspace({
   draft: Draft;
   onDebug: (record: TcpRecord) => void;
   onDiagnostic: (session: string, message: string, problem: boolean) => void;
+  redact: (value: string) => string;
   focusSession?: { id: string; seq: number };
 }) {
   const t = (cn: string, en: string) => (locale === "zh-CN" ? cn : en);
@@ -311,6 +313,7 @@ export default function TcpWorkspace({
               onDebug(record);
             }}
             onDiagnostic={onDiagnostic}
+            redact={redact}
           />
         </SessionWindow>
       ))}

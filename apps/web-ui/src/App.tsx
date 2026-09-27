@@ -54,6 +54,7 @@ import {
   createProtocol,
   encodeProtocolMessage,
   editSchema,
+  environments,
   getCoreInfo,
   getCurrentProject,
   inspectHex,
@@ -505,6 +506,8 @@ export default function App() {
   const [schemaEditTarget, setSchemaEditTarget] = useState<SchemaEditTarget | null>(null);
   const [errorMessage, setErrorMessage] = useState<string>();
   const [diagnostics, setDiagnostics] = useState<Diagnostic[]>([]);
+  const knownSensitiveValues = useRef(new Set<string>());
+  const sortedSensitiveValues = useRef<string[]>([]);
   const [focusSession, setFocusSession] = useState<{ id: string; seq: number }>();
   const [logError, setLogError] = useState("");
   const nextDiagnostic = useRef(0);
@@ -534,6 +537,49 @@ export default function App() {
   const translation = messages[locale];
   const page = navigation.entries[navigation.index];
   const project = workspace?.ok ? workspace.project : null;
+  const redact = (value: string) => {
+    for (const secret of sortedSensitiveValues.current) value = value.split(secret).join("•");
+    return value;
+  };
+  const rememberSensitiveValues = (values: string[]) => {
+    let changed = false;
+    for (const value of values) {
+      if (!value || knownSensitiveValues.current.has(value)) continue;
+      knownSensitiveValues.current.add(value);
+      changed = true;
+    }
+    if (changed) {
+      sortedSensitiveValues.current = [...knownSensitiveValues.current].sort(
+        (a, b) => b.length - a.length,
+      );
+      setDiagnostics((current) =>
+        current.map((item) => ({
+          ...item,
+          context: redact(item.context),
+          message: redact(item.message),
+        })),
+      );
+    }
+  };
+  useEffect(() => {
+    if (!project?.rootPath) return;
+    let cancelled = false;
+    void environments()
+      .then((result) => {
+        if (!cancelled && result.ok)
+          rememberSensitiveValues(
+            result.config.environments.flatMap((item) =>
+              item.variables
+                .filter((variable) => variable.sensitive)
+                .map((variable) => variable.defaultValue),
+            ),
+          );
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [project?.rootPath]);
   const selectedProtocol = project?.protocols.find(
     (protocol) => protocol.path === selectedProtocolPath,
   );
@@ -549,8 +595,8 @@ export default function App() {
       id: ++nextDiagnostic.current,
       time: Date.now(),
       page,
-      context: context.slice(0, 256),
-      message: message.slice(0, 1000),
+      context: redact(context).slice(0, 256),
+      message: redact(message).slice(0, 1000),
       problem,
       session,
       protocol,
@@ -1612,7 +1658,7 @@ export default function App() {
             {errorMessage && (
               <div className="error-banner">
                 <CircleAlert size={16} />
-                <span>{errorMessage}</span>
+                <span>{redact(errorMessage)}</span>
                 <button onClick={() => setErrorMessage(undefined)} type="button">
                   <X size={14} />
                 </button>
@@ -1628,12 +1674,14 @@ export default function App() {
               onDiagnostic={(session, message, problem) =>
                 addDiagnostic("tcp", session, message, problem, session)
               }
+              redact={redact}
             />
             {page === "tcp" ? null : page === "environments" ? (
               <Environments
                 key={project?.rootPath ?? ""}
                 rootPath={project?.rootPath}
                 locale={locale}
+                onSensitiveValues={rememberSensitiveValues}
               />
             ) : page === "settings" ? (
               <>
@@ -1751,7 +1799,7 @@ export default function App() {
                             }}
                           >
                             <time>{new Date(item.time).toLocaleString(locale)}</time>
-                            <strong>{item.context}</strong> {item.message}
+                            <strong>{redact(item.context)}</strong> {redact(item.message)}
                           </button>
                         ))}
                       {!diagnostics.some((item) => item.problem) && (
@@ -1785,7 +1833,13 @@ export default function App() {
                             {
                               format: "iotps-log-v1",
                               exportedAt: new Date().toISOString(),
-                              entries: diagnostics,
+                              entries: diagnostics.map((item) => ({
+                                ...item,
+                                context: redact(item.context),
+                                message: redact(item.message),
+                                session: item.session ? redact(item.session) : undefined,
+                                protocol: item.protocol ? redact(item.protocol) : undefined,
+                              })),
                             },
                             null,
                             2,
@@ -1812,7 +1866,7 @@ export default function App() {
                     </button>
                     {logError && (
                       <p role="alert" className="tcp-error">
-                        {logError}
+                        {redact(logError)}
                       </p>
                     )}
                     <div className="diagnostic-list">
@@ -1822,7 +1876,7 @@ export default function App() {
                         .map((item) => (
                           <p key={item.id}>
                             <time>{new Date(item.time).toLocaleString(locale)}</time> ·{" "}
-                            {item.context} · {item.message}
+                            {redact(item.context)} · {redact(item.message)}
                           </p>
                         ))}
                     </div>
@@ -2152,7 +2206,7 @@ export default function App() {
                         <strong>
                           [{debugResult.error.code}] {translation.debug.parseError}
                         </strong>
-                        <p>{debugResult.error.message}</p>
+                        <p>{redact(debugResult.error.message)}</p>
                         <small>
                           {translation.debug.position}: {debugResult.error.position + 1}
                         </small>
@@ -2883,7 +2937,7 @@ export default function App() {
                                           {locale === "zh-CN" ? "送入通信" : "Open in Connections"}
                                         </button>
                                         {messageActionStatus && (
-                                          <span role="status">{messageActionStatus}</span>
+                                          <span role="status">{redact(messageActionStatus)}</span>
                                         )}
                                       </div>
                                       <code className="message-preview-hex">
@@ -2900,7 +2954,7 @@ export default function App() {
                                         [{messageEncodeResult.error.code}]{" "}
                                         {messageEncodeResult.error.path}
                                       </strong>
-                                      <span>{messageEncodeResult.error.message}</span>
+                                      <span>{redact(messageEncodeResult.error.message)}</span>
                                       {messageEncodeResult.error.offset !== undefined && (
                                         <code>offset {messageEncodeResult.error.offset}</code>
                                       )}
@@ -2929,7 +2983,7 @@ export default function App() {
           structureNames={(selectedProtocol.schema.structures ?? []).map((item) => item.name)}
           locale={locale}
           busy={busy}
-          error={errorMessage}
+          error={errorMessage && redact(errorMessage)}
           onSave={saveSchemaEdit}
           onClose={() => setSchemaEditTarget(null)}
         />
@@ -3149,7 +3203,7 @@ export default function App() {
                 )}
               </>
             )}
-            {errorMessage && <p role="alert">{errorMessage}</p>}
+            {errorMessage && <p role="alert">{redact(errorMessage)}</p>}
             <footer>
               <button
                 type="button"
@@ -3217,7 +3271,7 @@ export default function App() {
               {translation.create.description}
               <textarea name="description" rows={3} disabled={busy} />
             </label>
-            {errorMessage && <p role="alert">{errorMessage}</p>}
+            {errorMessage && <p role="alert">{redact(errorMessage)}</p>}
             <footer>
               <button disabled={busy} onClick={() => setCreateOpen(false)} type="button">
                 {translation.create.cancel}
