@@ -8,6 +8,7 @@ export type TranslationMessages = {
     forward: string;
     schema: string;
     debug: string;
+    environments: string;
     settings: string;
   };
   window: { minimize: string; maximize: string; close: string };
@@ -210,6 +211,7 @@ export const messages: Record<Locale, TranslationMessages> = {
       forward: "前进",
       schema: "Schema",
       debug: "调试",
+      environments: "环境与变量",
       settings: "设置",
     },
     window: { minimize: "最小化", maximize: "最大化或还原", close: "关闭" },
@@ -409,6 +411,7 @@ export const messages: Record<Locale, TranslationMessages> = {
       forward: "Forward",
       schema: "Schema",
       debug: "Debug",
+      environments: "Environments",
       settings: "Settings",
     },
     window: { minimize: "Minimize", maximize: "Maximize or restore", close: "Close" },

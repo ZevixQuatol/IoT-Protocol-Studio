@@ -5,6 +5,7 @@ import {
   ChevronRight,
   CircleAlert,
   Cpu,
+  Braces,
   FileCode2,
   Folder,
   FolderOpen,
@@ -43,6 +44,7 @@ import UnorderedListIcon from "./icons/unordered-list-icon";
 import DebugTools, { type DebugAnnotation, type DebugRange } from "./DebugTools";
 import SchemaEditor, { type SchemaEditTarget } from "./SchemaEditor";
 import MessageTemplates from "./MessageTemplates";
+import Environments from "./Environments";
 import TcpWorkspace from "./TcpWorkspace";
 import {
   closeProject,
@@ -83,7 +85,7 @@ import {
   type TranslationMessages,
 } from "./i18n";
 
-type Page = "schema" | "debug" | "tcp" | "settings";
+type Page = "schema" | "debug" | "tcp" | "environments" | "settings";
 type Diagnostic = {
   id: number;
   time: number;
@@ -1437,6 +1439,16 @@ export default function App() {
             <Network size={17} />
           </button>
           <button
+            aria-current={page === "environments" ? "page" : undefined}
+            aria-label={translation.navigation.environments}
+            className={`nav-button ${page === "environments" ? "active" : ""}`}
+            onClick={() => navigate("environments")}
+            title={translation.navigation.environments}
+            type="button"
+          >
+            <Braces size={17} />
+          </button>
+          <button
             aria-current={page === "settings" ? "page" : undefined}
             aria-label={translation.navigation.settings}
             className={`nav-button settings-button ${page === "settings" ? "active" : ""}`}
@@ -1586,13 +1598,15 @@ export default function App() {
         <section className="content-stage">
           <main
             className={`content-card ${
-              page === "settings"
-                ? "settings-page"
-                : page === "debug"
-                  ? "debug-page"
-                  : page === "tcp"
-                    ? "tcp-page"
-                    : "schema-page"
+              page === "environments"
+                ? "environment-page"
+                : page === "settings"
+                  ? "settings-page"
+                  : page === "debug"
+                    ? "debug-page"
+                    : page === "tcp"
+                      ? "tcp-page"
+                      : "schema-page"
             }`}
           >
             {errorMessage && (
@@ -1615,7 +1629,13 @@ export default function App() {
                 addDiagnostic("tcp", session, message, problem, session)
               }
             />
-            {page === "tcp" ? null : page === "settings" ? (
+            {page === "tcp" ? null : page === "environments" ? (
+              <Environments
+                key={project?.rootPath ?? ""}
+                rootPath={project?.rootPath}
+                locale={locale}
+              />
+            ) : page === "settings" ? (
               <>
                 <header className="content-header">
                   <div className="content-heading-icon">

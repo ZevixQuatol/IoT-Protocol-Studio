@@ -228,6 +228,49 @@ export async function messageTemplates(
       };
 }
 
+export type EnvironmentVariable = {
+  name: string;
+  type: "string" | "number" | "boolean";
+  defaultValue: string;
+};
+export type EnvironmentConfig = {
+  active: string;
+  environments: { name: string; variables: EnvironmentVariable[] }[];
+};
+export type EnvironmentResult =
+  | { ok: true; config: EnvironmentConfig }
+  | { ok: false; error: { code: string; message: string; path: string } };
+
+export async function environments(config?: EnvironmentConfig): Promise<EnvironmentResult> {
+  return window.iotpsEnvironments
+    ? window.iotpsEnvironments(
+        ...(config
+          ? [
+              "save",
+              config.active,
+              String(config.environments.length),
+              ...config.environments.flatMap((environment) => [
+                environment.name,
+                String(environment.variables.length),
+                ...environment.variables.flatMap((variable) => [
+                  variable.name,
+                  variable.type,
+                  variable.defaultValue,
+                ]),
+              ]),
+            ]
+          : ["load"]),
+      )
+    : {
+        ok: false,
+        error: {
+          code: "native_host_required",
+          message: "Open the desktop app to manage environments.",
+          path: "",
+        },
+      };
+}
+
 export type MessageEncodeRequest = {
   relativePath: string;
   messageName: string;
@@ -264,6 +307,7 @@ declare global {
       name: string,
       ...fields: string[]
     ) => Promise<MessageTemplateResult>;
+    iotpsEnvironments?: (...args: string[]) => Promise<EnvironmentResult>;
     iotpsDebugTool?: (operation: string, ...args: string[]) => Promise<DebugToolResult>;
     iotpsDebugDecode?: (
       protocol: string,

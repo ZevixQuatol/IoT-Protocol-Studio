@@ -76,6 +76,22 @@ struct MessageTemplate {
     bool compatible{true};
 };
 
+struct EnvironmentVariable {
+    std::string name;
+    std::string type;
+    std::string default_value;
+};
+
+struct Environment {
+    std::string name;
+    std::vector<EnvironmentVariable> variables;
+};
+
+struct EnvironmentConfig {
+    std::string active;
+    std::vector<Environment> environments;
+};
+
 enum class WorkspaceErrorCode {
     project_directory_not_found,
     project_manifest_open_failed,
@@ -107,11 +123,18 @@ enum class WorkspaceErrorCode {
     message_template_conflict,
     message_template_not_found,
     message_template_incompatible,
+    environment_invalid,
+    environment_write_failed,
 };
 
 using WorkspaceDiagnostic = Error<WorkspaceErrorCode>;
 using ProjectLoadResult = Result<Project, WorkspaceDiagnostic>;
 using MessageTemplateResult = Result<std::vector<MessageTemplate>, WorkspaceDiagnostic>;
+using EnvironmentResult = Result<EnvironmentConfig, WorkspaceDiagnostic>;
+
+[[nodiscard]] EnvironmentResult load_environments(const std::filesystem::path& project_directory);
+[[nodiscard]] EnvironmentResult save_environments(const std::filesystem::path& project_directory,
+                                                  const EnvironmentConfig& config);
 
 // Templates store editable text, including incomplete drafts. Core validates their shape and
 // field definitions; encoding still validates values. All templates live in the project folder.

@@ -5,6 +5,8 @@
 #include <algorithm>
 #include <c4/yml/std/string.hpp>
 #include <cctype>
+#include <charconv>
+#include <cmath>
 #include <fstream>
 #include <optional>
 #include <ryml.hpp>
@@ -440,6 +442,61 @@ bool safe_folder_path(const std::filesystem::path& root, const std::filesystem::
             return false;
     }
     return is_within(std::filesystem::weakly_canonical(current), root);
+}
+
+std::optional<WorkspaceDiagnostic> validate_environments(const EnvironmentConfig& config) {
+    const auto invalid = [](std::string path, std::string detail) {
+        return make_error(WorkspaceErrorCode::environment_invalid, std::move(path),
+                          std::move(detail));
+    };
+    if (config.environments.size() > 100)
+        return invalid("environments", "a project supports up to 100 environments");
+    std::set<std::string> environment_names;
+    for (const auto& environment : config.environments) {
+        if (environment.name.empty() || environment.name.size() > 100 ||
+            std::ranges::all_of(environment.name,
+                                [](unsigned char c) { return std::isspace(c) != 0; }) ||
+            std::ranges::any_of(environment.name, [](unsigned char c) { return c < 32; }) ||
+            !environment_names.insert(environment.name).second)
+            return invalid("environments.name", "environment names must be unique and nonblank");
+        if (environment.variables.size() > 200)
+            return invalid("environments.variables", "an environment supports up to 200 variables");
+        std::set<std::string> variable_names;
+        for (const auto& variable : environment.variables) {
+            const auto identifier = [](unsigned char c, bool first) {
+                return c == '_' || (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') ||
+                       (!first && c >= '0' && c <= '9');
+            };
+            if (variable.name.empty() || variable.name.size() > 100 ||
+                !identifier(static_cast<unsigned char>(variable.name.front()), true) ||
+                !std::ranges::all_of(variable.name.substr(1),
+                                     [&](unsigned char c) { return identifier(c, false); }) ||
+                !variable_names.insert(variable.name).second)
+                return invalid("environments.variables.name",
+                               "variable names must be unique identifiers");
+            if (variable.default_value.size() > 65536)
+                return invalid("environments.variables.default", "variable default is too long");
+            if (variable.type == "number") {
+                double number{};
+                const auto* begin = variable.default_value.data();
+                const auto* end = begin + variable.default_value.size();
+                const auto parsed = std::from_chars(begin, end, number);
+                if (parsed.ec != std::errc{} || parsed.ptr != end || !std::isfinite(number))
+                    return invalid("environments.variables.default", "invalid number default");
+            } else if (variable.type == "boolean") {
+                if (variable.default_value != "true" && variable.default_value != "false")
+                    return invalid("environments.variables.default",
+                                   "boolean default must be true or false");
+            } else if (variable.type != "string") {
+                return invalid("environments.variables.type",
+                               "variable type must be string, number or boolean");
+            }
+        }
+    }
+    if ((config.environments.empty() && !config.active.empty()) ||
+        (!config.environments.empty() && !environment_names.contains(config.active)))
+        return invalid("active", "active environment must name an existing environment");
+    return std::nullopt;
 }
 
 } // namespace
@@ -1667,6 +1724,126 @@ message_templates(const std::filesystem::path& project_directory, const std::str
     }
 }
 
+EnvironmentResult load_environments(const std::filesystem::path& project_directory) {
+    const auto project = load_project(project_directory);
+    if (const auto* error = project.error_if())
+        return *error;
+    const auto destination = project.value().root_directory / "environments.yaml";
+    try {
+        if (linked_directory(destination) || std::filesystem::is_symlink(destination))
+            return make_error(WorkspaceErrorCode::environment_invalid, "environments.yaml",
+                              "environment file must not be a link");
+        if (!std::filesystem::exists(destination))
+            return EnvironmentConfig{};
+        constexpr std::size_t max_bytes = 1024 * 1024;
+        std::ifstream input{destination, std::ios::binary};
+        std::string content(max_bytes + 1, '\0');
+        input.read(content.data(), static_cast<std::streamsize>(content.size()));
+        content.resize(static_cast<std::size_t>(input.gcount()));
+        if (input.bad() || !input.eof() || content.size() > max_bytes)
+            return make_error(WorkspaceErrorCode::environment_invalid, "environments.yaml",
+                              "cannot read environment file or size exceeds 1 MiB");
+        ryml::EventHandlerTree handler{loader_callbacks()};
+        ryml::Parser parser(&handler);
+        auto tree = ryml::parse_in_arena(&parser, ryml::to_csubstr(content));
+        const auto root = tree.crootref();
+        const auto text = [](ryml::ConstNodeRef node, const char* key) {
+            if (!node.is_map() || !node.has_child(key) || !node[key].has_val() ||
+                node[key].is_container() || node[key].val_is_null())
+                throw std::runtime_error("invalid environment property: " + std::string{key});
+            return scalar(node[key]);
+        };
+        if (!root.is_map() || root.num_children() != 3 || text(root, "version") != "1" ||
+            !root.has_child("environments") || !root["environments"].is_seq())
+            throw std::runtime_error("unsupported environment format");
+        EnvironmentConfig config;
+        config.active = text(root, "active");
+        for (const auto node : root["environments"].children()) {
+            if (!node.is_map() || node.num_children() != 2 || !node.has_child("variables") ||
+                !node["variables"].is_seq())
+                throw std::runtime_error("invalid environment entry");
+            Environment environment{text(node, "name"), {}};
+            for (const auto value : node["variables"].children()) {
+                if (!value.is_map() || value.num_children() != 3)
+                    throw std::runtime_error("invalid environment variable");
+                environment.variables.push_back(
+                    {text(value, "name"), text(value, "type"), text(value, "default")});
+            }
+            config.environments.push_back(std::move(environment));
+        }
+        if (const auto error = validate_environments(config))
+            return *error;
+        return config;
+    } catch (const std::exception& error) {
+        return make_error(WorkspaceErrorCode::environment_invalid, "environments.yaml",
+                          error.what());
+    }
+}
+
+EnvironmentResult save_environments(const std::filesystem::path& project_directory,
+                                    const EnvironmentConfig& config) {
+    if (const auto error = validate_environments(config))
+        return *error;
+    // A damaged file must be repaired explicitly, never replaced by an editor snapshot.
+    const auto existing = load_environments(project_directory);
+    if (const auto* error = existing.error_if())
+        return *error;
+    const auto project = load_project(project_directory);
+    if (const auto* error = project.error_if())
+        return *error;
+    const auto destination = project.value().root_directory / "environments.yaml";
+    try {
+        if (linked_directory(destination) || std::filesystem::is_symlink(destination))
+            return make_error(WorkspaceErrorCode::environment_invalid, "environments.yaml",
+                              "environment file must not be a link");
+        ryml::Tree tree;
+        auto root = tree.rootref();
+        root.set_map();
+        const auto put = [](ryml::NodeRef node, const char* key, const std::string& value) {
+            node[key].save(value);
+            node[key].set_val_style(ryml::VAL_DQUO);
+        };
+        put(root, "version", "1");
+        put(root, "active", config.active);
+        root["environments"].set_seq();
+        for (const auto& environment : config.environments) {
+            auto node = root["environments"].append_child();
+            node.set_map();
+            put(node, "name", environment.name);
+            node["variables"].set_seq();
+            for (const auto& variable : environment.variables) {
+                auto value = node["variables"].append_child();
+                value.set_map();
+                put(value, "name", variable.name);
+                put(value, "type", variable.type);
+                put(value, "default", variable.default_value);
+            }
+        }
+        std::string output;
+        ryml::emitrs_yaml(tree, &output);
+        if (output.size() > 1024 * 1024)
+            return make_error(WorkspaceErrorCode::environment_invalid, "environments.yaml",
+                              "environment file exceeds 1 MiB");
+        auto temporary = destination;
+        temporary += ".iotps.tmp";
+        if (std::filesystem::exists(temporary) || std::filesystem::is_symlink(temporary) ||
+            linked_directory(temporary))
+            return make_error(WorkspaceErrorCode::environment_write_failed, "environments.yaml",
+                              "temporary environment file already exists");
+        std::error_code error;
+        if (!write_text_file(temporary, output) ||
+            !atomic_replace_file(temporary, destination, error)) {
+            remove_file(temporary);
+            return make_error(WorkspaceErrorCode::environment_write_failed, "environments.yaml",
+                              "cannot save environment file: " + error.message());
+        }
+        return config;
+    } catch (const std::exception& error) {
+        return make_error(WorkspaceErrorCode::environment_write_failed, "environments.yaml",
+                          error.what());
+    }
+}
+
 std::string_view to_string(const WorkspaceErrorCode code) noexcept {
     switch (code) {
     case WorkspaceErrorCode::project_directory_not_found:
@@ -1729,6 +1906,10 @@ std::string_view to_string(const WorkspaceErrorCode code) noexcept {
         return "message_template_not_found";
     case WorkspaceErrorCode::message_template_incompatible:
         return "message_template_incompatible";
+    case WorkspaceErrorCode::environment_invalid:
+        return "environment_invalid";
+    case WorkspaceErrorCode::environment_write_failed:
+        return "environment_write_failed";
     }
     return "unknown";
 }

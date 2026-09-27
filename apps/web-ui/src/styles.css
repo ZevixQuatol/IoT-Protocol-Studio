@@ -1939,6 +1939,79 @@ button {
   gap: 12px;
 }
 
+.environment-body {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: 20px;
+  color: var(--text);
+}
+
+.environment-toolbar,
+.environment-variable,
+.environment-actions {
+  display: flex;
+  align-items: end;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-bottom: 14px;
+}
+
+.environment-toolbar form {
+  display: flex;
+  align-items: end;
+  gap: 8px;
+}
+
+.environment-body label {
+  display: grid;
+  gap: 5px;
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.environment-body input,
+.environment-body select,
+.environment-body button {
+  min-height: 34px;
+  padding: 6px 10px;
+  border: 1px solid var(--line);
+  border-radius: 5px;
+  background: var(--surface-deep);
+  color: var(--text);
+  font: inherit;
+}
+
+.environment-body button:not(:disabled) {
+  cursor: pointer;
+}
+
+.environment-editor {
+  max-width: 900px;
+  padding: 18px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface-deep);
+}
+
+.environment-editor h2 {
+  margin: 10px 0;
+  font-size: 14px;
+}
+
+.environment-variable label:last-of-type {
+  flex: 1;
+  min-width: 180px;
+}
+
+.environment-variable label:last-of-type input {
+  width: 100%;
+}
+
+.environment-error {
+  color: #ef8d8d;
+}
+
 .settings-section {
   display: flex;
   align-items: center;

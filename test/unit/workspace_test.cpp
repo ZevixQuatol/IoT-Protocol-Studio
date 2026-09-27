@@ -741,6 +741,41 @@ messages:
     CHECK(templates("list").value().empty());
     CHECK(message_templates(managed, "list", editor_path, "other").value().size() == 1);
 
+    // Active environment and typed defaults survive reload; invalid edits preserve the file.
+    const auto environments_path = managed / "environments.yaml";
+    CHECK(load_environments(managed).value().environments.empty());
+    EnvironmentConfig environments{
+        .active = "设备 A",
+        .environments = {{"设备 A",
+                          {{"server", "string", "127.0.0.1"},
+                           {"port", "number", "8000"},
+                           {"enabled", "boolean", "true"}}},
+                         {"设备 B", {{"server", "string", "192.0.2.2"}}}},
+    };
+    CHECK(save_environments(managed, environments).has_value());
+    CHECK(load_environments(managed).value().active == "设备 A");
+    CHECK(load_environments(managed).value().environments[0].variables[1].default_value == "8000");
+    environments.active = "设备 B";
+    CHECK(save_environments(managed, environments).has_value());
+    CHECK(load_environments(managed).value().active == "设备 B");
+    const auto saved_environments = read_file(environments_path);
+    environments.environments[0].variables[1].default_value = "invalid";
+    CHECK(!save_environments(managed, environments).has_value());
+    CHECK(read_file(environments_path) == saved_environments);
+    environments.environments[0].variables[1].default_value = "8000";
+    environments.environments[0].variables.push_back({"server", "string", "duplicate"});
+    CHECK(!save_environments(managed, environments).has_value());
+    CHECK(read_file(environments_path) == saved_environments);
+    write_file(environments_path, "version: 2\nactive: old\nenvironments: []\n");
+    CHECK(!load_environments(managed).has_value());
+    CHECK(!save_environments(managed, EnvironmentConfig{}).has_value());
+    CHECK(read_file(environments_path) == "version: 2\nactive: old\nenvironments: []\n");
+    write_file(environments_path, saved_environments);
+    write_file(managed / "environments.yaml.iotps.tmp", "reserved");
+    CHECK(!save_environments(managed, load_environments(managed).value()).has_value());
+    CHECK(read_file(environments_path) == saved_environments);
+    std::filesystem::remove(managed / "environments.yaml.iotps.tmp");
+
     // Protocol display renames retain paths; batch deletion validates the entire set first.
     CHECK(rename_protocol(managed, editor_path, "重命名: 协议").has_value());
     CHECK(editor_schema().protocol.display_name == "重命名: 协议");

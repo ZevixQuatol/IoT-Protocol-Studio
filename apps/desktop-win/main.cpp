@@ -1162,13 +1162,14 @@ window.addEventListener("DOMContentLoaded", () => {
             return;
           }
           const noProjectRename = await window.iotpsWorkspaceRename("Smoke");
+          const noProjectEnvironment = await window.iotpsEnvironments("load");
           const fixturePath = await window.iotpsSmokeProjectPath();
           const reopened = await window.iotpsWorkspaceOpen(fixturePath);
           const invalidRename = await window.iotpsWorkspaceRename("");
           const failedOpen = await window.iotpsWorkspaceOpen(fixturePath + "/missing-project");
           const retained = await window.iotpsWorkspaceCurrent();
           await window.iotpsWorkspaceClose();
-          if (noProjectRename?.error?.code !== "project_not_open" || !reopened?.ok ||
+          if (noProjectRename?.error?.code !== "project_not_open" || noProjectEnvironment?.error?.code !== "project_not_open" || !reopened?.ok ||
               reopened.project?.protocols.length !== 1 || invalidRename?.error?.code !== "project_name_required" ||
               failedOpen?.ok || retained.project?.rootPath !== reopened.project?.rootPath) {
             report("project-management-bridge-failed"); return;
@@ -1176,6 +1177,18 @@ window.addEventListener("DOMContentLoaded", () => {
           const editable = await window.iotpsSmokeSchemaFixture();
           if (!editable?.ok) { report("schema-fixture-failed"); return; }
           await window.iotpsWorkspaceOpen(editable.project.rootPath);
+          const savedEnvironment = await window.iotpsEnvironments("save", "Lab A", "2", "Lab A", "1", "host", "string", "127.0.0.1", "Lab B", "1", "port", "number", "9000");
+          await window.iotpsWorkspaceClose();
+          await window.iotpsWorkspaceOpen(editable.project.rootPath);
+          const reloadedEnvironment = await window.iotpsEnvironments("load");
+          const switchedEnvironment = await window.iotpsEnvironments("save", "Lab B", "2", "Lab A", "1", "host", "string", "127.0.0.1", "Lab B", "1", "port", "number", "9000");
+          const invalidEnvironment = await window.iotpsEnvironments("save", "Lab B", "2", "Lab A", "1", "host", "string", "127.0.0.1", "Lab B", "1", "port", "number", "invalid");
+          if (!savedEnvironment?.ok || reloadedEnvironment?.config?.active !== "Lab A" ||
+              reloadedEnvironment.config.environments[1].variables[0].defaultValue !== "9000" ||
+              switchedEnvironment?.config?.active !== "Lab B" || invalidEnvironment?.error?.code !== "environment_invalid" ||
+              (await window.iotpsEnvironments("load")).config?.active !== "Lab B") {
+            report("environment-bridge-failed"); return;
+          }
           const path = editable.project.protocols[0].path;
           const edit = async (action, message, field, ...properties) => {
             const result = await window.iotpsWorkspaceEditSchema(path, action, message, field, ...properties);
@@ -1955,6 +1968,84 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR command_line, int) {
                 json << "]}";
             }
             json << "]}";
+            return json.str();
+        });
+        window.bind("iotpsEnvironments", [&current_project](const std::string& request) {
+            const auto args = string_arguments(request);
+            if (!args || args->empty() || (args->front() != "load" && args->front() != "save"))
+                return workspace_error_response("invalid_request", "invalid environment action");
+            if (!current_project)
+                return workspace_error_response("project_not_open", "Open a project first");
+            iotps::core::workspace::EnvironmentConfig config;
+            if (args->front() == "save") {
+                if (args->size() < 3)
+                    return workspace_error_response("invalid_request", "missing environment data");
+                const auto count = [](const std::string& value,
+                                      std::size_t maximum) -> std::optional<std::size_t> {
+                    std::size_t parsed{};
+                    const auto result =
+                        std::from_chars(value.data(), value.data() + value.size(), parsed);
+                    if (result.ec != std::errc{} || result.ptr != value.data() + value.size() ||
+                        parsed > maximum)
+                        return std::nullopt;
+                    return parsed;
+                };
+                const auto environments = count((*args)[2], 100);
+                if (!environments)
+                    return workspace_error_response("invalid_request", "invalid environment count");
+                config.active = (*args)[1];
+                std::size_t index = 3;
+                for (std::size_t i = 0; i < *environments; ++i) {
+                    if (index + 2 > args->size())
+                        return workspace_error_response("invalid_request",
+                                                        "incomplete environment");
+                    iotps::core::workspace::Environment environment;
+                    environment.name = (*args)[index++];
+                    const auto variables = count((*args)[index++], 200);
+                    if (!variables || *variables > (args->size() - index) / 3)
+                        return workspace_error_response("invalid_request",
+                                                        "invalid variable count");
+                    for (std::size_t j = 0; j < *variables; ++j) {
+                        environment.variables.push_back(
+                            {(*args)[index], (*args)[index + 1], (*args)[index + 2]});
+                        index += 3;
+                    }
+                    config.environments.push_back(std::move(environment));
+                }
+                if (index != args->size())
+                    return workspace_error_response("invalid_request", "extra environment data");
+            } else if (args->size() != 1) {
+                return workspace_error_response("invalid_request",
+                                                "load expects no environment data");
+            }
+            const auto result =
+                args->front() == "load"
+                    ? iotps::core::workspace::load_environments(*current_project)
+                    : iotps::core::workspace::save_environments(*current_project, config);
+            if (const auto* error = result.error_if())
+                return workspace_error_response(iotps::core::workspace::to_string(error->code),
+                                                error->detail, error->path);
+            std::ostringstream json;
+            json << "{\"ok\":true,\"config\":{\"active\":" << json_string(result.value().active)
+                 << ",\"environments\":[";
+            bool first_environment = true;
+            for (const auto& environment : result.value().environments) {
+                if (!first_environment)
+                    json << ',';
+                first_environment = false;
+                json << "{\"name\":" << json_string(environment.name) << ",\"variables\":[";
+                bool first_variable = true;
+                for (const auto& variable : environment.variables) {
+                    if (!first_variable)
+                        json << ',';
+                    first_variable = false;
+                    json << "{\"name\":" << json_string(variable.name)
+                         << ",\"type\":" << json_string(variable.type)
+                         << ",\"defaultValue\":" << json_string(variable.default_value) << '}';
+                }
+                json << "]}";
+            }
+            json << "]}}";
             return json.str();
         });
         window.bind("iotpsWorkspaceClose", [&current_project](const std::string&) {
