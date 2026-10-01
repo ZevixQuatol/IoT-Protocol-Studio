@@ -153,7 +153,7 @@ async function checkTrafficFilters(page) {
     );
   };
   await count(7);
-  await first.locator(".traffic-filters summary").click();
+  await first.locator(".traffic-filters summary").filter({ hasText: "Structured filters" }).click();
   await first
     .getByLabel("Filter connection", { exact: true })
     .selectOption(JSON.stringify(["peer-A", 1]));
@@ -255,7 +255,10 @@ async function checkTrafficFilters(page) {
     .selectOption(JSON.stringify(["peer-A", 1]));
   await page.getByLabel("New communication session", { exact: true }).click();
   const second = page.locator('[data-session="tcp-2"]');
-  await second.locator(".traffic-filters summary").click();
+  await second
+    .locator(".traffic-filters summary")
+    .filter({ hasText: "Structured filters" })
+    .click();
   check(
     (await second.getByLabel("Filter connection", { exact: true }).inputValue()) === "",
     "session filters independent",

@@ -117,6 +117,7 @@ struct TcpSession::Impl {
         bool closing{false};
         std::deque<Outgoing> outgoing;
         FrameAssembler framer;
+        FrameAssembler tx_framer;
     };
     mutable std::mutex mutex;
     std::jthread worker;
@@ -146,7 +147,8 @@ struct TcpSession::Impl {
 #endif
     }
     void record(std::string direction, const TcpPeer& peer, ByteBuffer data,
-                std::string detail = {}, std::optional<TcpParse> parsed = std::nullopt) {
+                std::string detail = {}, std::optional<TcpParse> parsed = std::nullopt,
+                std::string flow = {}) {
         const auto time = std::chrono::duration_cast<std::chrono::milliseconds>(
                               std::chrono::system_clock::now().time_since_epoch())
                               .count();
@@ -155,7 +157,8 @@ struct TcpSession::Impl {
             for (const auto& field : parsed->fields)
                 record_bytes += field.value.size();
         records.push_back({++next_record, time, std::move(direction), peer.id, peer.address,
-                           std::move(data), std::move(detail), std::move(parsed), status.device});
+                           std::move(data), std::move(detail), std::move(parsed), status.device,
+                           std::move(flow)});
         while (records.size() > 1000 || record_bytes > 4 * 1024 * 1024) {
             record_bytes -= records.front().data.size();
             if (records.front().parsed)
@@ -174,6 +177,8 @@ struct TcpSession::Impl {
         auto& peer = peers[i];
         if (const auto partial = peer.framer.discard("connection closed"))
             record("SYS", peer.info, {}, partial->error);
+        if (const auto partial = peer.tx_framer.discard("connection closed"))
+            record("SYS", peer.info, {}, "TX: " + partial->error);
         for (const auto& item : peer.outgoing)
             status.queued_bytes -= item.data.size() - item.offset;
         record("SYS", peer.info, {}, std::move(detail));
@@ -313,6 +318,7 @@ struct TcpSession::Impl {
                 peers.push_back({sock, info, false, {}});
                 sock = invalid_socket; // The peer owns the socket from here.
                 peers.back().framer.configure(framing);
+                peers.back().tx_framer.configure(framing);
                 status.state = TransportState::open;
                 record("SYS", info, {}, udp ? "UDP bound" : "Serial opened");
             }
@@ -365,6 +371,9 @@ struct TcpSession::Impl {
                     if (const auto expired = peer.framer.expire(std::chrono::steady_clock::now()))
                         record("SYS", info, {}, expired->error);
 #endif
+                    if (const auto expired =
+                            peer.tx_framer.expire(std::chrono::steady_clock::now()))
+                        record("SYS", info, {}, "TX: " + expired->error);
                 } else {
                     sockaddr_storage source{};
                     SockLength source_size = sizeof(source);
@@ -417,6 +426,9 @@ struct TcpSession::Impl {
                     record("TX", info,
                            {item.data.begin() + static_cast<std::ptrdiff_t>(item.offset),
                             item.data.begin() + static_cast<std::ptrdiff_t>(item.offset + count)});
+                    sent_frames(peer,
+                                {item.data.data() + item.offset, static_cast<std::size_t>(count)},
+                                udp != nullptr);
                     item.offset += static_cast<std::size_t>(count);
                     if (item.offset == item.data.size()) {
                         ++status.statistics.messages_sent;
@@ -446,7 +458,19 @@ struct TcpSession::Impl {
             status.state = TransportState::closed;
         record("SYS", {0, status.host}, {}, "Stopped");
     }
-    void complete_frame(const TcpPeer& info, ByteBuffer bytes) {
+    void sent_frames(Peer& peer, std::span<const std::uint8_t> bytes, bool udp = false) {
+        if (udp) {
+            // UDP uses the actual remote endpoint, like RX's source, rather than the socket ID.
+            complete_frame({0, peer.info.address}, {bytes.begin(), bytes.end()}, "TX");
+            return;
+        }
+        for (auto& frame : peer.tx_framer.feed(bytes, std::chrono::steady_clock::now()))
+            if (frame.error.empty())
+                complete_frame(peer.info, std::move(frame.bytes), "TX");
+            else
+                record("SYS", peer.info, {}, "TX: " + frame.error);
+    }
+    void complete_frame(const TcpPeer& info, ByteBuffer bytes, std::string flow = "RX") {
         std::string detail = "Complete frame; no protocol bound";
         std::optional<TcpParse> parsed;
         if (bound_protocol) {
@@ -536,7 +560,8 @@ struct TcpSession::Impl {
                 }
             }
         }
-        record("FRAME", info, std::move(bytes), std::move(detail), std::move(parsed));
+        record("FRAME", info, std::move(bytes), std::move(detail), std::move(parsed),
+               std::move(flow));
     }
     void run(std::stop_token stop, sockaddr_storage address, SockLength size, bool server) {
         Socket listener = invalid_socket;
@@ -598,6 +623,7 @@ struct TcpSession::Impl {
                                      false,
                                      {}});
                     peers.back().framer.configure(framing);
+                    peers.back().tx_framer.configure(framing);
                     status.state = TransportState::open;
                     status.error.clear();
                     record("SYS", peers.back().info, {}, "Connected");
@@ -644,6 +670,7 @@ struct TcpSession::Impl {
                         } else {
                             peers.push_back({client, {++next_peer, address_of(remote)}, false, {}});
                             peers.back().framer.configure(framing);
+                            peers.back().tx_framer.configure(framing);
                             record("SYS", peers.back().info, {}, "Client connected");
                         }
                     }
@@ -652,6 +679,9 @@ struct TcpSession::Impl {
                     auto& peer = peers[i];
                     if (const auto expired = peer.framer.expire(std::chrono::steady_clock::now()))
                         record("SYS", peer.info, {}, expired->error);
+                    if (const auto expired =
+                            peer.tx_framer.expire(std::chrono::steady_clock::now()))
+                        record("SYS", peer.info, {}, "TX: " + expired->error);
                     if (FD_ISSET(peer.socket, &read)) {
                         std::array<std::uint8_t, 16384> buffer{};
                         const int count = static_cast<int>(
@@ -696,6 +726,9 @@ struct TcpSession::Impl {
                                         static_cast<std::ptrdiff_t>(
                                             item.offset + static_cast<std::size_t>(count))});
                             item.offset += static_cast<std::size_t>(count);
+                            sent_frames(peer, {item.data.data() + item.offset -
+                                                   static_cast<std::size_t>(count),
+                                               static_cast<std::size_t>(count)});
                             if (item.offset == item.data.size()) {
                                 ++status.statistics.messages_sent;
                                 peer.outgoing.pop_front();
@@ -972,6 +1005,9 @@ TransportResult TcpSession::set_framing(FrameRule rule) {
         if (const auto partial = peer.framer.discard("framing rule changed"))
             impl_->record("SYS", peer.info, {}, partial->error);
         peer.framer.configure(impl_->framing);
+        if (const auto partial = peer.tx_framer.discard("framing rule changed"))
+            impl_->record("SYS", peer.info, {}, "TX: " + partial->error);
+        peer.tx_framer.configure(impl_->framing);
     }
     return std::monostate{};
 }

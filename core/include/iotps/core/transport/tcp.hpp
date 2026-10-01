@@ -67,6 +67,7 @@ struct TcpRecord {
     std::string detail;
     std::optional<TcpParse> parsed;
     std::string device;
+    std::string flow; // FRAME direction: TX or RX; older archives imply RX.
 };
 struct TcpSnapshot {
     std::string kind{"tcp"};

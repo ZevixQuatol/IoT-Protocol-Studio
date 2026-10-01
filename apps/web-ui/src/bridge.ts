@@ -42,6 +42,7 @@ export type TcpRecord = {
   size: number;
   detail: string;
   device?: string;
+  flow?: "TX" | "RX";
   parsed?: {
     protocolPath: string;
     messageName: string;
@@ -72,6 +73,78 @@ export type TcpSnapshot = {
   peers: { id: number; address: string }[];
   records: TcpRecord[];
 };
+export type CorrelationRule = {
+  protocol: string;
+  requestMessage: string;
+  responseMessage: string;
+  requestField: string;
+  responseField: string;
+  requestFlow: "TX" | "RX";
+  scope: "connection" | "session";
+  timeout: number;
+};
+export type CorrelationRow = {
+  request: number;
+  response: number;
+  state:
+    | "pending"
+    | "matched"
+    | "timeout"
+    | "duplicate"
+    | "unmatched"
+    | "late"
+    | "ambiguous"
+    | "skipped";
+  reason: string;
+  elapsed: number;
+};
+type CorrelationResult =
+  { ok: true; rows: CorrelationRow[] } | { ok: false; error: { code: string; message: string } };
+export async function correlateTraffic(
+  rule: CorrelationRule,
+  records: TcpRecord[],
+  now: number,
+): Promise<CorrelationResult> {
+  if (!window.iotpsCorrelate)
+    return {
+      ok: false,
+      error: {
+        code: "native_host_required",
+        message: "Correlation requires the desktop app / 关联分析需要桌面客户端",
+      },
+    };
+  const frames = records.filter((record) => record.direction === "FRAME");
+  return window.iotpsCorrelate(
+    rule.protocol,
+    rule.requestMessage,
+    rule.responseMessage,
+    rule.requestField,
+    rule.responseField,
+    rule.requestFlow,
+    rule.scope,
+    String(rule.timeout),
+    String(now),
+    String(frames.length),
+    ...frames.flatMap((record) => {
+      const fields =
+        record.parsed?.fields.filter(
+          (field) => field.name === rule.requestField || field.name === rule.responseField,
+        ) ?? [];
+      return [
+        String(record.id),
+        String(record.time),
+        record.flow ?? "RX",
+        String(record.peer),
+        record.address,
+        record.parsed?.protocolPath ?? "",
+        record.parsed?.messageName ?? "",
+        record.parsed?.status ?? "",
+        String(fields.length),
+        ...fields.flatMap((field) => [field.name, field.type, field.redacted ? "" : field.value]),
+      ];
+    }),
+  );
+}
 type TcpResult =
   | TcpSnapshot
   | { ok: true; serialDevices?: string[]; interfaces?: string[] }
@@ -309,6 +382,7 @@ export type MessageEncodeResult =
 
 declare global {
   interface Window {
+    iotpsCorrelate?: (...args: string[]) => Promise<CorrelationResult>;
     iotpsTcp?: (session: string, action: string, ...args: string[]) => Promise<TcpResult>;
     iotpsWorkspaceProtocols?: (action: string, ...args: string[]) => Promise<WorkspaceResult>;
     iotpsMessageTemplates?: (
@@ -380,6 +454,7 @@ type DebugFailure = {
   error: { code: string; message: string; path?: string; offset?: number };
 };
 export type DebugField = {
+  redacted?: boolean;
   name: string;
   displayName: string;
   type: string;

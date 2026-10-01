@@ -18,10 +18,12 @@ import {
   type TcpDraft,
   type TcpRecord,
   type TcpSnapshot,
+  type CorrelationRule,
   type WorkspaceProtocol,
 } from "./bridge";
 import { readTrafficArchive } from "./trafficFile";
 import TrafficFilters, { deviceValue, emptyFilters, matchesRecord } from "./TrafficFilters";
+import TrafficCorrelation from "./TrafficCorrelation";
 import { activeVariables, resolveValue, sendValues } from "./sendVariables";
 import type { Locale } from "./i18n";
 
@@ -84,6 +86,7 @@ export default function TcpWorkbench({
   const [status, setStatus] = useState(empty);
   const [records, setRecords] = useState<TcpRecord[]>([]);
   const [history, setHistory] = useState<ReturnType<typeof readTrafficArchive> | null>(null);
+  const [correlation, setCorrelation] = useState<CorrelationRule | null>(null);
   const [autoRetry, setAutoRetry] = useState(false);
   const [retryLimit, setRetryLimit] = useState("3");
   const [retrySeconds, setRetrySeconds] = useState("2");
@@ -148,6 +151,7 @@ export default function TcpWorkbench({
         name: redact(field.name),
         displayName: redact(field.displayName),
         value: redact(field.value),
+        redacted: field.redacted || redact(field.value) !== field.value,
         enumName: field.enumName === undefined ? undefined : redact(field.enumName),
         bits: field.bits?.map((bit) => ({
           ...bit,
@@ -607,9 +611,23 @@ export default function TcpWorkbench({
           records: snapshot.records,
         };
       }
+      const rule = history ? history.correlation : correlation;
       const content =
         action === "save"
-          ? JSON.stringify({ ...current, records: current?.records.map(redactRecord) })
+          ? JSON.stringify({
+              ...current,
+              correlation: rule
+                ? {
+                    ...rule,
+                    protocol: redact(rule.protocol),
+                    requestMessage: redact(rule.requestMessage),
+                    responseMessage: redact(rule.responseMessage),
+                    requestField: redact(rule.requestField),
+                    responseField: redact(rule.responseField),
+                  }
+                : undefined,
+              records: current?.records.map(redactRecord),
+            })
           : "";
       const result = await trafficFile(action, content);
       if (!result.ok) throw new Error(result.error.message);
@@ -1421,6 +1439,21 @@ export default function TcpWorkbench({
         {(history?.dropped ?? status.dropped) > 0 &&
           `${t("已淘汰", "Evicted")}: ${history?.dropped ?? status.dropped}`}
       </p>
+      <TrafficCorrelation
+        records={history?.records ?? records}
+        protocols={protocols}
+        rule={history ? (history.correlation ?? null) : correlation}
+        onRule={(rule) =>
+          history
+            ? setHistory({ ...history, correlation: rule ?? undefined })
+            : setCorrelation(rule)
+        }
+        onSelect={setSelected}
+        locale={locale}
+        savedAt={history?.savedAt}
+        dropped={history?.dropped ?? status.dropped}
+        redact={redact}
+      />
       <div className="tcp-log" ref={table}>
         <table>
           <thead>
@@ -1440,7 +1473,9 @@ export default function TcpWorkbench({
                   {new Date(item.time).toLocaleTimeString(locale, { hour12: false })}.
                   {String(item.time % 1000).padStart(3, "0")}
                 </td>
-                <td className={`tcp-dir-${item.direction}`}>{item.direction}</td>
+                <td className={`tcp-dir-${item.direction}`}>
+                  {item.direction === "FRAME" ? `FRAME ${item.flow ?? "RX"}` : item.direction}
+                </td>
                 <td>
                   {item.address} {item.peer > 0 && `#${item.peer}`}
                 </td>

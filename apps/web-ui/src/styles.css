@@ -3154,6 +3154,23 @@ button {
 .traffic-filters select {
   max-width: 260px;
 }
+.traffic-correlation {
+  margin-bottom: 12px;
+}
+.correlation-table {
+  overflow: auto;
+}
+.correlation-table table {
+  width: 100%;
+  min-width: 600px;
+  border-collapse: collapse;
+}
+.correlation-table th,
+.correlation-table td {
+  padding: 6px 10px;
+  text-align: left;
+  border-bottom: 1px solid var(--border);
+}
 .tcp-connect {
   display: flex;
   flex-wrap: wrap;
@@ -3369,7 +3386,7 @@ button {
   width: 104px;
 }
 .tcp-log th:nth-child(2) {
-  width: 58px;
+  width: 90px;
 }
 .tcp-log th:nth-child(3) {
   width: 175px;
@@ -3378,7 +3395,7 @@ button {
   width: 160px;
 }
 .tcp-log th:nth-child(5) {
-  width: 48px;
+  width: 64px;
 }
 .tcp-log td button {
   border: none;

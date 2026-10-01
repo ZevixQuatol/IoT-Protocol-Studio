@@ -2,6 +2,7 @@
 #include "iotps/core/debug.hpp"
 #include "iotps/core/engine.hpp"
 #include "iotps/core/hex.hpp"
+#include "iotps/core/transport/correlation.hpp"
 #include "iotps/core/transport/tcp.hpp"
 #include "iotps/core/version.hpp"
 #include "iotps/core/workspace/workspace.hpp"
@@ -1144,6 +1145,13 @@ window.addEventListener("DOMContentLoaded", () => {
           const deviceApplied = await window.iotpsTcp("smoke", "device", "smoke-device");
           const devicePoll = await window.iotpsTcp("smoke", "poll", "0");
           const deviceInvalid = await window.iotpsTcp("smoke", "device", "x".repeat(513));
+          const correlate = (...tail) => window.iotpsCorrelate("wire.yaml", "ask", "reply", "seq", "ack", "TX", "connection", "100", "1100", ...tail);
+          const correlation = await correlate("2", "1", "1000", "TX", "1", "endpoint", "wire.yaml", "ask", "ok", "1", "seq", "uint16", "7", "2", "1100", "RX", "1", "endpoint", "wire.yaml", "reply", "ok", "1", "ack", "uint16", "7");
+          const correlationInvalid = await correlate("1001");
+          const correlationDuplicate = await correlate("2", "1", "1000", "TX", "1", "endpoint", "wire.yaml", "ask", "ok", "0", "1", "1100", "RX", "1", "endpoint", "wire.yaml", "reply", "ok", "0");
+          if (!correlation?.ok || correlation.rows.length !== 1 || correlation.rows[0].state !== "matched" || correlation.rows[0].elapsed !== 100 || correlationInvalid?.ok || correlationDuplicate?.ok) {
+            report("correlation-bridge-failed"); return;
+          }
           await window.iotpsTcp("smoke", "destroy");
           if (!devices?.ok || !Array.isArray(devices.serialDevices) || !Array.isArray(devices.interfaces) || invalidSerial?.ok || invalidUdp?.ok || invalidMembership?.ok || !deviceApplied?.ok || devicePoll.device !== "smoke-device" || deviceInvalid?.ok) {
             report("endpoint-validation-failed"); return;
@@ -1629,6 +1637,99 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR command_line, int) {
         std::optional<std::filesystem::path> current_project;
         std::map<std::string, std::unique_ptr<iotps::core::transport::TcpSession>> tcp_sessions;
         TcpWindows tcp_windows(window, [&tcp_sessions] { tcp_sessions.clear(); });
+        window.bind("iotpsCorrelate", [](const std::string& request) {
+            using namespace iotps::core::transport;
+            if (request.size() > 16 * 1024 * 1024)
+                return workspace_error_response("invalid_request",
+                                                "Correlation input exceeds 16 MiB");
+            const auto args = string_arguments(request);
+            if (!args || args->size() < 10)
+                return workspace_error_response("invalid_request", "Invalid correlation input");
+            std::size_t index = 0;
+            const auto text = [&](std::size_t limit) {
+                if (index >= args->size() || (*args)[index].size() > limit)
+                    throw std::runtime_error("Invalid correlation text");
+                return (*args)[index++];
+            };
+            const auto number = [&](std::uint64_t limit) {
+                const auto value = text(20);
+                std::uint64_t parsed = 0;
+                const auto [end, error] =
+                    std::from_chars(value.data(), value.data() + value.size(), parsed);
+                if (error != std::errc{} || end != value.data() + value.size() || parsed > limit)
+                    throw std::runtime_error("Invalid correlation number");
+                return parsed;
+            };
+            try {
+                CorrelationRule rule;
+                rule.protocol = text(1024);
+                rule.request_message = text(256);
+                rule.response_message = text(256);
+                rule.request_field = text(256);
+                rule.response_field = text(256);
+                rule.request_flow = text(2);
+                rule.scope = text(10);
+                rule.timeout_ms = static_cast<std::int64_t>(number(3600000));
+                if (const auto error = correlation_rule_error(rule); !error.empty())
+                    return workspace_error_response("invalid_configuration", error);
+                constexpr std::uint64_t safe_integer = 9007199254740991ULL;
+                const auto now = static_cast<std::int64_t>(number(safe_integer));
+                const auto count = number(1000);
+                std::vector<TcpRecord> records;
+                for (std::uint64_t i = 0; i < count; ++i) {
+                    TcpRecord record{};
+                    record.id = number(safe_integer);
+                    if (!record.id || (!records.empty() && record.id <= records.back().id))
+                        throw std::runtime_error("Frame IDs must be positive and ordered");
+                    record.time_ms = static_cast<std::int64_t>(number(safe_integer));
+                    record.flow = text(2);
+                    if (record.flow != "TX" && record.flow != "RX")
+                        throw std::runtime_error("Invalid frame direction");
+                    record.direction = "FRAME";
+                    record.peer = number(safe_integer);
+                    record.address = text(256);
+                    record.parsed.emplace();
+                    record.parsed->protocol_path = text(1024);
+                    record.parsed->message_name = text(256);
+                    record.parsed->status = text(9);
+                    if (record.parsed->status != "ok" && record.parsed->status != "error" &&
+                        record.parsed->status != "unmatched" && !record.parsed->status.empty())
+                        throw std::runtime_error("Invalid frame parse status");
+                    const auto fields = number(2);
+                    for (std::uint64_t j = 0; j < fields; ++j) {
+                        TcpParsedField field{};
+                        field.name = text(256);
+                        field.type = text(64);
+                        field.value = text(515);
+                        if (std::ranges::any_of(record.parsed->fields, [&](const auto& existing) {
+                                return existing.name == field.name;
+                            }))
+                            throw std::runtime_error("Duplicate correlation field");
+                        record.parsed->fields.push_back(std::move(field));
+                    }
+                    records.push_back(std::move(record));
+                }
+                if (index != args->size())
+                    throw std::runtime_error("Extra correlation data");
+                const auto rows = correlate(records, rule, now);
+                std::ostringstream out;
+                out << "{\"ok\":true,\"rows\":[";
+                bool first = true;
+                for (const auto& row : rows) {
+                    if (!first)
+                        out << ',';
+                    first = false;
+                    out << "{\"request\":" << row.request << ",\"response\":" << row.response
+                        << ",\"state\":" << json_string(row.state)
+                        << ",\"reason\":" << json_string(row.reason)
+                        << ",\"elapsed\":" << row.elapsed_ms << '}';
+                }
+                out << "]}";
+                return out.str();
+            } catch (const std::exception& error) {
+                return workspace_error_response("invalid_request", error.what());
+            }
+        });
         window.bind("iotpsTcp", [&tcp_sessions, &current_project](const std::string& request) {
             auto args = string_arguments(request);
             if (!args || args->size() < 2 || args->size() > 9 || (*args)[0].empty() ||
@@ -1837,6 +1938,8 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR command_line, int) {
                         << ",\"size\":" << record.data.size()
                         << ",\"detail\":" << json_string(record.detail);
                     out << ",\"device\":" << json_string(record.device);
+                    if (!record.flow.empty())
+                        out << ",\"flow\":" << json_string(record.flow);
                     if (record.parsed) {
                         const auto& parsed = *record.parsed;
                         out << ",\"parsed\":{\"protocolPath\":" << json_string(parsed.protocol_path)

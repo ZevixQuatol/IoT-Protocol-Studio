@@ -1,4 +1,4 @@
-import type { TcpRecord } from "./bridge";
+import type { CorrelationRule, TcpRecord } from "./bridge";
 
 export type TrafficArchive = {
   format: "iotps-traffic-v1";
@@ -6,6 +6,7 @@ export type TrafficArchive = {
   savedAt: string;
   dropped: number;
   records: TcpRecord[];
+  correlation?: CorrelationRule;
 };
 
 export function readTrafficArchive(content: string): TrafficArchive {
@@ -26,14 +27,43 @@ export function readTrafficArchive(content: string): TrafficArchive {
   )
     throw new Error("Invalid traffic archive");
   let bytes = 0;
+  if (archive.correlation !== undefined) {
+    const rule = archive.correlation;
+    if (
+      !rule ||
+      typeof rule !== "object" ||
+      [
+        rule.protocol,
+        rule.requestMessage,
+        rule.responseMessage,
+        rule.requestField,
+        rule.responseField,
+      ].some(
+        (value, index) =>
+          typeof value !== "string" ||
+          !value.trim() ||
+          new TextEncoder().encode(value).length > (index === 0 ? 1024 : 256) ||
+          /[\u0000-\u001f\u007f]/.test(value),
+      ) ||
+      !["TX", "RX"].includes(rule.requestFlow) ||
+      !["connection", "session"].includes(rule.scope) ||
+      !Number.isSafeInteger(rule.timeout) ||
+      rule.timeout < 1 ||
+      rule.timeout > 3600000
+    )
+      throw new Error("Invalid traffic correlation rule");
+  }
+  let previousId = 0;
   for (const item of archive.records) {
     if (
       !item ||
       !Number.isSafeInteger(item.id) ||
-      item.id <= 0 ||
+      item.id <= previousId ||
       !Number.isSafeInteger(item.time) ||
       item.time < 0 ||
       !["TX", "RX", "FRAME", "SYS"].includes(item.direction) ||
+      (item.flow !== undefined &&
+        (item.direction !== "FRAME" || !["TX", "RX"].includes(item.flow))) ||
       !Number.isSafeInteger(item.peer) ||
       item.peer < 0 ||
       typeof item.address !== "string" ||
@@ -51,6 +81,7 @@ export function readTrafficArchive(content: string): TrafficArchive {
     )
       throw new Error("Invalid traffic archive record");
     bytes += item.size;
+    previousId = item.id;
     if (item.parsed !== undefined) {
       const parsed = item.parsed;
       if (
@@ -78,6 +109,7 @@ export function readTrafficArchive(content: string): TrafficArchive {
             typeof field.type !== "string" ||
             field.type.length > 64 ||
             typeof field.value !== "string" ||
+            (field.redacted !== undefined && typeof field.redacted !== "boolean") ||
             field.value.length > 515 ||
             (field.enumName !== undefined &&
               (typeof field.enumName !== "string" || field.enumName.length > 200)) ||

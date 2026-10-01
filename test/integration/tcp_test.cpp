@@ -1,7 +1,8 @@
+#include "iotps/core/transport/correlation.hpp"
 #include "iotps/core/transport/tcp.hpp"
 
-#include <chrono>
 #include <algorithm>
+#include <chrono>
 #include <iostream>
 #include <stdexcept>
 #include <thread>
@@ -70,37 +71,49 @@ int main() {
         framing.mode = FrameMode::fixed;
         framing.fixed_size = payload.size();
         check(server.set_framing(framing).has_value(), "configure fixed framing");
+        check(first.set_framing(framing).has_value(), "configure transmitted framing");
         schema::ProtocolSchema protocol{
             .protocol = {.name = "wire", .version = "1", .message_type_field = "kind"},
-            .messages = {{.name = "data",
-                          .type_id = 0,
-                          .fields = {{.name = "kind", .type = schema::FieldType::uint8},
-                                     {.name = "body", .type = schema::FieldType::bytes,
-                                      .length = 5}}}},
+            .messages =
+                {{.name = "data",
+                  .type_id = 0,
+                  .fields = {{.name = "kind", .type = schema::FieldType::uint8},
+                             {.name = "body", .type = schema::FieldType::bytes, .length = 5}}}},
         };
         check(server.bind_protocol(protocol, "protocols/wire.yaml").has_value(),
               "bind auto protocol");
+        check(first.bind_protocol(protocol, "protocols/wire.yaml").has_value(),
+              "bind outgoing protocol");
         check(!server.bind_protocol(protocol, "protocols/wire.yaml", "missing").has_value(),
               "reject missing bound message");
         check(first.send(first_id, {payload.data(), 3}).has_value(), "client send first half");
         wait_for([&] { return server.snapshot().statistics.bytes_received == 3; });
         check(traffic(server, "FRAME").empty(), "partial RX is not a frame");
+        check(traffic(first, "FRAME").empty(), "partial TX is not a frame");
         check(first.send(first_id, {payload.data() + 3, payload.size() - 3}).has_value(),
               "client send second half");
         wait_for([&] { return server.snapshot().statistics.bytes_received == payload.size(); });
         check(traffic(server, "RX") == payload, "binary client to server");
         check(traffic(server, "FRAME") == payload, "separate completed frame");
-        check(std::ranges::any_of(server.snapshot(0, 1000).records, [](const auto& item) {
-                  return item.direction == "FRAME" && item.detail.find("message data") !=
-                                                           std::string::npos;
-              }),
+        check(std::ranges::any_of(first.snapshot(0, 1000).records,
+                                  [&](const auto& item) {
+                                      return item.direction == "FRAME" && item.flow == "TX" &&
+                                             item.data == payload && item.parsed &&
+                                             item.parsed->status == "ok";
+                                  }),
+              "actual transmitted chunks form a decoded TX frame");
+        check(std::ranges::any_of(server.snapshot(0, 1000).records,
+                                  [](const auto& item) {
+                                      return item.direction == "FRAME" &&
+                                             item.detail.find("message data") != std::string::npos;
+                                  }),
               "identified frame keeps raw bytes and message label");
         const auto frame_record = [&]() {
             const auto records = server.snapshot(0, 1000).records;
-            const auto item = std::ranges::find_if(records.rbegin(), records.rend(),
-                                                   [](const auto& record) {
-                                                       return record.direction == "FRAME";
-                                                   });
+            const auto item =
+                std::ranges::find_if(records.rbegin(), records.rend(), [](const auto& record) {
+                    return record.direction == "FRAME";
+                });
             check(item != records.rend(), "completed frame recorded");
             return *item;
         };
@@ -109,17 +122,20 @@ int main() {
                   frame_record().parsed->fields[0].offset == 0 &&
                   frame_record().parsed->fields[1].length == 5,
               "split frame decodes fields and byte ranges");
-        check(std::ranges::none_of(server.snapshot(0, 1000).records, [](const auto& item) {
-                  return item.direction == "RX" && item.parsed.has_value();
-              }),
+        check(std::ranges::none_of(server.snapshot(0, 1000).records,
+                                   [](const auto& item) {
+                                       return item.direction == "RX" && item.parsed.has_value();
+                                   }),
               "raw RX never inherits frame parse");
         auto checked_protocol = protocol;
         checked_protocol.messages[0].fields[1].length = 4;
         checked_protocol.messages[0].fields.push_back(
             {.name = "crc", .type = schema::FieldType::uint8});
-        checked_protocol.messages[0].checksum = {
-            .name = "sum", .algorithm = schema::ChecksumAlgorithm::sum8,
-            .target_field = "crc", .range_start = 0, .range_end = 5};
+        checked_protocol.messages[0].checksum = {.name = "sum",
+                                                 .algorithm = schema::ChecksumAlgorithm::sum8,
+                                                 .target_field = "crc",
+                                                 .range_start = 0,
+                                                 .range_end = 5};
         check(server.bind_protocol(checked_protocol, "protocols/wire.yaml").has_value(),
               "bind checksummed protocol");
         const ByteBuffer valid_frame{0, 1, 2, 3, 4, 10};
@@ -140,17 +156,18 @@ int main() {
         check(first.send(first_id, unknown_frame).has_value(), "send unknown message frame");
         wait_for([&] { return server.snapshot().statistics.bytes_received == 24; });
         check(frame_record().parsed && frame_record().parsed->status == "unmatched" &&
-                  !frame_record().parsed->error.empty(), "unknown message has clear result");
+                  !frame_record().parsed->error.empty(),
+              "unknown message has clear result");
         ByteBuffer sticky = valid_frame;
         sticky.insert(sticky.end(), valid_frame.begin(), valid_frame.end());
-        const auto frames_before = std::ranges::count_if(
-            server.snapshot(0, 1000).records,
-            [](const auto& item) { return item.direction == "FRAME"; });
+        const auto frames_before =
+            std::ranges::count_if(server.snapshot(0, 1000).records,
+                                  [](const auto& item) { return item.direction == "FRAME"; });
         check(first.send(first_id, sticky).has_value(), "send two frames together");
         wait_for([&] { return server.snapshot().statistics.bytes_received == 36; });
         check(std::ranges::count_if(server.snapshot(0, 1000).records,
                                     [](const auto& item) { return item.direction == "FRAME"; }) ==
-                  frames_before + 2 &&
+                      frames_before + 2 &&
                   frame_record().parsed && frame_record().parsed->status == "ok",
               "sticky receive yields two decoded frames");
         check(server.bind_protocol(protocol, "protocols/wire.yaml", "data").has_value(),
@@ -163,6 +180,23 @@ int main() {
         check(server.send(server_first, payload).has_value(), "selected server reply");
         wait_for([&] { return first.snapshot().statistics.bytes_received == payload.size(); });
         check(traffic(first, "RX") == payload, "binary server to client");
+        const auto client_records = first.snapshot(0, 1000).records;
+        const auto tx = std::ranges::find_if(client_records, [](const auto& item) {
+            return item.flow == "TX" && item.parsed && item.parsed->status == "ok";
+        });
+        const auto rx = std::ranges::find_if(client_records, [](const auto& item) {
+            return item.flow == "RX" && item.parsed && item.parsed->status == "ok";
+        });
+        check(tx != client_records.end() && rx != client_records.end(),
+              "real decoded request and response");
+        const std::vector<TcpRecord> exchange{*tx, *rx};
+        const CorrelationRule rule{"protocols/wire.yaml", "data", "data", "kind", "kind", "TX",
+                                   "connection",          60000};
+        const auto associations = correlate(exchange, rule, rx->time_ms);
+        check(associations.size() == 1 && associations[0].state == "matched" &&
+                  associations[0].request == tx->id && associations[0].response == rx->id,
+              "real loopback bytes decode and correlate in Core");
+        check(first.set_framing({}).has_value(), "disable framing before raw large-payload checks");
         check(second.snapshot().statistics.bytes_received == 0, "reply isolated to selected peer");
         check(!first.send(first_id, {}).has_value(), "reject empty payload");
         check(!first.send(first_id, ByteBuffer(65537)).has_value(), "reject oversized payload");
@@ -214,10 +248,9 @@ int main() {
         check(server.set_framing(framing).has_value(), "restore framing for truncation");
         check(first.send(first_id, {payload.data(), 2}).has_value(), "send incomplete frame");
         wait_for([&] { return server.snapshot().statistics.bytes_received == 38; });
-        const auto frame_count = std::ranges::count_if(server.snapshot(0, 1000, 4 * 1024 * 1024).records,
-                                                       [](const auto& item) {
-                                                           return item.direction == "FRAME";
-                                                       });
+        const auto frame_count =
+            std::ranges::count_if(server.snapshot(0, 1000, 4 * 1024 * 1024).records,
+                                  [](const auto& item) { return item.direction == "FRAME"; });
         check(server.disconnect(server_first).has_value(), "disconnect selected peer");
         wait_for([&] {
             return first.snapshot().state == TransportState::closed &&
@@ -225,7 +258,7 @@ int main() {
         });
         check(std::ranges::count_if(server.snapshot(0, 1000, 4 * 1024 * 1024).records,
                                     [](const auto& item) { return item.direction == "FRAME"; }) ==
-                  frame_count &&
+                      frame_count &&
                   std::ranges::any_of(server.snapshot(0, 1000, 4 * 1024 * 1024).records,
                                       [](const auto& item) {
                                           return item.direction == "SYS" &&
