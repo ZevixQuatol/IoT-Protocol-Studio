@@ -95,7 +95,7 @@ async function checkSessions(page) {
   const popupReady = page.waitForEvent("popup");
   await page.getByRole("button", { name: "在独立窗口打开", exact: true }).click();
   const popup = await popupReady;
-  await popup.locator('[data-session="tcp-2"] textarea').waitFor();
+  await popup.getByLabel("发送内容").waitFor();
   check((await popup.getByLabel("发送内容").inputValue()) === "12 34", "detached draft retained");
   await popup.getByRole("button", { name: "发送", exact: true }).click();
   await popup.locator(".tcp-dir-TX").waitFor();

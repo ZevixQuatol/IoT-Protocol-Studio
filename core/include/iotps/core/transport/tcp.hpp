@@ -8,6 +8,24 @@
 #include <vector>
 
 namespace iotps::core::transport {
+struct SerialOptions {
+    std::string device;
+    std::uint32_t baud{115200};
+    std::uint8_t data_bits{8};
+    std::string parity{"none"};
+    std::string stop_bits{"1"};
+    std::string flow_control{"none"};
+};
+struct UdpOptions {
+    std::string host{"0.0.0.0"};
+    std::uint16_t port{0};
+    std::string remote_host;
+    std::uint16_t remote_port{0};
+    std::string mode{"unicast"};
+    std::string interface_address{"0.0.0.0"};
+};
+[[nodiscard]] std::vector<std::string> serial_devices();
+[[nodiscard]] std::vector<std::string> network_interfaces();
 struct TcpPeer {
     std::uint64_t id;
     std::string address;
@@ -50,6 +68,8 @@ struct TcpRecord {
     std::optional<TcpParse> parsed;
 };
 struct TcpSnapshot {
+    std::string kind{"tcp"};
+    bool multicast_joined{false};
     TransportState state{TransportState::closed};
     bool server{false};
     std::string host;
@@ -66,7 +86,7 @@ struct TcpSnapshot {
     std::vector<TcpRecord> records;
 };
 
-// One client connection or one listener (up to 16 peers). Socket work stays off the UI thread.
+// Shared communication records and codec pipeline; all I/O stays off the UI thread.
 class TcpSession {
   public:
     TcpSession();
@@ -76,6 +96,9 @@ class TcpSession {
     [[nodiscard]] TransportResult start(bool server, std::string host, std::uint16_t port,
                                         std::uint32_t retry_limit = 0,
                                         std::uint32_t retry_interval_ms = 2000);
+    [[nodiscard]] TransportResult start_serial(SerialOptions options);
+    [[nodiscard]] TransportResult start_udp(UdpOptions options);
+    [[nodiscard]] TransportResult multicast_membership(bool join);
     void stop();
     [[nodiscard]] TransportResult send(std::uint64_t peer, std::span<const std::uint8_t> bytes);
     [[nodiscard]] TransportResult disconnect(std::uint64_t peer);

@@ -3123,6 +3123,9 @@ button {
   color: var(--accent);
   background: var(--accent-soft);
 }
+.tcp-framing[hidden] {
+  display: none;
+}
 .tcp-connect {
   display: flex;
   flex-wrap: wrap;

@@ -60,7 +60,7 @@ add_library(iotps::transport ALIAS iotps_transport)
 iotps_configure_core_target(iotps_transport)
 target_link_libraries(iotps_transport PUBLIC iotps::common iotps::schema iotps::codec)
 if(WIN32)
-  target_link_libraries(iotps_transport PRIVATE ws2_32)
+  target_link_libraries(iotps_transport PRIVATE ws2_32 iphlpapi)
 endif()
 
 add_library(iotps_simulator STATIC src/simulator/simulator.cpp)

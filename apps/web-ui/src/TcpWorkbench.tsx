@@ -68,6 +68,18 @@ export default function TcpWorkbench({
   const [mode, setMode] = useState("client");
   const [host, setHost] = useState("127.0.0.1");
   const [port, setPort] = useState("9000");
+  const [serialDevice, setSerialDevice] = useState("");
+  const [baud, setBaud] = useState("115200");
+  const [dataBits, setDataBits] = useState("8");
+  const [parity, setParity] = useState("none");
+  const [stopBits, setStopBits] = useState("1");
+  const [flowControl, setFlowControl] = useState("none");
+  const [localHost, setLocalHost] = useState("0.0.0.0");
+  const [localPort, setLocalPort] = useState("0");
+  const [udpMode, setUdpMode] = useState("unicast");
+  const [interfaceAddress, setInterfaceAddress] = useState("0.0.0.0");
+  const [devices, setDevices] = useState<string[]>([]);
+  const [interfaces, setInterfaces] = useState<string[]>(["0.0.0.0"]);
   const [status, setStatus] = useState(empty);
   const [records, setRecords] = useState<TcpRecord[]>([]);
   const [history, setHistory] = useState<ReturnType<typeof readTrafficArchive> | null>(null);
@@ -146,6 +158,24 @@ export default function TcpWorkbench({
   const shownRecords = (history?.records ?? records).map(redactRecord);
   const selectedRecord = selected && redactRecord(selected);
   const bindProtocol = protocols.find((item) => item.path === bindPath);
+
+  useEffect(() => {
+    setConnectionPreview("");
+  }, [
+    mode,
+    host,
+    port,
+    serialDevice,
+    baud,
+    dataBits,
+    parity,
+    stopBits,
+    flowControl,
+    localHost,
+    localPort,
+    udpMode,
+    interfaceAddress,
+  ]);
 
   useEffect(() => {
     if (draft) {
@@ -248,7 +278,8 @@ export default function TcpWorkbench({
         onDiagnostic(session, result.error.message, true);
         return false;
       }
-      if (action === "start") setStatus((current) => ({ ...current, state: "opening", error: "" }));
+      if (["start", "serial", "udp"].includes(action))
+        setStatus((current) => ({ ...current, state: "opening", error: "" }));
       if (action === "stop") setStatus((current) => ({ ...current, state: "closed", peers: [] }));
       if (action === "stop") {
         stopRun();
@@ -369,10 +400,34 @@ export default function TcpWorkbench({
     }
   };
   const resolveConnection = async () => {
-    const environment =
-      host.includes("{{") || port.includes("{{")
-        ? await activeVariables()
-        : { values: {}, secrets: [] };
+    if (mode === "serial") {
+      const environment =
+        serialDevice.includes("{{") || baud.includes("{{")
+          ? await activeVariables()
+          : { values: {}, secrets: [] };
+      const device = resolveValue(serialDevice.trim(), environment.values);
+      const speed = resolveValue(baud.trim(), environment.values);
+      if (
+        !/^COM[1-9][0-9]{0,2}$/.test(device) ||
+        !/^[0-9]+$/.test(speed) ||
+        Number(speed) < 50 ||
+        Number(speed) > 4000000
+      )
+        throw new Error(t("串口设备或波特率无效。", "Invalid serial device or baud rate."));
+      return {
+        action: "serial",
+        args: [device, speed, dataBits, parity, stopBits, flowControl],
+        display: mask(
+          `${device} · ${speed} / ${dataBits} / ${parity} / ${stopBits} / ${flowControl}`,
+          environment.secrets,
+        ),
+      };
+    }
+    const environment = [host, port, localHost, localPort, interfaceAddress].some((value) =>
+      value.includes("{{"),
+    )
+      ? await activeVariables()
+      : { values: {}, secrets: [] };
     const effectiveHost = resolveValue(host.trim(), environment.values);
     const effectivePort = resolveValue(port.trim(), environment.values);
     if (
@@ -382,11 +437,45 @@ export default function TcpWorkbench({
       Number(effectivePort) > 65535
     )
       throw new Error(t("连接地址或端口无效。", "Invalid connection address or port."));
+    if (mode === "udp") {
+      const bindHost = resolveValue(localHost.trim(), environment.values);
+      const bindPort = resolveValue(localPort.trim(), environment.values);
+      const adapter = resolveValue(interfaceAddress.trim(), environment.values);
+      if (!bindHost || !/^[0-9]+$/.test(bindPort) || Number(bindPort) > 65535)
+        throw new Error(t("UDP 本地地址或端口无效。", "Invalid UDP local address or port."));
+      return {
+        action: "udp",
+        args: [bindHost, bindPort, effectiveHost, effectivePort, udpMode, adapter],
+        display: mask(
+          `${bindHost}:${bindPort} → ${effectiveHost}:${effectivePort} · ${udpMode} · ${adapter}`,
+          environment.secrets,
+        ),
+      };
+    }
     return {
-      host: effectiveHost,
-      port: effectivePort,
+      action: "start",
+      args: [
+        mode,
+        effectiveHost,
+        effectivePort,
+        mode === "client" && autoRetry ? retryLimit : "0",
+        String(Number(retrySeconds) * 1000),
+      ],
       display: `${mask(effectiveHost, environment.secrets)}:${mask(effectivePort, environment.secrets)}`,
     };
+  };
+  const refreshDevices = async () => {
+    try {
+      const result = await tcpCommand(session, "devices");
+      if (!result.ok) throw new Error(result.error.message);
+      if ("serialDevices" in result) {
+        setDevices(result.serialDevices ?? []);
+        setSerialDevice((current) => current || result.serialDevices?.[0] || "");
+        setInterfaces(result.interfaces ?? ["0.0.0.0"]);
+      }
+    } catch (failure) {
+      setError(String(failure));
+    }
   };
   const checkConnection = async () => {
     setError("");
@@ -554,7 +643,12 @@ export default function TcpWorkbench({
         </div>
         <div>
           <h1>{t("通信连接", "Connections")}</h1>
-          <p>{t("TCP 客户端 / 服务端 · 实时收发记录", "TCP client / server · live traffic")}</p>
+          <p>
+            {t(
+              "TCP · 串口 · UDP 单播 / 广播 / 组播",
+              "TCP · Serial · UDP unicast / broadcast / multicast",
+            )}
+          </p>
         </div>
         <span className={`tcp-state ${connected ? "connected" : ""}`} role="status">
           {stateLabel}
@@ -568,14 +662,7 @@ export default function TcpWorkbench({
             try {
               const effective = await resolveConnection();
               setConnectionPreview(effective.display);
-              await act(
-                "start",
-                mode,
-                effective.host,
-                effective.port,
-                mode === "client" && autoRetry ? retryLimit : "0",
-                String(Number(retrySeconds) * 1000),
-              );
+              await act(effective.action, ...effective.args);
             } catch (failure) {
               setError(String(failure));
             }
@@ -592,40 +679,203 @@ export default function TcpWorkbench({
               setMode(event.target.value);
               setHost(event.target.value === "server" ? "0.0.0.0" : "127.0.0.1");
               setConnectionPreview("");
+              if (["serial", "udp"].includes(event.target.value)) void refreshDevices();
             }}
           >
             <option value="client">TCP {t("客户端", "client")}</option>
             <option value="server">TCP {t("服务端", "server")}</option>
+            <option value="serial">{t("串口", "Serial")}</option>
+            <option value="udp">UDP</option>
           </select>
         </label>
-        <label>
-          {mode === "server" ? t("监听 IP", "Bind IP") : t("目标 IP", "Remote IP")}
-          <input
-            aria-label="IP"
-            value={host}
-            maxLength={64}
-            required
-            disabled={busy || active}
-            onChange={(event) => {
-              setHost(event.target.value);
-              setConnectionPreview("");
-            }}
-          />
-        </label>
-        <label>
-          {t("端口", "Port")}
-          <input
-            aria-label={t("端口", "Port")}
-            inputMode="numeric"
-            value={port}
-            required
-            disabled={busy || active}
-            onChange={(event) => {
-              setPort(event.target.value);
-              setConnectionPreview("");
-            }}
-          />
-        </label>
+        {mode !== "serial" && (
+          <>
+            <label>
+              {mode === "server" ? t("监听 IP", "Bind IP") : t("目标 IP", "Remote IP")}
+              <input
+                aria-label="IP"
+                value={host}
+                maxLength={64}
+                required
+                disabled={busy || active}
+                onChange={(event) => {
+                  setHost(event.target.value);
+                  setConnectionPreview("");
+                }}
+              />
+            </label>
+            <label>
+              {t("端口", "Port")}
+              <input
+                aria-label={t("端口", "Port")}
+                inputMode="numeric"
+                value={port}
+                required
+                disabled={busy || active}
+                onChange={(event) => {
+                  setPort(event.target.value);
+                  setConnectionPreview("");
+                }}
+              />
+            </label>
+          </>
+        )}
+        {mode === "serial" && (
+          <>
+            <label>
+              {t("串口设备", "Serial device")}
+              <input
+                aria-label={t("串口设备", "Serial device")}
+                list={`ports-${session}`}
+                value={serialDevice}
+                required
+                maxLength={64}
+                disabled={busy || active}
+                onChange={(event) => setSerialDevice(event.target.value)}
+              />
+            </label>
+            <datalist id={`ports-${session}`}>
+              {devices.map((name) => (
+                <option key={name} value={name} />
+              ))}
+            </datalist>
+            <label>
+              {t("波特率", "Baud rate")}
+              <input
+                aria-label={t("波特率", "Baud rate")}
+                inputMode="numeric"
+                value={baud}
+                required
+                disabled={busy || active}
+                onChange={(event) => setBaud(event.target.value)}
+              />
+            </label>
+            <label>
+              {t("数据位", "Data bits")}
+              <select
+                aria-label={t("数据位", "Data bits")}
+                value={dataBits}
+                disabled={busy || active}
+                onChange={(event) => setDataBits(event.target.value)}
+              >
+                {[5, 6, 7, 8].map((bits) => (
+                  <option key={bits}>{bits}</option>
+                ))}
+              </select>
+            </label>
+            <label>
+              {t("校验位", "Parity")}
+              <select
+                aria-label={t("校验位", "Parity")}
+                value={parity}
+                disabled={busy || active}
+                onChange={(event) => setParity(event.target.value)}
+              >
+                <option value="none">{t("无", "None")}</option>
+                <option value="odd">{t("奇", "Odd")}</option>
+                <option value="even">{t("偶", "Even")}</option>
+                <option value="mark">Mark (1)</option>
+                <option value="space">Space (0)</option>
+              </select>
+            </label>
+            <label>
+              {t("停止位", "Stop bits")}
+              <select
+                aria-label={t("停止位", "Stop bits")}
+                value={stopBits}
+                disabled={busy || active}
+                onChange={(event) => setStopBits(event.target.value)}
+              >
+                {["1", "1.5", "2"].map((bits) => (
+                  <option key={bits}>{bits}</option>
+                ))}
+              </select>
+            </label>
+            <label>
+              {t("流控", "Flow control")}
+              <select
+                aria-label={t("流控", "Flow control")}
+                value={flowControl}
+                disabled={busy || active}
+                onChange={(event) => setFlowControl(event.target.value)}
+              >
+                <option value="none">{t("无", "None")}</option>
+                <option value="hardware">RTS/CTS</option>
+                <option value="software">XON/XOFF</option>
+              </select>
+            </label>
+            <button type="button" disabled={busy || active} onClick={() => void refreshDevices()}>
+              {t("刷新设备", "Refresh devices")}
+            </button>
+          </>
+        )}
+        {mode === "udp" && (
+          <>
+            <label>
+              {t("本地 IP", "Local IP")}
+              <input
+                aria-label={t("本地 IP", "Local IP")}
+                value={localHost}
+                required
+                maxLength={64}
+                disabled={busy || active}
+                onChange={(event) => setLocalHost(event.target.value)}
+              />
+            </label>
+            <label>
+              {t("本地端口（0 自动）", "Local port (0 auto)")}
+              <input
+                aria-label={t("本地端口", "Local port")}
+                value={localPort}
+                required
+                disabled={busy || active}
+                onChange={(event) => setLocalPort(event.target.value)}
+              />
+            </label>
+            <label>
+              {t("UDP 模式", "UDP mode")}
+              <select
+                aria-label={t("UDP 模式", "UDP mode")}
+                value={udpMode}
+                disabled={busy || active}
+                onChange={(event) => {
+                  setUdpMode(event.target.value);
+                  setHost(
+                    event.target.value === "broadcast"
+                      ? "255.255.255.255"
+                      : event.target.value === "multicast"
+                        ? "239.255.0.1"
+                        : "127.0.0.1",
+                  );
+                }}
+              >
+                <option value="unicast">{t("单播", "Unicast")}</option>
+                <option value="broadcast">{t("广播", "Broadcast")}</option>
+                <option value="multicast">{t("组播", "Multicast")}</option>
+              </select>
+            </label>
+            {udpMode === "multicast" && (
+              <label>
+                {t("组播网卡 IP", "Multicast interface IP")}
+                <select
+                  aria-label={t("组播网卡 IP", "Multicast interface IP")}
+                  value={interfaceAddress}
+                  disabled={busy || active}
+                  onChange={(event) => setInterfaceAddress(event.target.value)}
+                >
+                  {interfaces.map((address) => (
+                    <option key={address} value={address}>
+                      {address === "0.0.0.0" ? t("系统默认", "System default") : address}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            )}
+            <button type="button" disabled={busy || active} onClick={() => void refreshDevices()}>
+              {t("刷新网卡", "Refresh interfaces")}
+            </button>
+          </>
+        )}
         {mode === "client" && (
           <label>
             <input
@@ -688,6 +938,26 @@ export default function TcpWorkbench({
         </button>
         {connectionPreview && <small role="status">{connectionPreview}</small>}
       </form>
+      {mode === "udp" && (
+        <p className="tcp-log-hint">
+          {t("本地端口", "Local port")}: {status.kind === "udp" ? status.port : localPort} ·{" "}
+          {t(
+            "目标 IP / 端口用于发送；接收记录显示实际来源。组播请将本地端口设为组播接收端口。",
+            "Remote IP / port is the send target; received records show the actual sender. For multicast, bind the group receive port.",
+          )}
+          {connected && udpMode === "multicast" && (
+            <button
+              type="button"
+              disabled={busy}
+              onClick={() => void act("membership", status.multicastJoined ? "leave" : "join")}
+            >
+              {status.multicastJoined
+                ? t("退出组播", "Leave multicast")
+                : t("加入组播", "Join multicast")}
+            </button>
+          )}
+        </p>
+      )}
       {(error || status.error) && (
         <p className="tcp-error" role="alert">
           {redact(error || status.error)}
@@ -725,6 +995,7 @@ export default function TcpWorkbench({
       </div>
       <form
         className="tcp-framing"
+        hidden={mode === "udp"}
         onChange={() => setFrameStatus("")}
         onSubmit={(event) => {
           event.preventDefault();
@@ -996,8 +1267,12 @@ export default function TcpWorkbench({
                       "Length and checksum are recalculated for every message send.",
                     )
                   : t(
-                      "单次最多 64 KiB；不自动添加换行或校验码。",
-                      "Up to 64 KiB; no automatic newline or checksum.",
+                      mode === "udp"
+                        ? "单次最多 65507 字节；不自动添加换行或校验码。"
+                        : "单次最多 64 KiB；不自动添加换行或校验码。",
+                      mode === "udp"
+                        ? "Up to 65507 bytes; no automatic newline or checksum."
+                        : "Up to 64 KiB; no automatic newline or checksum.",
                     ))}
           </small>
           <button
@@ -1107,9 +1382,20 @@ export default function TcpWorkbench({
         </button>
       </div>
       <p className="tcp-log-hint">
+        {mode === "udp"
+          ? t(
+              "UDP：每条 RX / FRAME 保留一个完整数据报，不应用字节流分帧。",
+              "UDP: each RX / FRAME preserves one datagram; stream framing is bypassed.",
+            )
+          : ""}
+        {mode !== "udp" &&
+          t(
+            "TCP / 串口是字节流：RX 保留原始接收块，FRAME 表示完整帧。",
+            "TCP / serial are byte streams: RX keeps raw chunks; FRAME contains completed frames.",
+          )}{" "}
         {t(
-          "TCP 是字节流：RX 保留原始接收块，FRAME 只表示规则确认的完整帧。当前会话最多保留 1000 条 / 4 MiB；保存导出当前尚未淘汰的记录。",
-          "TCP is a byte stream: RX keeps raw chunks; FRAME contains only completed frames. Current session keeps up to 1000 entries / 4 MiB; save exports retained records.",
+          "会话最多保留 1000 条 / 4 MiB；保存导出尚未淘汰的记录。",
+          "Sessions keep 1000 entries / 4 MiB; save exports retained records.",
         )}{" "}
         {(history?.dropped ?? status.dropped) > 0 &&
           `${t("已淘汰", "Evicted")}: ${history?.dropped ?? status.dropped}`}

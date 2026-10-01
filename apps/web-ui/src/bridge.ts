@@ -52,6 +52,8 @@ export type TcpRecord = {
 };
 export type TcpSnapshot = {
   ok: true;
+  kind?: "tcp" | "serial" | "udp";
+  multicastJoined?: boolean;
   state: "closed" | "opening" | "open" | "faulted";
   server: boolean;
   host: string;
@@ -69,7 +71,9 @@ export type TcpSnapshot = {
   records: TcpRecord[];
 };
 type TcpResult =
-  TcpSnapshot | { ok: true } | { ok: false; error: { code: string; message: string } };
+  | TcpSnapshot
+  | { ok: true; serialDevices?: string[]; interfaces?: string[] }
+  | { ok: false; error: { code: string; message: string } };
 export async function tcpCommand(
   session: string,
   action: string,
@@ -81,7 +85,7 @@ export async function tcpCommand(
         ok: false,
         error: {
           code: "native_host_required",
-          message: "TCP requires the desktop app / TCP 通信需要桌面客户端",
+          message: "Communication requires the desktop app / 通信需要桌面客户端",
         },
       };
 }

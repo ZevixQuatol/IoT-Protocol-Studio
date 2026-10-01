@@ -1137,7 +1137,40 @@ window.addEventListener("DOMContentLoaded", () => {
           const tcpFrameInvalid = await window.iotpsTcp("smoke", "frame", "length", "0", "3", "1", "big");
           const tcpBindOff = await window.iotpsTcp("smoke", "bind", "off");
           const tcpBindNoProject = await window.iotpsTcp("smoke", "bind", "protocols/a.yaml", "");
+          const devices = await window.iotpsTcp("smoke", "devices");
+          const invalidSerial = await window.iotpsTcp("smoke", "serial", "COM0", "115200", "8", "none", "1", "none");
+          const invalidUdp = await window.iotpsTcp("smoke", "udp", "bad", "0", "127.0.0.1", "9000", "unicast", "0.0.0.0");
+          const invalidMembership = await window.iotpsTcp("smoke", "membership", "join");
           await window.iotpsTcp("smoke", "destroy");
+          if (!devices?.ok || !Array.isArray(devices.serialDevices) || !Array.isArray(devices.interfaces) || invalidSerial?.ok || invalidUdp?.ok || invalidMembership?.ok) {
+            report("endpoint-validation-failed"); return;
+          }
+          await window.iotpsTcp("udp-rx", "create");
+          await window.iotpsTcp("udp-tx", "create");
+          const waitUdp = async (id, predicate) => {
+            const deadline = Date.now() + 5000;
+            while (Date.now() < deadline) {
+              const snapshot = await window.iotpsTcp(id, "poll", "0");
+              if (snapshot?.ok && predicate(snapshot)) return snapshot;
+              if (snapshot.state === "faulted") throw new Error(snapshot.error);
+              await new Promise(resolve => setTimeout(resolve, 20));
+            }
+            throw new Error("UDP bridge wait timed out");
+          };
+          const udpRxStart = await window.iotpsTcp("udp-rx", "udp", "127.0.0.1", "0", "127.0.0.1", "9000", "unicast", "0.0.0.0");
+          const rxOpen = await waitUdp("udp-rx", snapshot => snapshot.state === "open");
+          const udpTxStart = await window.iotpsTcp("udp-tx", "udp", "127.0.0.1", "0", "127.0.0.1", String(rxOpen.port), "unicast", "0.0.0.0");
+          const txOpen = await waitUdp("udp-tx", snapshot => snapshot.state === "open");
+          await window.iotpsTcp("udp-rx", "frame", "fixed", "1");
+          const udpSend = await window.iotpsTcp("udp-tx", "send", String(txOpen.peers[0].id), "00 FF 80 0D");
+          const udpReceived = await waitUdp("udp-rx", snapshot => snapshot.received === 4);
+          await window.iotpsTcp("udp-tx", "destroy");
+          await window.iotpsTcp("udp-rx", "destroy");
+          if (!udpRxStart?.ok || !udpTxStart?.ok || !udpSend?.ok || rxOpen.kind !== "udp" ||
+              !udpReceived.records.some(record => record.direction === "FRAME" && record.hex === "00 FF 80 0D") ||
+              !udpReceived.records.some(record => record.direction === "RX" && record.address.endsWith(":" + txOpen.port))) {
+            report("udp-bridge-failed"); return;
+          }
           if (!tcpPoll?.ok || tcpPoll.state !== "closed" || !Array.isArray(tcpPoll.records) || tcpInvalid?.ok || tcpHex?.ok || !tcpFrame?.ok || tcpFrameInvalid?.error?.code !== "invalid_configuration" || !tcpBindOff?.ok || tcpBindNoProject?.error?.code !== "project_not_open") {
             report("tcp-bridge-failed"); return;
           }
@@ -1594,9 +1627,9 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR command_line, int) {
         TcpWindows tcp_windows(window, [&tcp_sessions] { tcp_sessions.clear(); });
         window.bind("iotpsTcp", [&tcp_sessions, &current_project](const std::string& request) {
             auto args = string_arguments(request);
-            if (!args || args->size() < 2 || args->size() > 7 || (*args)[0].empty() ||
+            if (!args || args->size() < 2 || args->size() > 9 || (*args)[0].empty() ||
                 (*args)[0].size() > 64)
-                return workspace_error_response("invalid_request", "invalid TCP command");
+                return workspace_error_response("invalid_request", "invalid communication command");
             const auto session_id = (*args)[0];
             args->erase(args->begin());
             if ((*args)[0] == "create" && args->size() == 1) {
@@ -1628,7 +1661,43 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR command_line, int) {
             };
             iotps::core::transport::TransportResult result = std::monostate{};
             const auto& action = (*args)[0];
-            if (action == "start" && (args->size() == 4 || args->size() == 6)) {
+            if (action == "devices" && args->size() == 1) {
+                std::ostringstream out;
+                out << "{\"ok\":true,\"serialDevices\":[";
+                bool first = true;
+                for (const auto& name : iotps::core::transport::serial_devices()) {
+                    if (!std::exchange(first, false))
+                        out << ',';
+                    out << json_string(name);
+                }
+                out << "],\"interfaces\":[";
+                first = true;
+                for (const auto& name : iotps::core::transport::network_interfaces()) {
+                    if (!std::exchange(first, false))
+                        out << ',';
+                    out << json_string(name);
+                }
+                out << "]}";
+                return out.str();
+            } else if (action == "serial" && args->size() == 7) {
+                const auto baud = number((*args)[2]), bits = number((*args)[3]);
+                if (!baud || *baud > 4000000 || !bits || *bits > 8)
+                    return workspace_error_response("invalid_configuration",
+                                                    "Invalid serial baud or data bits");
+                result = tcp.start_serial({(*args)[1], static_cast<std::uint32_t>(*baud),
+                                           static_cast<std::uint8_t>(*bits), (*args)[4], (*args)[5],
+                                           (*args)[6]});
+            } else if (action == "udp" && args->size() == 7) {
+                const auto local_port = number((*args)[2]), remote_port = number((*args)[4]);
+                if (!local_port || *local_port > 65535 || !remote_port || *remote_port > 65535)
+                    return workspace_error_response("invalid_configuration", "Invalid UDP port");
+                result = tcp.start_udp({(*args)[1], static_cast<std::uint16_t>(*local_port),
+                                        (*args)[3], static_cast<std::uint16_t>(*remote_port),
+                                        (*args)[5], (*args)[6]});
+            } else if (action == "membership" && args->size() == 2 &&
+                       ((*args)[1] == "join" || (*args)[1] == "leave")) {
+                result = tcp.multicast_membership((*args)[1] == "join");
+            } else if (action == "start" && (args->size() == 4 || args->size() == 6)) {
                 const auto port = number((*args)[3]);
                 const auto retries =
                     args->size() == 6 ? number((*args)[4]) : std::optional<std::uint64_t>{0};
@@ -1728,6 +1797,8 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR command_line, int) {
                                                                              : "closed";
                 std::ostringstream out;
                 out << "{\"ok\":true,\"state\":" << json_string(label)
+                    << ",\"kind\":" << json_string(state.kind)
+                    << ",\"multicastJoined\":" << (state.multicast_joined ? "true" : "false")
                     << ",\"server\":" << (state.server ? "true" : "false")
                     << ",\"host\":" << json_string(state.host) << ",\"port\":" << state.port
                     << ",\"error\":" << json_string(state.error)
