@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   ArrowDown,
   ArrowUp,
@@ -12,6 +12,7 @@ import {
 import {
   tcpCommand,
   trafficFile,
+  pcapFile,
   encodeProtocolMessage,
   inspectHex,
   type MessageEncodeRequest,
@@ -22,6 +23,7 @@ import {
   type WorkspaceProtocol,
 } from "./bridge";
 import { readTrafficArchive } from "./trafficFile";
+import TrafficReplay from "./TrafficReplay";
 import TrafficFilters, { deviceValue, emptyFilters, matchesRecord } from "./TrafficFilters";
 import TrafficCorrelation from "./TrafficCorrelation";
 import { activeVariables, resolveValue, sendValues } from "./sendVariables";
@@ -86,6 +88,12 @@ export default function TcpWorkbench({
   const [status, setStatus] = useState(empty);
   const [records, setRecords] = useState<TcpRecord[]>([]);
   const [history, setHistory] = useState<ReturnType<typeof readTrafficArchive> | null>(null);
+  const [replayTime, setReplayTime] = useState<number | null>(null);
+  const [captureIp, setCaptureIp] = useState("");
+  const [importingCapture, setImportingCapture] = useState(false);
+  const replayActive = useRef(false);
+  const [replayReset, setReplayReset] = useState(0);
+  const importVersion = useRef(0);
   const [correlation, setCorrelation] = useState<CorrelationRule | null>(null);
   const [autoRetry, setAutoRetry] = useState(false);
   const [retryLimit, setRetryLimit] = useState("3");
@@ -162,12 +170,22 @@ export default function TcpWorkbench({
       })),
     },
   });
-  const shownRecords = (history?.records ?? records).map(redactRecord);
+  const visibleRecords = useMemo(
+    () =>
+      history && replayTime !== null
+        ? history.records.filter((item) => item.time <= replayTime)
+        : (history?.records ?? records),
+    [history?.records, records, replayTime],
+  );
+  const shownRecords = visibleRecords.map(redactRecord);
   const selectedRecord = selected && redactRecord(selected);
   const bindProtocol = protocols.find((item) => item.path === bindPath);
   useEffect(() => {
     setSelected(null);
   }, [filters, direction, search, history]);
+  useEffect(() => {
+    if (replayTime !== null && selected && selected.time > replayTime) setSelected(null);
+  }, [replayTime, selected]);
 
   useEffect(() => {
     setConnectionPreview("");
@@ -272,6 +290,12 @@ export default function TcpWorkbench({
     };
   }, [visible, session]);
   useEffect(() => () => stopRun(), [session]);
+  useEffect(
+    () => () => {
+      ++importVersion.current;
+    },
+    [session],
+  );
   useEffect(() => {
     if (visible && follow && table.current) table.current.scrollTop = table.current.scrollHeight;
   }, [records, visible, follow]);
@@ -389,7 +413,7 @@ export default function TcpWorkbench({
     return true;
   };
   const send = async () => {
-    if (busy || sending.current || run.current) return;
+    if (busy || sending.current || run.current || replayActive.current) return;
     sending.current = true;
     setBusy(true);
     setError("");
@@ -497,7 +521,7 @@ export default function TcpWorkbench({
     }
   };
   const startRun = async () => {
-    if (run.current || sending.current) return;
+    if (run.current || sending.current || replayActive.current) return;
     const interval = Number(intervalMs);
     const repeats = Number(repeatCount);
     const items = batch.trim()
@@ -581,6 +605,7 @@ export default function TcpWorkbench({
       );
   };
   const clear = async () => {
+    ++importVersion.current;
     if (history) {
       setHistory(null);
       setSelected(null);
@@ -596,6 +621,11 @@ export default function TcpWorkbench({
     }
   };
   const archive = async (action: "open" | "save") => {
+    if (action === "open") {
+      stopRun();
+      setReplayReset((value) => value + 1);
+    }
+    const version = action === "open" ? ++importVersion.current : importVersion.current;
     setError("");
     try {
       let current = history;
@@ -630,10 +660,13 @@ export default function TcpWorkbench({
             })
           : "";
       const result = await trafficFile(action, content);
+      if (version !== importVersion.current) return;
       if (!result.ok) throw new Error(result.error.message);
       if (result.cancelled) return;
       if (action === "open") {
-        setHistory(readTrafficArchive(result.content));
+        const imported = readTrafficArchive(result.content);
+        stopRun();
+        setHistory(imported);
         setSelected(null);
       } else setNotice(t("记录已导出", "Traffic exported"));
     } catch (failure) {
@@ -641,6 +674,54 @@ export default function TcpWorkbench({
       setError(message);
       onDiagnostic(session, message, true);
     }
+  };
+  const importCapture = async () => {
+    if (importingCapture) return;
+    stopRun();
+    const version = ++importVersion.current;
+    setReplayReset((value) => value + 1);
+    setImportingCapture(true);
+    setError("");
+    try {
+      const result = await pcapFile(session, captureIp.trim());
+      if (version !== importVersion.current) return;
+      if (!result.ok) throw new Error(result.error.message);
+      if (result.cancelled) return;
+      const capture = JSON.parse(result.content);
+      const imported = readTrafficArchive(
+        JSON.stringify({
+          format: "iotps-traffic-v1",
+          session: "PCAP",
+          savedAt: new Date(capture.time).toISOString(),
+          dropped: capture.dropped,
+          records: capture.records,
+        }),
+      );
+      stopRun();
+      setHistory(imported);
+      setSelected(null);
+    } catch (failure) {
+      if (version === importVersion.current) setError(String(failure));
+    } finally {
+      setImportingCapture(false);
+    }
+  };
+  const replaySend = async (hex: string, target: string, current: () => boolean) => {
+    const version = importVersion.current;
+    const snapshot = await tcpCommand(session, "poll", String(cursor.current));
+    if (!current() || version !== importVersion.current) return false;
+    if (!snapshot.ok) throw new Error(snapshot.error.message);
+    if (
+      !("state" in snapshot) ||
+      snapshot.state !== "open" ||
+      !snapshot.peers.some((item) => String(item.id) === target)
+    )
+      throw new Error(t("回放目标已断开。", "Replay target disconnected."));
+    if (snapshot.queued > 256 * 1024)
+      throw new Error(t("发送队列过长，回放已停止。", "Send queue too large; replay stopped."));
+    const result = await tcpCommand(session, "send", target, hex);
+    if (!result.ok) throw new Error(result.error.message);
+    return true;
   };
   const filtered = shownRecords.filter(
     (item) =>
@@ -1391,6 +1472,7 @@ export default function TcpWorkbench({
           <button
             type="button"
             onClick={() => {
+              ++importVersion.current;
               setHistory(null);
               setSelected(null);
             }}
@@ -1408,6 +1490,52 @@ export default function TcpWorkbench({
           <Trash2 size={14} />
         </button>
       </div>
+      <details className="traffic-filters traffic-capture">
+        <summary>{t("PCAP 导入与分析", "PCAP import and analysis")}</summary>
+        <form
+          onSubmit={(event) => {
+            event.preventDefault();
+            void importCapture();
+          }}
+        >
+          <label>
+            {t("捕获本机 IPv4", "Captured local IPv4")}
+            <input
+              aria-label={t("捕获本机 IPv4", "Captured local IPv4")}
+              required
+              maxLength={15}
+              value={captureIp}
+              onChange={(event) => setCaptureIp(event.target.value)}
+              placeholder="192.168.1.10"
+            />
+          </label>
+          <button type="submit" disabled={importingCapture || busy}>
+            {t("选择 PCAP（仅离线）", "Choose PCAP (offline only)")}
+          </button>
+          <small>
+            {t(
+              "支持经典 PCAP（大小端、微秒 / 纳秒）、Ethernet（含最多三层 VLAN）、未分片 IPv4、TCP / UDP；最多 16 MiB / 100000 包 / 128 连接。复用当前已应用的分帧和协议绑定；TCP 分帧关闭时仅显示原始段，UDP 按数据报解析。PCAPNG、IPv6、IP 分片及其他链路显式报告不支持；截断、缺包、冲突重叠及未完成帧见 SYS。TCP 每方向最多 1 MiB、总段缓存 4 MiB；网络校验和不验证。导入不会连接或发包，失败保留当前历史。",
+              "Classic PCAP (both endian orders, micro/nanoseconds), Ethernet (up to three VLAN tags), unfragmented IPv4 TCP/UDP; 16 MiB / 100000 packets / 128 connections. Uses currently applied framing and protocol binding. TCP framing off keeps raw segments; UDP decodes datagrams. PCAPNG, IPv6, fragments and other links are explicitly unsupported. SYS reports truncation, gaps, overlaps and partial frames. TCP: 1 MiB per direction, 4 MiB segment cache; transport checksums are not verified. Import never connects or sends; failure preserves history.",
+            )}
+          </small>
+        </form>
+      </details>
+      {history && visible && (
+        <TrafficReplay
+          records={history.records}
+          savedAt={history.savedAt}
+          reset={replayReset}
+          peers={status.peers}
+          enabled={connected && !busy && !running && !sending.current}
+          locale={locale}
+          onTime={setReplayTime}
+          onSend={replaySend}
+          onActive={(value) => {
+            replayActive.current = value;
+          }}
+          redact={redact}
+        />
+      )}
       <TrafficFilters
         records={shownRecords}
         filters={filters}
@@ -1440,7 +1568,7 @@ export default function TcpWorkbench({
           `${t("已淘汰", "Evicted")}: ${history?.dropped ?? status.dropped}`}
       </p>
       <TrafficCorrelation
-        records={history?.records ?? records}
+        records={visibleRecords}
         protocols={protocols}
         rule={history ? (history.correlation ?? null) : correlation}
         onRule={(rule) =>
@@ -1450,7 +1578,13 @@ export default function TcpWorkbench({
         }
         onSelect={setSelected}
         locale={locale}
-        savedAt={history?.savedAt}
+        savedAt={
+          history
+            ? replayTime === null
+              ? history.savedAt
+              : new Date(replayTime).toISOString()
+            : undefined
+        }
         dropped={history?.dropped ?? status.dropped}
         redact={redact}
       />

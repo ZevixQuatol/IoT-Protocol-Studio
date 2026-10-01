@@ -45,6 +45,7 @@ iotps_add_test(
   iotps::codec)
 iotps_add_test(iotps_testing_unit_test unit/testing_test.cpp iotps::testing)
 iotps_add_test(iotps_correlation_unit_test unit/correlation_test.cpp iotps::transport)
+iotps_add_test(iotps_capture_unit_test unit/capture_test.cpp iotps::transport)
 iotps_add_test(
   iotps_simulator_integration_test
   integration/simulator_test.cpp

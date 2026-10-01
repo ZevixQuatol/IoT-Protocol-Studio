@@ -401,6 +401,7 @@ declare global {
     ) => Promise<DebugDecodeResult>;
     iotpsDebugFile?: (action: string, content: string) => Promise<DebugFileResult>;
     iotpsTrafficFile?: (action: string, content: string) => Promise<DebugFileResult>;
+    iotpsPcapFile?: (session: string, localIpv4: string) => Promise<DebugFileResult>;
     iotpsLogFile?: (action: string, content: string) => Promise<DebugFileResult>;
     iotpsCoreInfo?: () => Promise<CoreInfo>;
     iotpsInspectHex?: (input: string) => Promise<InspectionResult>;
@@ -499,6 +500,9 @@ export async function debugFile(action: string, content = ""): Promise<DebugFile
 }
 export async function trafficFile(action: string, content = ""): Promise<DebugFileResult> {
   return window.iotpsTrafficFile ? window.iotpsTrafficFile(action, content) : debugNativeRequired;
+}
+export async function pcapFile(session: string, localIpv4: string): Promise<DebugFileResult> {
+  return window.iotpsPcapFile ? window.iotpsPcapFile(session, localIpv4) : debugNativeRequired;
 }
 export async function logFile(content: string): Promise<DebugFileResult> {
   return window.iotpsLogFile ? window.iotpsLogFile("save", content) : debugNativeRequired;

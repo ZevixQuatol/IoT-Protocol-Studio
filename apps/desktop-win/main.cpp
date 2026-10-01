@@ -2,6 +2,7 @@
 #include "iotps/core/debug.hpp"
 #include "iotps/core/engine.hpp"
 #include "iotps/core/hex.hpp"
+#include "iotps/core/transport/capture.hpp"
 #include "iotps/core/transport/correlation.hpp"
 #include "iotps/core/transport/tcp.hpp"
 #include "iotps/core/version.hpp"
@@ -19,6 +20,7 @@
 #include <dwmapi.h>
 #include <filesystem>
 #include <fstream>
+#include <functional>
 #include <limits>
 #include <map>
 #include <memory>
@@ -948,14 +950,74 @@ decode_debug_message(const std::string& request,
     return json.str();
 }
 
-[[nodiscard]] std::string debug_file(HWND owner, const std::string& request, int kind = 0) {
+void write_traffic_records(std::ostream& out,
+                           const std::vector<iotps::core::transport::TcpRecord>& records) {
+    bool first = true;
+    for (const auto& record : records) {
+        if (!first)
+            out << ',';
+        first = false;
+        out << "{\"id\":" << record.id << ",\"time\":" << record.time_ms
+            << ",\"direction\":" << json_string(record.direction) << ",\"peer\":" << record.peer
+            << ",\"address\":" << json_string(record.address)
+            << ",\"hex\":" << json_string(iotps::core::format_hex(record.data))
+            << ",\"size\":" << record.data.size() << ",\"detail\":" << json_string(record.detail);
+        out << ",\"device\":" << json_string(record.device);
+        if (!record.flow.empty())
+            out << ",\"flow\":" << json_string(record.flow);
+        if (record.parsed) {
+            const auto& parsed = *record.parsed;
+            out << ",\"parsed\":{\"protocolPath\":" << json_string(parsed.protocol_path)
+                << ",\"messageName\":" << json_string(parsed.message_name)
+                << ",\"status\":" << json_string(parsed.status)
+                << ",\"checksum\":" << json_string(parsed.checksum)
+                << ",\"error\":" << json_string(parsed.error) << ",\"fields\":[";
+            bool first_field = true;
+            for (const auto& field : parsed.fields) {
+                if (!first_field)
+                    out << ',';
+                first_field = false;
+                out << "{\"name\":" << json_string(field.name)
+                    << ",\"displayName\":" << json_string(field.display_name)
+                    << ",\"type\":" << json_string(field.type)
+                    << ",\"value\":" << json_string(field.value) << ",\"offset\":" << field.offset
+                    << ",\"length\":" << field.length;
+                if (field.enum_name)
+                    out << ",\"enumName\":" << json_string(*field.enum_name);
+                if (!field.bits.empty()) {
+                    out << ",\"bits\":[";
+                    for (std::size_t index = 0; index < field.bits.size(); ++index) {
+                        if (index)
+                            out << ',';
+                        const auto& bit = field.bits[index];
+                        out << "{\"name\":" << json_string(bit.name)
+                            << ",\"displayName\":" << json_string(bit.display_name)
+                            << ",\"value\":" << json_string(bit.value)
+                            << ",\"offset\":" << bit.offset << ",\"length\":" << bit.length
+                            << ",\"bitOffset\":" << bit.bit_offset << ",\"width\":" << bit.width
+                            << '}';
+                    }
+                    out << ']';
+                }
+                out << '}';
+            }
+            out << "]}";
+        }
+        out << '}';
+    }
+}
+
+[[nodiscard]] std::string
+debug_file(HWND owner, const std::string& request, int kind = 0,
+           const std::function<std::string(const std::string&)>& transform = {}) {
     try {
-        const std::size_t limit = kind == 1 ? 16 * 1024 * 1024 : 1024 * 1024;
+        const std::size_t limit = (kind == 1 || kind == 3) ? 16 * 1024 * 1024 : 1024 * 1024;
         if (request.size() > limit + 1024)
             return encode_error_response("invalid_request", "File request exceeds size limit");
         const auto args = string_arguments(request);
         if (!args || args->size() != 2 || ((*args)[0] != "open" && (*args)[0] != "save") ||
-            (kind == 2 && (*args)[0] != "save") || (*args)[1].size() > limit)
+            ((kind == 2 && (*args)[0] != "save") || (kind == 3 && (*args)[0] != "open")) ||
+            (*args)[1].size() > limit)
             return encode_error_response("invalid_request",
                                          "Invalid file request or size limit exceeded");
         const bool save = (*args)[0] == "save";
@@ -963,24 +1025,28 @@ decode_debug_message(const std::string& request,
         if (FAILED(CoCreateInstance(save ? CLSID_FileSaveDialog : CLSID_FileOpenDialog, nullptr,
                                     CLSCTX_INPROC_SERVER, IID_PPV_ARGS(&dialog))))
             throw std::runtime_error("Cannot create file dialog");
-        const COMDLG_FILTERSPEC filters[]{{kind == 1   ? L"IoT traffic records (*.iottraffic.json)"
+        const COMDLG_FILTERSPEC filters[]{{kind == 3   ? L"Classic PCAP (*.pcap)"
+                                           : kind == 1 ? L"IoT traffic records (*.iottraffic.json)"
                                            : kind == 2 ? L"IoT diagnostic log (*.iotlog.json)"
                                                        : L"IoT Debug annotations (*.iotdebug.json)",
-                                           kind == 1   ? L"*.iottraffic.json"
+                                           kind == 3   ? L"*.pcap"
+                                           : kind == 1 ? L"*.iottraffic.json"
                                            : kind == 2 ? L"*.iotlog.json"
                                                        : L"*.iotdebug.json"},
                                           {L"JSON (*.json)", L"*.json"}};
-        dialog->SetFileTypes(2, filters);
-        dialog->SetDefaultExtension(kind == 1   ? L"iottraffic.json"
+        dialog->SetFileTypes(kind == 3 ? 1 : 2, filters);
+        dialog->SetDefaultExtension(kind == 3   ? L"pcap"
+                                    : kind == 1 ? L"iottraffic.json"
                                     : kind == 2 ? L"iotlog.json"
                                                 : L"iotdebug.json");
         dialog->SetFileName(kind == 1   ? L"traffic.iottraffic.json"
                             : kind == 2 ? L"diagnostics.iotlog.json"
                                         : L"annotations.iotdebug.json");
-        dialog->SetTitle(kind == 1 ? (save ? L"Export traffic records" : L"Import traffic records")
-                         : kind == 2
-                             ? L"Export diagnostic log"
-                             : (save ? L"Export debug annotations" : L"Import debug annotations"));
+        dialog->SetTitle(
+            kind == 3   ? L"Import PCAP offline"
+            : kind == 1 ? (save ? L"Export traffic records" : L"Import traffic records")
+            : kind == 2 ? L"Export diagnostic log"
+                        : (save ? L"Export debug annotations" : L"Import debug annotations"));
         FILEOPENDIALOGOPTIONS options{};
         if (FAILED(dialog->GetOptions(&options)) ||
             FAILED(dialog->SetOptions(options | FOS_FORCEFILESYSTEM |
@@ -1011,6 +1077,8 @@ decode_debug_message(const std::string& request,
             content.resize(static_cast<std::size_t>(stream.gcount()));
             if (content.size() > limit)
                 throw std::runtime_error("File exceeds size limit");
+            if (transform)
+                content = transform(content);
             return "{\"ok\":true,\"cancelled\":false,\"content\":" + json_string(content) + "}";
         }
         // Write beside the target, then replace atomically; failed saves preserve the old file.
@@ -1149,6 +1217,11 @@ window.addEventListener("DOMContentLoaded", () => {
           const correlation = await correlate("2", "1", "1000", "TX", "1", "endpoint", "wire.yaml", "ask", "ok", "1", "seq", "uint16", "7", "2", "1100", "RX", "1", "endpoint", "wire.yaml", "reply", "ok", "1", "ack", "uint16", "7");
           const correlationInvalid = await correlate("1001");
           const correlationDuplicate = await correlate("2", "1", "1000", "TX", "1", "endpoint", "wire.yaml", "ask", "ok", "0", "1", "1100", "RX", "1", "endpoint", "wire.yaml", "reply", "ok", "0");
+          const invalidPcap = await window.iotpsPcapFile("smoke");
+          const missingPcapSession = await window.iotpsPcapFile("missing", "127.0.0.1");
+          if (invalidPcap?.error?.code !== "invalid_request" || missingPcapSession?.error?.code !== "session_not_found") {
+            report("pcap-bridge-validation-failed"); return;
+          }
           if (!correlation?.ok || correlation.rows.length !== 1 || correlation.rows[0].state !== "matched" || correlation.rows[0].elapsed !== 100 || correlationInvalid?.ok || correlationDuplicate?.ok) {
             report("correlation-bridge-failed"); return;
           }
@@ -1925,62 +1998,7 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR command_line, int) {
                         << '}';
                 }
                 out << "],\"records\":[";
-                first = true;
-                for (const auto& record : state.records) {
-                    if (!first)
-                        out << ',';
-                    first = false;
-                    out << "{\"id\":" << record.id << ",\"time\":" << record.time_ms
-                        << ",\"direction\":" << json_string(record.direction)
-                        << ",\"peer\":" << record.peer
-                        << ",\"address\":" << json_string(record.address)
-                        << ",\"hex\":" << json_string(iotps::core::format_hex(record.data))
-                        << ",\"size\":" << record.data.size()
-                        << ",\"detail\":" << json_string(record.detail);
-                    out << ",\"device\":" << json_string(record.device);
-                    if (!record.flow.empty())
-                        out << ",\"flow\":" << json_string(record.flow);
-                    if (record.parsed) {
-                        const auto& parsed = *record.parsed;
-                        out << ",\"parsed\":{\"protocolPath\":" << json_string(parsed.protocol_path)
-                            << ",\"messageName\":" << json_string(parsed.message_name)
-                            << ",\"status\":" << json_string(parsed.status)
-                            << ",\"checksum\":" << json_string(parsed.checksum)
-                            << ",\"error\":" << json_string(parsed.error) << ",\"fields\":[";
-                        bool first_field = true;
-                        for (const auto& field : parsed.fields) {
-                            if (!first_field)
-                                out << ',';
-                            first_field = false;
-                            out << "{\"name\":" << json_string(field.name)
-                                << ",\"displayName\":" << json_string(field.display_name)
-                                << ",\"type\":" << json_string(field.type)
-                                << ",\"value\":" << json_string(field.value)
-                                << ",\"offset\":" << field.offset << ",\"length\":" << field.length;
-                            if (field.enum_name)
-                                out << ",\"enumName\":" << json_string(*field.enum_name);
-                            if (!field.bits.empty()) {
-                                out << ",\"bits\":[";
-                                for (std::size_t index = 0; index < field.bits.size(); ++index) {
-                                    if (index)
-                                        out << ',';
-                                    const auto& bit = field.bits[index];
-                                    out << "{\"name\":" << json_string(bit.name)
-                                        << ",\"displayName\":" << json_string(bit.display_name)
-                                        << ",\"value\":" << json_string(bit.value)
-                                        << ",\"offset\":" << bit.offset
-                                        << ",\"length\":" << bit.length
-                                        << ",\"bitOffset\":" << bit.bit_offset
-                                        << ",\"width\":" << bit.width << '}';
-                                }
-                                out << ']';
-                            }
-                            out << '}';
-                        }
-                        out << "]}";
-                    }
-                    out << '}';
-                }
+                write_traffic_records(out, state.records);
                 out << "]}";
                 return out.str();
             } else
@@ -2001,6 +2019,33 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR command_line, int) {
         });
         window.bind("iotpsDebugFile", [window_handle](const std::string& request) {
             return debug_file(window_handle, request);
+        });
+        window.bind("iotpsPcapFile", [window_handle, &tcp_sessions](const std::string& request) {
+            if (request.size() > 1024)
+                return workspace_error_response("invalid_request", "PCAP request exceeds limit");
+            const auto args = string_arguments(request);
+            if (!args || args->size() != 2 || (*args)[0].size() > 64 || (*args)[1].size() > 15)
+                return workspace_error_response("invalid_request",
+                                                "PCAP import expects session and local IPv4");
+            const auto found = tcp_sessions.find((*args)[0]);
+            if (found == tcp_sessions.end())
+                return workspace_error_response("session_not_found",
+                                                "Communication session is closed");
+            return debug_file(window_handle, R"(["open",""])", 3, [&](const std::string& content) {
+                const auto current = tcp_sessions.find((*args)[0]);
+                if (current == tcp_sessions.end())
+                    throw std::runtime_error("Communication session closed during file selection");
+                const auto capture = current->second->import_capture(
+                    {reinterpret_cast<const std::uint8_t*>(content.data()), content.size()},
+                    (*args)[1]);
+                std::ostringstream out;
+                out << "{\"dropped\":" << capture.dropped << ",\"time\":"
+                    << (capture.records.empty() ? 0 : capture.records.back().time_ms)
+                    << ",\"records\":[";
+                write_traffic_records(out, capture.records);
+                out << "]}";
+                return out.str();
+            });
         });
         window.bind("iotpsTrafficFile", [window_handle](const std::string& request) {
             return debug_file(window_handle, request, 1);

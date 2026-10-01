@@ -8,6 +8,7 @@
 #include <vector>
 
 namespace iotps::core::transport {
+struct CaptureResult;
 struct SerialOptions {
     std::string device;
     std::uint32_t baud{115200};
@@ -111,6 +112,8 @@ class TcpSession {
                                                 std::string message = {});
     void clear_binding();
     void clear_records();
+    [[nodiscard]] CaptureResult import_capture(std::span<const std::uint8_t> file,
+                                               const std::string& local_ipv4) const;
     [[nodiscard]] TcpSnapshot snapshot(std::uint64_t after = 0, std::size_t max_records = 128,
                                        std::size_t max_bytes = 128 * 1024) const;
 

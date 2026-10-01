@@ -146,184 +146,271 @@ export default function TrafficCorrelation({
       "—"
     );
   };
+  const events = records.map((record) => {
+    const related = rows.filter((row) => row.request === record.id || row.response === record.id);
+    const response = related.find((row) => row.response === record.id);
+    const request = related.find((row) => row.request === record.id);
+    const role = response
+      ? t("响应", "Response")
+      : request
+        ? t("请求", "Request")
+        : record.direction;
+    return {
+      time: record.time,
+      record,
+      title: `${role} ${record.parsed?.messageName ?? ""}`,
+      detail:
+        related
+          .map(
+            (row) =>
+              `${labels[row.state]}${row.request && row.response ? ` · ${row.elapsed} ms` : ""}`,
+          )
+          .join("; ") ||
+        record.parsed?.error ||
+        record.detail,
+      exception:
+        (record.direction === "SYS" &&
+          /error|fail|timeout|gap|truncat|conflict|unsupported|discard|reset|missing|invalid/i.test(
+            record.detail,
+          )) ||
+        Boolean(record.parsed && record.parsed.status !== "ok") ||
+        related.some((row) => !["matched", "pending"].includes(row.state)),
+      response,
+    };
+  });
+  if (rule)
+    for (const row of rows.filter((row) => row.state === "timeout")) {
+      const record = records.find((item) => item.id === row.request);
+      if (record)
+        events.push({
+          time: record.time + rule.timeout,
+          record,
+          title: t("请求超时", "Request timeout"),
+          detail: `${rule.timeout} ms · ${redact(row.reason)}`,
+          exception: true,
+          response: undefined,
+        });
+    }
+  events.sort((a, b) => a.time - b.time || a.record.id - b.record.id);
   return (
-    <details className="traffic-filters traffic-correlation">
-      <summary>{t("请求 / 响应关联", "Request / response correlation")}</summary>
-      <form
-        onSubmit={(event) => {
-          event.preventDefault();
-          const version = ++applied.current;
-          setBusy(true);
-          setError("");
-          void correlateTraffic(draft, [], savedAt ? Date.parse(savedAt) : Date.now())
-            .then((result) => {
-              if (version !== applied.current) return;
-              if (result.ok) onRule({ ...draft });
-              else setError(result.error.message);
-            })
-            .catch((failure) => {
-              if (version === applied.current) setError(String(failure));
-            })
-            .finally(() => {
-              if (version === applied.current) setBusy(false);
-            });
-        }}
-      >
-        <label>
-          {t("关联协议", "Correlation protocol")}
-          <select
-            aria-label={t("关联协议", "Correlation protocol")}
-            required
-            value={draft.protocol}
-            onChange={(event) => setDraft({ ...draft, protocol: event.target.value })}
-          >
-            <option value="">{t("选择协议", "Select protocol")}</option>
-            {paths.map((path) => (
-              <option key={path} value={path}>
-                {redact(path)}
-              </option>
-            ))}
-          </select>
-        </label>
-        {(
-          [
-            ["requestMessage", "请求消息", "Request message"],
-            ["responseMessage", "响应消息", "Response message"],
-            ["requestField", "请求关联字段", "Request correlation field"],
-            ["responseField", "响应关联字段", "Response correlation field"],
-          ] as const
-        ).map(([key, cn, en]) => (
-          <label key={key}>
-            {t(cn, en)}
-            <input
-              aria-label={t(cn, en)}
-              required
-              maxLength={256}
-              list={`${optionId}-${key.endsWith("Message") ? "messages" : "fields"}`}
-              value={draft[key]}
-              onChange={(event) => setDraft({ ...draft, [key]: event.target.value })}
-            />
-          </label>
-        ))}
-        <datalist id={`${optionId}-messages`}>
-          {names.map((name) => (
-            <option key={name} value={name} />
-          ))}
-        </datalist>
-        <datalist id={`${optionId}-fields`}>
-          {fields.map((name) => (
-            <option key={name} value={name} />
-          ))}
-        </datalist>
-        <label>
-          {t("请求方向", "Request direction")}
-          <select
-            aria-label={t("请求方向", "Request direction")}
-            value={draft.requestFlow}
-            onChange={(event) =>
-              setDraft({ ...draft, requestFlow: event.target.value as "TX" | "RX" })
-            }
-          >
-            <option>TX</option>
-            <option>RX</option>
-          </select>
-        </label>
-        <label>
-          {t("关联范围", "Correlation scope")}
-          <select
-            aria-label={t("关联范围", "Correlation scope")}
-            value={draft.scope}
-            onChange={(event) =>
-              setDraft({ ...draft, scope: event.target.value as "connection" | "session" })
-            }
-          >
-            <option value="connection">{t("同一连接", "Same connection")}</option>
-            <option value="session">
-              {t("整个会话（允许跨连接）", "Entire session (cross connection)")}
-            </option>
-          </select>
-        </label>
-        <label>
-          {t("关联超时（毫秒）", "Correlation timeout (ms)")}
-          <input
-            type="number"
-            aria-label={t("关联超时（毫秒）", "Correlation timeout (ms)")}
-            required
-            min={1}
-            max={3600000}
-            step={1}
-            value={draft.timeout}
-            onChange={(event) => setDraft({ ...draft, timeout: Number(event.target.value) })}
-          />
-        </label>
-        <button type="submit" disabled={busy}>
-          {t("应用关联规则", "Apply correlation rule")}
-        </button>
-        <button
-          type="button"
-          onClick={() => {
-            ++applied.current;
-            setBusy(false);
-            onRule(null);
+    <>
+      <details className="traffic-filters traffic-correlation">
+        <summary>{t("请求 / 响应关联", "Request / response correlation")}</summary>
+        <form
+          onSubmit={(event) => {
+            event.preventDefault();
+            const version = ++applied.current;
+            setBusy(true);
+            setError("");
+            void correlateTraffic(draft, [], savedAt ? Date.parse(savedAt) : Date.now())
+              .then((result) => {
+                if (version !== applied.current) return;
+                if (result.ok) onRule({ ...draft });
+                else setError(result.error.message);
+              })
+              .catch((failure) => {
+                if (version === applied.current) setError(String(failure));
+              })
+              .finally(() => {
+                if (version === applied.current) setBusy(false);
+              });
           }}
         >
-          {t("关闭关联", "Disable correlation")}
-        </button>
-        <small>
-          {t(
-            "分析完整 FRAME，响应方向与请求相反；字段类型和值须一致。TCP / 串口先配置分帧并绑定协议，不同消息使用自动识别。缺失、截断或已脱敏的字段不猜测。分析全部保留记录，不受筛选影响；此操作不会发包。",
-            "Uses complete FRAME records in opposite directions and equal field types/values. Configure stream framing and protocol binding; use auto detection for different messages. Missing, truncated or redacted keys are skipped. Analyzes all retained records, regardless of filters; sends no packets.",
-          )}
-        </small>
-      </form>
-      {error && <p role="alert">{redact(error)}</p>}
-      {rule && (
-        <>
-          <p role="status">
-            {savedAt
-              ? t("历史分析时刻", "History analysis time") +
-                ": " +
-                new Date(savedAt).toLocaleString()
-              : t("实时分析", "Live analysis")}{" "}
-            · {t("关联条目", "Correlation rows")}: {rows.length}
-          </p>
-          <p className="tcp-log-hint">
+          <label>
+            {t("关联协议", "Correlation protocol")}
+            <select
+              aria-label={t("关联协议", "Correlation protocol")}
+              required
+              value={draft.protocol}
+              onChange={(event) => setDraft({ ...draft, protocol: event.target.value })}
+            >
+              <option value="">{t("选择协议", "Select protocol")}</option>
+              {paths.map((path) => (
+                <option key={path} value={path}>
+                  {redact(path)}
+                </option>
+              ))}
+            </select>
+          </label>
+          {(
+            [
+              ["requestMessage", "请求消息", "Request message"],
+              ["responseMessage", "响应消息", "Response message"],
+              ["requestField", "请求关联字段", "Request correlation field"],
+              ["responseField", "响应关联字段", "Response correlation field"],
+            ] as const
+          ).map(([key, cn, en]) => (
+            <label key={key}>
+              {t(cn, en)}
+              <input
+                aria-label={t(cn, en)}
+                required
+                maxLength={256}
+                list={`${optionId}-${key.endsWith("Message") ? "messages" : "fields"}`}
+                value={draft[key]}
+                onChange={(event) => setDraft({ ...draft, [key]: event.target.value })}
+              />
+            </label>
+          ))}
+          <datalist id={`${optionId}-messages`}>
+            {names.map((name) => (
+              <option key={name} value={name} />
+            ))}
+          </datalist>
+          <datalist id={`${optionId}-fields`}>
+            {fields.map((name) => (
+              <option key={name} value={name} />
+            ))}
+          </datalist>
+          <label>
+            {t("请求方向", "Request direction")}
+            <select
+              aria-label={t("请求方向", "Request direction")}
+              value={draft.requestFlow}
+              onChange={(event) =>
+                setDraft({ ...draft, requestFlow: event.target.value as "TX" | "RX" })
+              }
+            >
+              <option>TX</option>
+              <option>RX</option>
+            </select>
+          </label>
+          <label>
+            {t("关联范围", "Correlation scope")}
+            <select
+              aria-label={t("关联范围", "Correlation scope")}
+              value={draft.scope}
+              onChange={(event) =>
+                setDraft({ ...draft, scope: event.target.value as "connection" | "session" })
+              }
+            >
+              <option value="connection">{t("同一连接", "Same connection")}</option>
+              <option value="session">
+                {t("整个会话（允许跨连接）", "Entire session (cross connection)")}
+              </option>
+            </select>
+          </label>
+          <label>
+            {t("关联超时（毫秒）", "Correlation timeout (ms)")}
+            <input
+              type="number"
+              aria-label={t("关联超时（毫秒）", "Correlation timeout (ms)")}
+              required
+              min={1}
+              max={3600000}
+              step={1}
+              value={draft.timeout}
+              onChange={(event) => setDraft({ ...draft, timeout: Number(event.target.value) })}
+            />
+          </label>
+          <button type="submit" disabled={busy}>
+            {t("应用关联规则", "Apply correlation rule")}
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              ++applied.current;
+              setBusy(false);
+              onRule(null);
+            }}
+          >
+            {t("关闭关联", "Disable correlation")}
+          </button>
+          <small>
             {t(
-              "仅依据保留记录；清空或淘汰后不保留匹配记忆。重连按连接编号隔离，广播 / 组播可选择整个会话范围。关联值应在保留窗口内唯一；同值请求标记歧义，避免迟到或重复响应误配。",
-              "Based on retained records only; clearing/eviction resets evidence. Reconnects are isolated by peer ID; broadcast/multicast can use session scope. Keys must be unique within retained requests; reused keys are ambiguous to avoid misassigning late/duplicate responses.",
+              "分析完整 FRAME，响应方向与请求相反；字段类型和值须一致。TCP / 串口先配置分帧并绑定协议，不同消息使用自动识别。缺失、截断或已脱敏的字段不猜测。分析全部保留记录，不受筛选影响；此操作不会发包。",
+              "Uses complete FRAME records in opposite directions and equal field types/values. Configure stream framing and protocol binding; use auto detection for different messages. Missing, truncated or redacted keys are skipped. Analyzes all retained records, regardless of filters; sends no packets.",
             )}
-            {dropped > 0 && ` ${t("已淘汰记录", "Dropped records")}: ${dropped}`}
-          </p>
-          <div className="correlation-table">
-            <table>
-              <thead>
-                <tr>
-                  <th>{t("状态", "State")}</th>
-                  <th>{t("请求", "Request")}</th>
-                  <th>{t("响应", "Response")}</th>
-                  <th>{t("耗时", "Elapsed")}</th>
-                  <th>{t("说明", "Reason")}</th>
-                </tr>
-              </thead>
-              <tbody>
-                {rows.map((row, index) => (
-                  <tr key={index} data-correlation-state={row.state}>
-                    <td>{labels[row.state]}</td>
-                    <td>{jump(row.request, t("查看请求", "View request"))}</td>
-                    <td>{jump(row.response, t("查看响应", "View response"))}</td>
-                    <td>{row.response && row.request ? `${row.elapsed} ms` : "—"}</td>
-                    <td>
-                      {locale === "zh-CN"
-                        ? (reasons[row.reason] ?? redact(row.reason))
-                        : redact(row.reason)}
-                    </td>
+          </small>
+        </form>
+        {error && <p role="alert">{redact(error)}</p>}
+        {rule && (
+          <>
+            <p role="status">
+              {savedAt
+                ? t("历史分析时刻", "History analysis time") +
+                  ": " +
+                  new Date(savedAt).toLocaleString()
+                : t("实时分析", "Live analysis")}{" "}
+              · {t("关联条目", "Correlation rows")}: {rows.length}
+            </p>
+            <p className="tcp-log-hint">
+              {t(
+                "仅依据保留记录；清空或淘汰后不保留匹配记忆。重连按连接编号隔离，广播 / 组播可选择整个会话范围。关联值应在保留窗口内唯一；同值请求标记歧义，避免迟到或重复响应误配。",
+                "Based on retained records only; clearing/eviction resets evidence. Reconnects are isolated by peer ID; broadcast/multicast can use session scope. Keys must be unique within retained requests; reused keys are ambiguous to avoid misassigning late/duplicate responses.",
+              )}
+              {dropped > 0 && ` ${t("已淘汰记录", "Dropped records")}: ${dropped}`}
+            </p>
+            <div className="correlation-table">
+              <table>
+                <thead>
+                  <tr>
+                    <th>{t("状态", "State")}</th>
+                    <th>{t("请求", "Request")}</th>
+                    <th>{t("响应", "Response")}</th>
+                    <th>{t("耗时", "Elapsed")}</th>
+                    <th>{t("说明", "Reason")}</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </>
-      )}
-    </details>
+                </thead>
+                <tbody>
+                  {rows.map((row, index) => (
+                    <tr key={index} data-correlation-state={row.state}>
+                      <td>{labels[row.state]}</td>
+                      <td>{jump(row.request, t("查看请求", "View request"))}</td>
+                      <td>{jump(row.response, t("查看响应", "View response"))}</td>
+                      <td>{row.response && row.request ? `${row.elapsed} ms` : "—"}</td>
+                      <td>
+                        {locale === "zh-CN"
+                          ? (reasons[row.reason] ?? redact(row.reason))
+                          : redact(row.reason)}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </>
+        )}
+      </details>
+      <details className="traffic-filters traffic-timeline">
+        <summary>{t("消息时间线", "Message timeline")}</summary>
+        <p>
+          {t(
+            "按时间排列全部可见记录；关联规则标记请求、响应、异常与耗时。点击编号查看原始 HEX 和已解析字段。",
+            "All visible records in time order; correlation marks requests, responses, exceptions and elapsed time. Select an ID to inspect original HEX and decoded fields.",
+          )}
+        </p>
+        <div className="correlation-table">
+          <table>
+            <thead>
+              <tr>
+                <th>{t("相对时间", "Relative time")}</th>
+                <th>{t("事件", "Event")}</th>
+                <th>{t("记录", "Record")}</th>
+                <th>{t("关联请求", "Related request")}</th>
+                <th>{t("结果 / 耗时", "Result / elapsed")}</th>
+              </tr>
+            </thead>
+            <tbody>
+              {events.map((event, index) => (
+                <tr key={`${event.record.id}-${index}`} data-timeline-exception={event.exception}>
+                  <td title={new Date(event.time).toISOString()}>
+                    +{event.time - (events[0]?.time ?? event.time)} ms
+                  </td>
+                  <td>{redact(event.title)}</td>
+                  <td>{jump(event.record.id, t("查看报文", "View packet"))}</td>
+                  <td>
+                    {event.response?.request
+                      ? jump(event.response.request, t("查看请求", "View request"))
+                      : "—"}
+                  </td>
+                  <td>{redact(event.detail)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </details>
+    </>
   );
 }

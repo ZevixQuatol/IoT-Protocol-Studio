@@ -61,6 +61,7 @@ export function readTrafficArchive(content: string): TrafficArchive {
       item.id <= previousId ||
       !Number.isSafeInteger(item.time) ||
       item.time < 0 ||
+      !Number.isFinite(new Date(item.time).getTime()) ||
       !["TX", "RX", "FRAME", "SYS"].includes(item.direction) ||
       (item.flow !== undefined &&
         (item.direction !== "FRAME" || !["TX", "RX"].includes(item.flow))) ||

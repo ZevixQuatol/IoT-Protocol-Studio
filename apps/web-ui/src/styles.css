@@ -3159,6 +3159,22 @@ button {
 }
 .correlation-table {
   overflow: auto;
+  max-height: 360px;
+}
+.traffic-timeline tr[data-timeline-exception="true"] {
+  color: var(--danger, #b42318);
+}
+.traffic-replay .tcp-send-controls,
+.traffic-replay fieldset {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: end;
+  gap: 10px;
+  margin-top: 10px;
+}
+.traffic-replay fieldset p {
+  flex-basis: 100%;
+  color: var(--muted);
 }
 .correlation-table table {
   width: 100%;

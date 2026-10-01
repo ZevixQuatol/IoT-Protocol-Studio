@@ -2,6 +2,7 @@
 
 #include "iotps/core/codec/codec.hpp"
 #include "iotps/core/debug.hpp"
+#include "iotps/core/transport/capture.hpp"
 
 #include <algorithm>
 #include <array>
@@ -471,97 +472,13 @@ struct TcpSession::Impl {
                 record("SYS", peer.info, {}, "TX: " + frame.error);
     }
     void complete_frame(const TcpPeer& info, ByteBuffer bytes, std::string flow = "RX") {
-        std::string detail = "Complete frame; no protocol bound";
-        std::optional<TcpParse> parsed;
-        if (bound_protocol) {
-            detail = "Protocol " + status.protocol_path + ": ";
-            std::string message = status.message_name;
-            std::string reason;
-            if (!status.message_name.empty()) {
-                detail += "message " + status.message_name + " (fixed binding)";
-            } else {
-                const auto match = schema::identify_message(*bound_protocol, bytes);
-                if (match.status == schema::MatchStatus::matched)
-                    message = match.message;
-                else
-                    reason = match.reason;
-                detail += reason.empty() ? "message " + message : reason;
-            }
-            parsed.emplace();
-            parsed->protocol_path = status.protocol_path;
-            parsed->message_name = message;
-            if (!reason.empty()) {
-                parsed->status = "unmatched";
-                parsed->error = reason;
-            } else {
-                const auto decoded =
-                    codec::decode_protocol_message(*bound_protocol, message, bytes);
-                const auto definition =
-                    std::ranges::find_if(bound_protocol->messages,
-                                         [&](const auto& item) { return item.name == message; });
-                parsed->checksum =
-                    definition != bound_protocol->messages.end() && definition->checksum ? ""
-                                                                                         : "none";
-                if (const auto* error = decoded.error_if()) {
-                    parsed->status = "error";
-                    parsed->error = error->detail;
-                    if (error->detail.find("checksum_mismatch") != std::string::npos)
-                        parsed->checksum = "fail";
-                } else {
-                    parsed->status = "ok";
-                    if (definition->checksum)
-                        parsed->checksum = "pass";
-                    const auto& data = decoded.value();
-                    for (const auto& field : data.message.fields) {
-                        const auto field_definition =
-                            std::ranges::find_if(data.concrete_fields, [&](const auto& item) {
-                                return item.name == field.name;
-                            });
-                        const auto range =
-                            std::ranges::find_if(data.field_ranges, [&](const auto& item) {
-                                return item.path == message + "." + field.name;
-                            });
-                        if (range == data.field_ranges.end() ||
-                            field_definition == data.concrete_fields.end())
-                            continue;
-                        auto value = format_scalar(field.value);
-                        if (value.size() > 512) {
-                            std::size_t end = 512;
-                            while (end > 0 &&
-                                   (static_cast<unsigned char>(value[end]) & 0xc0) == 0x80)
-                                --end;
-                            value = value.substr(0, end) + "...";
-                        }
-                        std::optional<std::string> enum_name;
-                        if (!field_definition->enum_values.empty())
-                            enum_name = std::string{
-                                schema::enum_name(*field_definition, value).value_or("")};
-                        parsed->fields.push_back(
-                            {field.name, field_definition->display_name,
-                             std::string{schema::to_string(field_definition->type)},
-                             std::move(value), range->offset, range->length, std::move(enum_name)});
-                        if (const auto* raw = std::get_if<std::uint64_t>(&field.value)) {
-                            auto& parsed_field = parsed->fields.back();
-                            const auto order = field_definition->byte_order.value_or(
-                                bound_protocol->protocol.default_byte_order);
-                            for (const auto& bit : field_definition->bits) {
-                                const auto low = bit.offset / 8;
-                                const auto high = (bit.offset + bit.width - 1) / 8;
-                                const auto first = order == schema::ByteOrder::little_endian
-                                                       ? low
-                                                       : range->length - 1 - high;
-                                parsed_field.bits.push_back(
-                                    {bit.name, bit.display_name,
-                                     std::to_string(schema::bit_value(*raw, bit)),
-                                     range->offset + first, high - low + 1, bit.offset, bit.width});
-                            }
-                        }
-                    }
-                }
-            }
-        }
-        record("FRAME", info, std::move(bytes), std::move(detail), std::move(parsed),
-               std::move(flow));
+        auto parsed = parse_frame(bound_protocol ? &*bound_protocol : nullptr, status.protocol_path,
+                                  status.message_name, bytes);
+        const auto detail =
+            parsed ? "Protocol " + parsed->protocol_path + ": " +
+                         (parsed->error.empty() ? "message " + parsed->message_name : parsed->error)
+                   : "Complete frame; no protocol bound";
+        record("FRAME", info, std::move(bytes), detail, std::move(parsed), std::move(flow));
     }
     void run(std::stop_token stop, sockaddr_storage address, SockLength size, bool server) {
         Socket listener = invalid_socket;
@@ -995,6 +912,20 @@ TransportResult TcpSession::disconnect(std::uint64_t peer) {
     if (!impl_->status.server)
         impl_->worker.request_stop();
     return std::monostate{};
+}
+CaptureResult TcpSession::import_capture(std::span<const std::uint8_t> file,
+                                         const std::string& local_ipv4) const {
+    FrameRule rule;
+    std::optional<schema::ProtocolSchema> protocol;
+    std::string path, message;
+    {
+        std::lock_guard lock(impl_->mutex);
+        rule = impl_->framing;
+        protocol = impl_->bound_protocol;
+        path = impl_->status.protocol_path;
+        message = impl_->status.message_name;
+    }
+    return import_pcap(file, local_ipv4, rule, protocol ? &*protocol : nullptr, path, message);
 }
 TransportResult TcpSession::set_framing(FrameRule rule) {
     if (const auto error = frame_rule_error(rule); !error.empty())
