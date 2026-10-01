@@ -3126,6 +3126,34 @@ button {
 .tcp-framing[hidden] {
   display: none;
 }
+.traffic-filters {
+  border-top: 1px solid var(--border);
+  padding-top: 10px;
+  font-size: 12px;
+}
+.traffic-filters summary {
+  cursor: pointer;
+}
+.traffic-filter-fields,
+.traffic-filters form {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: end;
+  margin-top: 10px;
+}
+.traffic-filters label {
+  display: grid;
+  gap: 5px;
+}
+.traffic-filter-fields > span,
+.traffic-filters small {
+  flex-basis: 100%;
+  color: var(--muted);
+}
+.traffic-filters select {
+  max-width: 260px;
+}
 .tcp-connect {
   display: flex;
   flex-wrap: wrap;
@@ -3315,6 +3343,7 @@ button {
 .tcp-log table {
   border-collapse: collapse;
   width: 100%;
+  min-width: 760px;
   table-layout: fixed;
   font:
     12px Consolas,
@@ -3346,6 +3375,9 @@ button {
   width: 175px;
 }
 .tcp-log th:nth-child(4) {
+  width: 160px;
+}
+.tcp-log th:nth-child(5) {
   width: 48px;
 }
 .tcp-log td button {

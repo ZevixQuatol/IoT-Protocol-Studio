@@ -21,6 +21,7 @@ import {
   type WorkspaceProtocol,
 } from "./bridge";
 import { readTrafficArchive } from "./trafficFile";
+import TrafficFilters, { deviceValue, emptyFilters, matchesRecord } from "./TrafficFilters";
 import { activeVariables, resolveValue, sendValues } from "./sendVariables";
 import type { Locale } from "./i18n";
 
@@ -118,6 +119,7 @@ export default function TcpWorkbench({
   const [notice, setNotice] = useState("");
   const [direction, setDirection] = useState("all");
   const [search, setSearch] = useState("");
+  const [filters, setFilters] = useState(emptyFilters);
   const [selected, setSelected] = useState<TcpRecord | null>(null);
   const [follow, setFollow] = useState(true);
   const [peerMenu, setPeerMenu] = useState<{ id: number; address: string } | null>(null);
@@ -135,6 +137,7 @@ export default function TcpWorkbench({
     ...item,
     address: redact(item.address),
     detail: redact(item.detail),
+    device: item.device === undefined ? undefined : redact(item.device),
     parsed: item.parsed && {
       ...item.parsed,
       protocolPath: redact(item.parsed.protocolPath),
@@ -158,6 +161,9 @@ export default function TcpWorkbench({
   const shownRecords = (history?.records ?? records).map(redactRecord);
   const selectedRecord = selected && redactRecord(selected);
   const bindProtocol = protocols.find((item) => item.path === bindPath);
+  useEffect(() => {
+    setSelected(null);
+  }, [filters, direction, search, history]);
 
   useEffect(() => {
     setConnectionPreview("");
@@ -620,8 +626,11 @@ export default function TcpWorkbench({
   };
   const filtered = shownRecords.filter(
     (item) =>
+      matchesRecord(item, filters) &&
       (direction === "all" || item.direction === direction) &&
-      `${item.hex} ${item.address} ${item.detail}`.toLowerCase().includes(search.toLowerCase()),
+      `${item.hex} ${item.address} ${item.detail} ${deviceValue(item, filters.deviceField)} ${item.parsed?.messageName ?? ""}`
+        .toLowerCase()
+        .includes(search.toLowerCase()),
   );
   const stateLabel =
     status.state === "open"
@@ -1381,7 +1390,19 @@ export default function TcpWorkbench({
           <Trash2 size={14} />
         </button>
       </div>
-      <p className="tcp-log-hint">
+      <TrafficFilters
+        records={shownRecords}
+        filters={filters}
+        onChange={setFilters}
+        locale={locale}
+        session={history?.session ?? session}
+        device={status.device ?? ""}
+        sensitive={redact(status.device ?? "") !== (status.device ?? "")}
+        disabled={busy || Boolean(history)}
+        onDevice={(identifier) => act("device", identifier)}
+      />
+      <p className="tcp-log-hint" role="status">
+        {t("筛选结果", "Filtered records")}: {filtered.length}/{shownRecords.length} ·
         {mode === "udp"
           ? t(
               "UDP：每条 RX / FRAME 保留一个完整数据报，不应用字节流分帧。",
@@ -1407,6 +1428,7 @@ export default function TcpWorkbench({
               <th>{t("时间", "Time")}</th>
               <th>{t("方向", "Dir")}</th>
               <th>{t("连接", "Peer")}</th>
+              <th>{t("设备 / 消息", "Device / message")}</th>
               <th>{t("字节", "Bytes")}</th>
               <th>{t("数据 / 事件", "Data / event")}</th>
             </tr>
@@ -1421,6 +1443,12 @@ export default function TcpWorkbench({
                 <td className={`tcp-dir-${item.direction}`}>{item.direction}</td>
                 <td>
                   {item.address} {item.peer > 0 && `#${item.peer}`}
+                </td>
+                <td
+                  title={`${deviceValue(item, filters.deviceField) || "—"} / ${item.parsed?.messageName ?? "—"}`}
+                >
+                  {deviceValue(item, filters.deviceField) || "—"}
+                  {item.parsed?.messageName && <small> / {item.parsed.messageName}</small>}
                 </td>
                 <td>{item.size}</td>
                 <td>

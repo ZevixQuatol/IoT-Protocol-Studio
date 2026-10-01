@@ -66,6 +66,7 @@ struct TcpRecord {
     ByteBuffer data;
     std::string detail;
     std::optional<TcpParse> parsed;
+    std::string device;
 };
 struct TcpSnapshot {
     std::string kind{"tcp"};
@@ -82,6 +83,7 @@ struct TcpSnapshot {
     std::uint32_t retries{0};
     std::string protocol_path;
     std::string message_name;
+    std::string device;
     std::vector<TcpPeer> peers;
     std::vector<TcpRecord> records;
 };
@@ -99,6 +101,7 @@ class TcpSession {
     [[nodiscard]] TransportResult start_serial(SerialOptions options);
     [[nodiscard]] TransportResult start_udp(UdpOptions options);
     [[nodiscard]] TransportResult multicast_membership(bool join);
+    [[nodiscard]] TransportResult set_device(std::string identifier);
     void stop();
     [[nodiscard]] TransportResult send(std::uint64_t peer, std::span<const std::uint8_t> bytes);
     [[nodiscard]] TransportResult disconnect(std::uint64_t peer);

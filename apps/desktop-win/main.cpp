@@ -1141,8 +1141,11 @@ window.addEventListener("DOMContentLoaded", () => {
           const invalidSerial = await window.iotpsTcp("smoke", "serial", "COM0", "115200", "8", "none", "1", "none");
           const invalidUdp = await window.iotpsTcp("smoke", "udp", "bad", "0", "127.0.0.1", "9000", "unicast", "0.0.0.0");
           const invalidMembership = await window.iotpsTcp("smoke", "membership", "join");
+          const deviceApplied = await window.iotpsTcp("smoke", "device", "smoke-device");
+          const devicePoll = await window.iotpsTcp("smoke", "poll", "0");
+          const deviceInvalid = await window.iotpsTcp("smoke", "device", "x".repeat(513));
           await window.iotpsTcp("smoke", "destroy");
-          if (!devices?.ok || !Array.isArray(devices.serialDevices) || !Array.isArray(devices.interfaces) || invalidSerial?.ok || invalidUdp?.ok || invalidMembership?.ok) {
+          if (!devices?.ok || !Array.isArray(devices.serialDevices) || !Array.isArray(devices.interfaces) || invalidSerial?.ok || invalidUdp?.ok || invalidMembership?.ok || !deviceApplied?.ok || devicePoll.device !== "smoke-device" || deviceInvalid?.ok) {
             report("endpoint-validation-failed"); return;
           }
           await window.iotpsTcp("udp-rx", "create");
@@ -1161,6 +1164,7 @@ window.addEventListener("DOMContentLoaded", () => {
           const rxOpen = await waitUdp("udp-rx", snapshot => snapshot.state === "open");
           const udpTxStart = await window.iotpsTcp("udp-tx", "udp", "127.0.0.1", "0", "127.0.0.1", String(rxOpen.port), "unicast", "0.0.0.0");
           const txOpen = await waitUdp("udp-tx", snapshot => snapshot.state === "open");
+          await window.iotpsTcp("udp-rx", "device", "receiver-device");
           await window.iotpsTcp("udp-rx", "frame", "fixed", "1");
           const udpSend = await window.iotpsTcp("udp-tx", "send", String(txOpen.peers[0].id), "00 FF 80 0D");
           const udpReceived = await waitUdp("udp-rx", snapshot => snapshot.received === 4);
@@ -1168,7 +1172,7 @@ window.addEventListener("DOMContentLoaded", () => {
           await window.iotpsTcp("udp-rx", "destroy");
           if (!udpRxStart?.ok || !udpTxStart?.ok || !udpSend?.ok || rxOpen.kind !== "udp" ||
               !udpReceived.records.some(record => record.direction === "FRAME" && record.hex === "00 FF 80 0D") ||
-              !udpReceived.records.some(record => record.direction === "RX" && record.address.endsWith(":" + txOpen.port))) {
+              !udpReceived.records.some(record => record.direction === "RX" && record.device === "receiver-device" && record.address.endsWith(":" + txOpen.port))) {
             report("udp-bridge-failed"); return;
           }
           if (!tcpPoll?.ok || tcpPoll.state !== "closed" || !Array.isArray(tcpPoll.records) || tcpInvalid?.ok || tcpHex?.ok || !tcpFrame?.ok || tcpFrameInvalid?.error?.code !== "invalid_configuration" || !tcpBindOff?.ok || tcpBindNoProject?.error?.code !== "project_not_open") {
@@ -1711,7 +1715,9 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR command_line, int) {
                 result = tcp.start(
                     (*args)[1] == "server", (*args)[2], static_cast<std::uint16_t>(*port),
                     static_cast<std::uint32_t>(*retries), static_cast<std::uint32_t>(*interval));
-            } else if (action == "stop" && args->size() == 1)
+            } else if (action == "device" && args->size() == 2)
+                result = tcp.set_device((*args)[1]);
+            else if (action == "stop" && args->size() == 1)
                 tcp.stop();
             else if (action == "clear" && args->size() == 1)
                 tcp.clear_records();
@@ -1801,6 +1807,7 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR command_line, int) {
                     << ",\"multicastJoined\":" << (state.multicast_joined ? "true" : "false")
                     << ",\"server\":" << (state.server ? "true" : "false")
                     << ",\"host\":" << json_string(state.host) << ",\"port\":" << state.port
+                    << ",\"device\":" << json_string(state.device)
                     << ",\"error\":" << json_string(state.error)
                     << ",\"sent\":" << state.statistics.bytes_sent
                     << ",\"received\":" << state.statistics.bytes_received
@@ -1829,6 +1836,7 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR command_line, int) {
                         << ",\"hex\":" << json_string(iotps::core::format_hex(record.data))
                         << ",\"size\":" << record.data.size()
                         << ",\"detail\":" << json_string(record.detail);
+                    out << ",\"device\":" << json_string(record.device);
                     if (record.parsed) {
                         const auto& parsed = *record.parsed;
                         out << ",\"parsed\":{\"protocolPath\":" << json_string(parsed.protocol_path)

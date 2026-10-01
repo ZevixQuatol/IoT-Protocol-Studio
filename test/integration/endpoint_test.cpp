@@ -55,6 +55,12 @@ void unicast(const std::string& host) {
     check(second.start_udp({host, 0, host, port}).has_value(), "start second UDP sender");
     opened(sender);
     opened(second);
+    check(receiver.set_device("device-A").has_value(), "configure record device identifier");
+    check(!receiver.set_device(std::string(513, 'x')).has_value(),
+          "reject oversized device identifier");
+    check(!receiver.set_device("bad\nidentifier").has_value(), "reject device identifier controls");
+    check(receiver.snapshot().device == "device-A",
+          "invalid device update preserves configuration");
     check(receiver.bind_protocol(wire(), "protocols/wire.yaml", "packet").has_value(),
           "UDP bind protocol");
     FrameRule frame;
@@ -65,6 +71,11 @@ void unicast(const std::string& host) {
     check(sender.send(target(sender), payload).has_value(), "send second datagram");
     wait_for([&] { return received(receiver).size() == 2; });
     const auto records = received(receiver);
+    check(records[0].device == "device-A" && records[1].device == "device-A",
+          "capture identifier on each record");
+    check(receiver.set_device("device-B").has_value(), "change identifier for future records");
+    check(received(receiver)[0].device == "device-A",
+          "device update never rewrites historical records");
     check(records[0].data == payload && records[1].data == payload,
           "preserve consecutive datagram boundaries");
     check(records[0].address.find(std::to_string(sender.snapshot().port)) != std::string::npos,
@@ -75,6 +86,7 @@ void unicast(const std::string& host) {
           "decode each whole datagram, bypass stream frame size");
     check(second.send(target(second), ByteBuffer{7}).has_value(), "second sender datagram");
     wait_for([&] { return received(receiver).size() == 3; });
+    check(received(receiver).back().device == "device-B", "new record takes new device identifier");
     check(received(receiver).back().address != records[0].address,
           "track multiple sources independently");
     check(received(receiver, "FRAME").back().parsed->status == "error",

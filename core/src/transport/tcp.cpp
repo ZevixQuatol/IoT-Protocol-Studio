@@ -155,7 +155,7 @@ struct TcpSession::Impl {
             for (const auto& field : parsed->fields)
                 record_bytes += field.value.size();
         records.push_back({++next_record, time, std::move(direction), peer.id, peer.address,
-                           std::move(data), std::move(detail), std::move(parsed)});
+                           std::move(data), std::move(detail), std::move(parsed), status.device});
         while (records.size() > 1000 || record_bytes > 4 * 1024 * 1024) {
             record_bytes -= records.front().data.size();
             if (records.front().parsed)
@@ -727,6 +727,15 @@ struct TcpSession::Impl {
 
 TcpSession::TcpSession() : impl_(std::make_unique<Impl>()) {}
 TcpSession::~TcpSession() = default;
+TransportResult TcpSession::set_device(std::string identifier) {
+    if (identifier.size() > 512 ||
+        std::ranges::any_of(identifier, [](unsigned char c) { return c < 32 || c == 127; }))
+        return fail(TransportErrorCode::invalid_configuration,
+                    "Device identifier exceeds 512 bytes or contains control characters");
+    std::lock_guard lock(impl_->mutex);
+    impl_->status.device = std::move(identifier);
+    return std::monostate{};
+}
 std::vector<std::string> serial_devices() {
     std::vector<std::string> result;
 #ifdef _WIN32

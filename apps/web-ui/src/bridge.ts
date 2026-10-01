@@ -41,6 +41,7 @@ export type TcpRecord = {
   hex: string;
   size: number;
   detail: string;
+  device?: string;
   parsed?: {
     protocolPath: string;
     messageName: string;
@@ -54,6 +55,7 @@ export type TcpSnapshot = {
   ok: true;
   kind?: "tcp" | "serial" | "udp";
   multicastJoined?: boolean;
+  device?: string;
   state: "closed" | "opening" | "open" | "faulted";
   server: boolean;
   host: string;

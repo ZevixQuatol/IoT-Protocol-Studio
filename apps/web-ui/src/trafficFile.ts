@@ -40,6 +40,10 @@ export function readTrafficArchive(content: string): TrafficArchive {
       item.address.length > 256 ||
       typeof item.detail !== "string" ||
       item.detail.length > 4096 ||
+      (item.device !== undefined &&
+        (typeof item.device !== "string" ||
+          new TextEncoder().encode(item.device).length > 512 ||
+          /[\u0000-\u001f\u007f]/.test(item.device))) ||
       typeof item.hex !== "string" ||
       !/^(?:[0-9a-fA-F]{2}(?: [0-9a-fA-F]{2})*)?$/.test(item.hex) ||
       !Number.isSafeInteger(item.size) ||
