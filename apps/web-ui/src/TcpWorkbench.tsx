@@ -1,14 +1,27 @@
 import { useEffect, useRef, useState } from "react";
-import { ArrowDown, ArrowUp, Network, PlugZap, Send, Trash2, X } from "lucide-react";
-import DotsHorizontalIcon from "./icons/dots-horizontal-icon";
+import {
+  ArrowDown,
+  ArrowUp,
+  DotsHorizontalIcon,
+  Network,
+  PlugZap,
+  Send,
+  Trash2,
+  X,
+} from "./feather-icons";
 import {
   tcpCommand,
   trafficFile,
+  encodeProtocolMessage,
+  inspectHex,
+  type MessageEncodeRequest,
+  type TcpDraft,
   type TcpRecord,
   type TcpSnapshot,
   type WorkspaceProtocol,
 } from "./bridge";
 import { readTrafficArchive } from "./trafficFile";
+import { activeVariables, resolveValue, sendValues } from "./sendVariables";
 import type { Locale } from "./i18n";
 
 const empty: TcpSnapshot = {
@@ -29,6 +42,7 @@ const empty: TcpSnapshot = {
   peers: [],
   records: [],
 };
+type SendRun = { stopped: boolean; timer?: ReturnType<typeof setTimeout>; wake?: () => void };
 
 export default function TcpWorkbench({
   session,
@@ -44,7 +58,7 @@ export default function TcpWorkbench({
   protocols: WorkspaceProtocol[];
   visible: boolean;
   locale: Locale;
-  draft: { id: number; hex: string } | null;
+  draft: TcpDraft | null;
   onDebug: (record: TcpRecord) => void;
   onDiagnostic: (session: string, message: string, problem: boolean) => void;
   redact: (value: string) => string;
@@ -63,6 +77,19 @@ export default function TcpWorkbench({
   const [peer, setPeer] = useState("");
   const [input, setInput] = useState("");
   const [encoding, setEncoding] = useState("hex");
+  const [messageDraft, setMessageDraft] = useState<MessageEncodeRequest | null>(null);
+  const [checked, setChecked] = useState<{
+    hex: string;
+    effective: string;
+    sequence: number;
+    environmentKey: string;
+  } | null>(null);
+  const [connectionPreview, setConnectionPreview] = useState("");
+  const [intervalMs, setIntervalMs] = useState("1000");
+  const [repeatCount, setRepeatCount] = useState("1");
+  const [batch, setBatch] = useState("");
+  const [runProgress, setRunProgress] = useState("");
+  const [running, setRunning] = useState(false);
   const [frameMode, setFrameMode] = useState("off");
   const [frameSize, setFrameSize] = useState("8");
   const [lengthOffset, setLengthOffset] = useState("0");
@@ -87,6 +114,9 @@ export default function TcpWorkbench({
   const cursor = useRef(0);
   const generation = useRef(0);
   const lastPollError = useRef("");
+  const sequence = useRef(1);
+  const run = useRef<SendRun | null>(null);
+  const sending = useRef(false);
   const connected = status.state === "open";
   const active = connected || status.state === "opening";
   const redactRecord = (item: TcpRecord): TcpRecord => ({
@@ -121,6 +151,8 @@ export default function TcpWorkbench({
     if (draft) {
       setInput(draft.hex);
       setEncoding("hex");
+      setMessageDraft(draft.message ?? null);
+      setChecked(null);
     }
   }, [draft]);
   useEffect(() => {
@@ -146,6 +178,7 @@ export default function TcpWorkbench({
         if (!("state" in result) || generation.current !== version) return;
         cursor.current = result.cursor;
         setStatus(result);
+        if (result.state !== "open") stopRun();
         setPeer((current) =>
           result.peers.some((item) => String(item.id) === current)
             ? current
@@ -198,6 +231,7 @@ export default function TcpWorkbench({
       clearTimeout(timer);
     };
   }, [visible, session]);
+  useEffect(() => () => stopRun(), [session]);
   useEffect(() => {
     if (visible && follow && table.current) table.current.scrollTop = table.current.scrollHeight;
   }, [records, visible, follow]);
@@ -216,6 +250,9 @@ export default function TcpWorkbench({
       }
       if (action === "start") setStatus((current) => ({ ...current, state: "opening", error: "" }));
       if (action === "stop") setStatus((current) => ({ ...current, state: "closed", peers: [] }));
+      if (action === "stop") {
+        stopRun();
+      }
       return true;
     } catch (failure) {
       setError(String(failure));
@@ -225,20 +262,208 @@ export default function TcpWorkbench({
       setBusy(false);
     }
   };
-  const send = async () => {
+  const stopRun = () => {
+    if (!run.current) return;
+    run.current.stopped = true;
+    clearTimeout(run.current.timer);
+    run.current.wake?.();
+    run.current = null;
+    setRunning(false);
+  };
+  const mask = (value: string, secrets: string[]) =>
+    redact(secrets.reduce((text, secret) => text.replaceAll(secret, "••••"), value));
+  const prepare = async (payload: string, format: string, message: MessageEncodeRequest | null) => {
+    const templates = message ? message.fields.map((field) => field.value) : [payload];
+    const environment = templates.some((value) => value.includes("{{"))
+      ? await activeVariables()
+      : { values: {}, secrets: [] };
+    const values = sendValues(environment.values, sequence.current);
+    if (message) {
+      const fields = message.fields.map((field) => ({
+        ...field,
+        value: resolveValue(field.value, values),
+      }));
+      const encoded = await encodeProtocolMessage({ ...message, fields });
+      if (!encoded.ok) throw new Error(encoded.error.message);
+      return {
+        hex: encoded.normalizedHex,
+        effective: fields
+          .map((field) => `${field.name}=${mask(field.value, environment.secrets)}`)
+          .join("; "),
+        sequence: sequence.current,
+        environmentKey: JSON.stringify(environment.values),
+      };
+    }
+    const effective = resolveValue(payload, values);
     const hex =
-      encoding === "hex"
-        ? input
-        : Array.from(new TextEncoder().encode(input), (byte) =>
+      format === "hex"
+        ? effective
+        : Array.from(new TextEncoder().encode(effective), (byte) =>
             byte.toString(16).padStart(2, "0"),
           ).join(" ");
-    if (await act("send", peer, hex))
+    return {
+      hex,
+      effective: mask(effective, environment.secrets),
+      sequence: sequence.current,
+      environmentKey: JSON.stringify(environment.values),
+    };
+  };
+  const checkPayload = async () => {
+    setError("");
+    try {
+      const prepared = await prepare(input, encoding, messageDraft);
+      if (!messageDraft) {
+        const inspection = await inspectHex(prepared.hex);
+        if (!inspection.ok) throw new Error(inspection.error.message);
+      }
+      setChecked(prepared);
+    } catch (failure) {
+      setChecked(null);
+      setError(String(failure));
+    }
+  };
+  const sendOne = async (
+    payload: string,
+    format: string,
+    message: MessageEncodeRequest | null,
+    cached?: typeof checked,
+    control?: SendRun,
+  ) => {
+    const hasReferences = message
+      ? message.fields.some((field) => field.value.includes("{{"))
+      : payload.includes("{{");
+    const environmentMatches =
+      !hasReferences ||
+      !cached ||
+      JSON.stringify((await activeVariables()).values) === cached?.environmentKey;
+    const prepared =
+      cached && cached.sequence === sequence.current && environmentMatches
+        ? cached
+        : await prepare(payload, format, message);
+    if (control?.stopped) return false;
+    const result = await tcpCommand(session, "send", peer, prepared.hex);
+    if (!result.ok) throw new Error(result.error.message);
+    sequence.current++;
+    setChecked(null);
+    return true;
+  };
+  const send = async () => {
+    if (busy || sending.current || run.current) return;
+    sending.current = true;
+    setBusy(true);
+    setError("");
+    try {
+      await sendOne(input, encoding, messageDraft, checked);
       setNotice(
         t(
           "已加入发送队列，实际发送字节见 TX 记录。",
           "Queued. TX records show bytes actually sent.",
         ),
       );
+    } catch (failure) {
+      setError(String(failure));
+      onDiagnostic(session, String(failure), true);
+    } finally {
+      sending.current = false;
+      setBusy(false);
+    }
+  };
+  const resolveConnection = async () => {
+    const environment =
+      host.includes("{{") || port.includes("{{")
+        ? await activeVariables()
+        : { values: {}, secrets: [] };
+    const effectiveHost = resolveValue(host.trim(), environment.values);
+    const effectivePort = resolveValue(port.trim(), environment.values);
+    if (
+      !effectiveHost ||
+      !/^[0-9]+$/.test(effectivePort) ||
+      Number(effectivePort) < 1 ||
+      Number(effectivePort) > 65535
+    )
+      throw new Error(t("连接地址或端口无效。", "Invalid connection address or port."));
+    return {
+      host: effectiveHost,
+      port: effectivePort,
+      display: `${mask(effectiveHost, environment.secrets)}:${mask(effectivePort, environment.secrets)}`,
+    };
+  };
+  const checkConnection = async () => {
+    setError("");
+    try {
+      setConnectionPreview((await resolveConnection()).display);
+    } catch (failure) {
+      setConnectionPreview("");
+      setError(String(failure));
+    }
+  };
+  const startRun = async () => {
+    if (run.current || sending.current) return;
+    const interval = Number(intervalMs);
+    const repeats = Number(repeatCount);
+    const items = batch.trim()
+      ? batch
+          .split(/\r?\n/)
+          .map((line) => line.trim())
+          .filter(Boolean)
+      : [input];
+    if (
+      !Number.isInteger(interval) ||
+      interval < 50 ||
+      interval > 60000 ||
+      !Number.isInteger(repeats) ||
+      repeats < 1 ||
+      repeats * items.length > 1000 ||
+      items.length === 0 ||
+      !items.every(Boolean)
+    ) {
+      setError(
+        t(
+          "间隔需为 50–60000 毫秒，总发送数为 1–1000。",
+          "Interval must be 50–60000 ms; total sends 1–1000.",
+        ),
+      );
+      return;
+    }
+    setError("");
+    setChecked(null);
+    setRunning(true);
+    const control: SendRun = { stopped: false };
+    run.current = control;
+    let sent = 0;
+    try {
+      for (let cycle = 0; cycle < repeats && !control.stopped; cycle++) {
+        for (const item of items) {
+          if (control.stopped) break;
+          const snapshot = await tcpCommand(session, "poll", String(cursor.current));
+          if (!snapshot.ok) throw new Error(snapshot.error.message);
+          if (
+            !("state" in snapshot) ||
+            snapshot.state !== "open" ||
+            !snapshot.peers.some((current) => String(current.id) === peer)
+          )
+            throw new Error(t("连接已关闭，已停止发送。", "Connection closed; send stopped."));
+          if (snapshot.queued > 256 * 1024)
+            throw new Error(t("发送队列过长，已停止发送。", "Send queue too large; send stopped."));
+          if (control.stopped) break;
+          if (
+            !(await sendOne(item, encoding, batch.trim() ? null : messageDraft, undefined, control))
+          )
+            break;
+          setRunProgress(`${++sent}/${repeats * items.length}`);
+          if (sent < repeats * items.length && !control.stopped)
+            await new Promise<void>((resolve) => {
+              control.wake = resolve;
+              control.timer = setTimeout(resolve, interval);
+            });
+        }
+      }
+    } catch (failure) {
+      setError(String(failure));
+      onDiagnostic(session, String(failure), true);
+    } finally {
+      if (run.current === control) stopRun();
+    }
   };
   const configureFrames = async () => {
     const args =
@@ -337,17 +562,24 @@ export default function TcpWorkbench({
       </header>
       <form
         className="tcp-connect"
-        onSubmit={(event) => {
+        onSubmit={async (event) => {
           event.preventDefault();
-          if (!active)
-            void act(
-              "start",
-              mode,
-              host.trim(),
-              port,
-              mode === "client" && autoRetry ? retryLimit : "0",
-              String(Number(retrySeconds) * 1000),
-            );
+          if (!active) {
+            try {
+              const effective = await resolveConnection();
+              setConnectionPreview(effective.display);
+              await act(
+                "start",
+                mode,
+                effective.host,
+                effective.port,
+                mode === "client" && autoRetry ? retryLimit : "0",
+                String(Number(retrySeconds) * 1000),
+              );
+            } catch (failure) {
+              setError(String(failure));
+            }
+          }
         }}
       >
         <label>
@@ -359,6 +591,7 @@ export default function TcpWorkbench({
             onChange={(event) => {
               setMode(event.target.value);
               setHost(event.target.value === "server" ? "0.0.0.0" : "127.0.0.1");
+              setConnectionPreview("");
             }}
           >
             <option value="client">TCP {t("客户端", "client")}</option>
@@ -373,20 +606,24 @@ export default function TcpWorkbench({
             maxLength={64}
             required
             disabled={busy || active}
-            onChange={(event) => setHost(event.target.value)}
+            onChange={(event) => {
+              setHost(event.target.value);
+              setConnectionPreview("");
+            }}
           />
         </label>
         <label>
           {t("端口", "Port")}
           <input
             aria-label={t("端口", "Port")}
-            type="number"
-            min={1}
-            max={65535}
+            inputMode="numeric"
             value={port}
             required
             disabled={busy || active}
-            onChange={(event) => setPort(event.target.value)}
+            onChange={(event) => {
+              setPort(event.target.value);
+              setConnectionPreview("");
+            }}
           />
         </label>
         {mode === "client" && (
@@ -446,6 +683,10 @@ export default function TcpWorkbench({
             {mode === "server" ? t("开始监听", "Listen") : t("连接", "Connect")}
           </button>
         )}
+        <button type="button" disabled={busy || active} onClick={() => void checkConnection()}>
+          {t("检查生效参数", "Check effective address")}
+        </button>
+        {connectionPreview && <small role="status">{connectionPreview}</small>}
       </form>
       {(error || status.error) && (
         <p className="tcp-error" role="alert">
@@ -653,7 +894,11 @@ export default function TcpWorkbench({
           <select
             aria-label={t("数据格式", "Data format")}
             value={encoding}
-            onChange={(event) => setEncoding(event.target.value)}
+            onChange={(event) => {
+              setEncoding(event.target.value);
+              setMessageDraft(null);
+              setChecked(null);
+            }}
           >
             <option value="hex">HEX</option>
             <option value="text">UTF-8</option>
@@ -661,7 +906,10 @@ export default function TcpWorkbench({
           <select
             aria-label={t("发送目标", "Send target")}
             value={peer}
-            onChange={(event) => setPeer(event.target.value)}
+            onChange={(event) => {
+              setPeer(event.target.value);
+              setChecked(null);
+            }}
           >
             <option value="">{t("选择连接", "Select peer")}</option>
             {status.peers.map((item) => (
@@ -674,29 +922,119 @@ export default function TcpWorkbench({
         <textarea
           aria-label={t("发送内容", "Payload")}
           value={input}
-          onChange={(event) => setInput(event.target.value)}
+          onChange={(event) => {
+            setInput(event.target.value);
+            setMessageDraft(null);
+            setChecked(null);
+          }}
           rows={3}
           maxLength={262144}
           placeholder={encoding === "hex" ? "01 03 00 00 00 02" : "UTF-8"}
         />
+        <small>
+          {messageDraft
+            ? `${t("报文源", "Message source")}: ${messageDraft.relativePath} / ${messageDraft.messageName}`
+            : t(
+                "支持 {{变量名}}；内置 random、sequence、timestamp。",
+                "Use {{name}}; built-ins: random, sequence, timestamp.",
+              )}
+        </small>
+        <div className="tcp-send-schedule">
+          <label>
+            {t("间隔 (毫秒)", "Interval (ms)")}
+            <input
+              aria-label={t("发送间隔", "Send interval")}
+              type="number"
+              min="50"
+              max="60000"
+              value={intervalMs}
+              onChange={(event) => setIntervalMs(event.target.value)}
+            />
+          </label>
+          <label>
+            {t("重复次数", "Repeat count")}
+            <input
+              aria-label={t("重复次数", "Repeat count")}
+              type="number"
+              min="1"
+              max="1000"
+              value={repeatCount}
+              onChange={(event) => setRepeatCount(event.target.value)}
+            />
+          </label>
+          <label>
+            {t(
+              "批量内容（每行一条原始报文；空白时使用上方内容或报文源）",
+              "Batch payloads (one raw payload per line; empty uses the payload or message source above)",
+            )}
+            <textarea
+              aria-label={t("批量内容", "Batch payloads")}
+              rows={2}
+              maxLength={262144}
+              value={batch}
+              onChange={(event) => setBatch(event.target.value)}
+              placeholder={encoding === "hex" ? "01 02\n03 04" : "first\nsecond"}
+            />
+          </label>
+        </div>
+        {checked && (
+          <div className="tcp-send-preview" role="status">
+            <span>
+              {t("生效值", "Effective value")}: {checked.effective}
+            </span>
+            <code>HEX: {checked.hex}</code>
+          </div>
+        )}
         <div className="tcp-send-footer">
           <small role="status">
-            {notice ||
-              t(
-                "单次最多 64 KiB；不自动添加换行或校验码。",
-                "Up to 64 KiB; no automatic newline or checksum.",
-              )}
+            {runProgress && running
+              ? `${t("发送进度", "Progress")}: ${runProgress}`
+              : notice ||
+                (messageDraft
+                  ? t(
+                      "每次发送按协议重算长度与校验。",
+                      "Length and checksum are recalculated for every message send.",
+                    )
+                  : t(
+                      "单次最多 64 KiB；不自动添加换行或校验码。",
+                      "Up to 64 KiB; no automatic newline or checksum.",
+                    ))}
           </small>
           <button
             type="button"
+            disabled={busy || running || (encoding === "hex" ? !input.trim() : !input.length)}
+            onClick={() => void checkPayload()}
+          >
+            {t("检查生效值", "Check effective value")}
+          </button>
+          <button
+            data-action="send"
+            type="button"
             disabled={
-              busy || !connected || !peer || (encoding === "hex" ? !input.trim() : !input.length)
+              busy ||
+              running ||
+              !connected ||
+              !peer ||
+              (encoding === "hex" ? !input.trim() : !input.length)
             }
             onClick={() => void send()}
           >
             <Send size={14} />
             {t("发送", "Send")}
           </button>
+          {running ? (
+            <button type="button" onClick={stopRun}>
+              {t("停止发送", "Stop sending")}
+            </button>
+          ) : (
+            <button
+              type="button"
+              disabled={busy || !connected || !peer || (!batch.trim() && !input.trim())}
+              onClick={() => void startRun()}
+            >
+              {t("定时 / 批量发送", "Timed / batch send")}
+            </button>
+          )}
         </div>
       </div>
       <div className="tcp-log-toolbar">

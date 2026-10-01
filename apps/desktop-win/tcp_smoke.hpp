@@ -60,7 +60,7 @@ window.addEventListener('DOMContentLoaded', async () => {
     await command('smoke-client', 'send', String(client.peers[0].id), 'AA BB');
     await wait(() => container.querySelectorAll('.tcp-dir-RX').length >= 2, 'receive continues detached');
     // Exercise React delegated events in the adopted popup DOM, not just bridge calls.
-    container.querySelector('.tcp-send-footer button').click();
+    container.querySelector('.tcp-send-footer [data-action="send"]').click();
     await wait(async () => (await command('smoke-client', 'poll', '0')).received === 2, 'popup send handler');
     container.querySelector('.tcp-popup-toolbar button').click();
     await wait(() => container.ownerDocument === document && popup.closed, 'dock from popup');

@@ -46,6 +46,7 @@ import SchemaEditor, { type SchemaEditTarget } from "./SchemaEditor";
 import MessageTemplates from "./MessageTemplates";
 import Environments from "./Environments";
 import TcpWorkspace from "./TcpWorkspace";
+import { activeVariables, resolveValue, sendValues } from "./sendVariables";
 import {
   closeProject,
   changeProtocols,
@@ -68,6 +69,8 @@ import {
   type InspectionResult,
   type TcpRecord,
   type MessageEncodeResult,
+  type MessageEncodeRequest,
+  type TcpDraft,
   type WorkspaceProject,
   type WorkspaceProtocol,
   type WorkspaceResult,
@@ -1138,14 +1141,9 @@ export default function App() {
     );
   };
 
-  const encodeSelectedMessage = async () => {
-    if (!selectedProtocol || !selectedMessage || isDirty) {
-      return;
-    }
-    setBusy(true);
-    try {
-      setMessageEncodeResult(
-        await encodeProtocolMessage({
+  const selectedMessageRequest = (): MessageEncodeRequest | null =>
+    selectedProtocol && selectedMessage
+      ? {
           relativePath: selectedProtocol.path,
           messageName: selectedMessage.name,
           fields: visibleMessageFields
@@ -1155,6 +1153,25 @@ export default function App() {
               name: field.name,
               value: messageFieldValues[field.name] ?? defaultMessageFieldValue(field),
             })),
+        }
+      : null;
+  const encodeSelectedMessage = async () => {
+    if (!selectedProtocol || !selectedMessage || isDirty) {
+      return;
+    }
+    setBusy(true);
+    try {
+      const request = selectedMessageRequest()!;
+      const variables = request.fields.some((field) => field.value.includes("{{"))
+        ? sendValues((await activeVariables()).values, 1)
+        : {};
+      setMessageEncodeResult(
+        await encodeProtocolMessage({
+          ...request,
+          fields: request.fields.map((field) => ({
+            ...field,
+            value: resolveValue(field.value, variables),
+          })),
         }),
       );
     } catch (error) {
@@ -1306,7 +1323,7 @@ export default function App() {
     }
   };
 
-  const [tcpDraft, setTcpDraft] = useState<{ id: number; hex: string } | null>(null);
+  const [tcpDraft, setTcpDraft] = useState<TcpDraft | null>(null);
   const openHexInDebug = (hex: string, record?: TcpRecord) => {
     if (debugBusy) return;
     if (
@@ -2908,6 +2925,15 @@ export default function App() {
                                   </div>
                                   {messageEncodeResult.ok ? (
                                     <>
+                                      {selectedMessageRequest()?.fields.some((field) =>
+                                        field.value.includes("{{"),
+                                      ) && (
+                                        <small>
+                                          {locale === "zh-CN"
+                                            ? "动态值预览是样例；通信会话发送时按该会话的序列号重新生成并编码。"
+                                            : "Dynamic preview is a sample; the connection regenerates and encodes values using its session sequence."}
+                                        </small>
+                                      )}
                                       <div className="message-studio-actions">
                                         <button
                                           type="button"
@@ -2930,6 +2956,7 @@ export default function App() {
                                             setTcpDraft({
                                               id: Date.now(),
                                               hex: messageEncodeResult.normalizedHex,
+                                              message: selectedMessageRequest() ?? undefined,
                                             });
                                             navigate("tcp");
                                           }}

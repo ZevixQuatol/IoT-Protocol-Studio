@@ -280,6 +280,7 @@ export type MessageEncodeRequest = {
   messageName: string;
   fields: MessageEncodeField[];
 };
+export type TcpDraft = { id: number; hex: string; message?: MessageEncodeRequest };
 
 export type MessageEncodeResult =
   | {

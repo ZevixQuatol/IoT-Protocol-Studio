@@ -3239,6 +3239,35 @@ button {
   max-height: 180px;
   font-family: Consolas, monospace;
 }
+.tcp-send-schedule {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: start;
+}
+.tcp-send-schedule label {
+  display: grid;
+  gap: 5px;
+  color: var(--muted);
+  font-size: 12px;
+}
+.tcp-send-schedule label:last-child {
+  flex: 1;
+  min-width: 220px;
+}
+.tcp-send-schedule input {
+  width: 100px;
+}
+.tcp-send-schedule textarea {
+  min-height: 42px;
+}
+.tcp-send-preview {
+  display: grid;
+  gap: 4px;
+  padding: 8px;
+  border: 1px solid var(--line);
+  overflow-wrap: anywhere;
+}
 .tcp-send-footer small {
   flex: 1;
   color: var(--muted);

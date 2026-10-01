@@ -784,6 +784,10 @@ messages:
     environments.environments[0].variables.push_back({"serverAddress", "string", "duplicate"});
     CHECK(!save_environments(managed, environments).has_value());
     CHECK(read_file(environments_path) == saved_environments);
+    environments.environments[0].variables.back().name = "sequence";
+    CHECK(!save_environments(managed, environments).has_value());
+    CHECK(read_file(environments_path) == saved_environments);
+    environments.environments[0].variables.pop_back();
     write_file(environments_path, R"yaml(version: "1"
 active: "legacy"
 environments:

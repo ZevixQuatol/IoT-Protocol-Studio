@@ -1,13 +1,12 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
-import { ExternalLink, PanelTop, Plus, X } from "lucide-react";
-import DotsHorizontalIcon from "./icons/dots-horizontal-icon";
+import { DotsHorizontalIcon, ExternalLink, PanelTop, Plus, X } from "./feather-icons";
 import TcpWorkbench from "./TcpWorkbench";
-import { tcpCommand, type TcpRecord, type WorkspaceProtocol } from "./bridge";
+import { tcpCommand, type TcpDraft, type TcpRecord, type WorkspaceProtocol } from "./bridge";
 import type { Locale } from "./i18n";
 
 type Session = { id: string; name: string; detached: boolean };
-type Draft = { id: number; hex: string } | null;
+type Draft = TcpDraft | null;
 
 // Keep one portal container per session. Adopting that DOM into a popup preserves React state.
 function SessionWindow({

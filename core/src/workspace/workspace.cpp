@@ -483,6 +483,9 @@ std::optional<WorkspaceDiagnostic> validate_environments(const EnvironmentConfig
                 !variable_names.insert(variable.name).second)
                 return invalid(variable_path + ".name",
                                "variable names must be unique identifiers");
+            if (variable.name == "random" || variable.name == "sequence" ||
+                variable.name == "timestamp")
+                return invalid(variable_path + ".name", "variable name is reserved");
             if (variable.default_value.size() > 65536)
                 return invalid(variable_path + ".default", "variable default is too long");
             if (variable.required &&
