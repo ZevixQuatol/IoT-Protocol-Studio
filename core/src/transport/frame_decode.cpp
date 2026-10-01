@@ -42,6 +42,11 @@ std::optional<TcpParse> parse_frame(const schema::ProtocolSchema* protocol, cons
                 if (definition->checksum)
                     parsed->checksum = "pass";
                 const auto& data = decoded.value();
+                if (data.message.fields.size() > 1000) {
+                    parsed->status = "error";
+                    parsed->error = "Decoded snapshot exceeds 1000 fields; raw frame retained";
+                    return parsed;
+                }
                 for (const auto& field : data.message.fields) {
                     const auto field_definition =
                         std::ranges::find_if(data.concrete_fields, [&](const auto& item) {
@@ -55,7 +60,8 @@ std::optional<TcpParse> parse_frame(const schema::ProtocolSchema* protocol, cons
                         field_definition == data.concrete_fields.end())
                         continue;
                     auto value = format_scalar(field.value);
-                    if (value.size() > 512) {
+                    const bool truncated = value.size() > 512;
+                    if (truncated) {
                         std::size_t end = 512;
                         while (end > 0 && (static_cast<unsigned char>(value[end]) & 0xc0) == 0x80)
                             --end;
@@ -69,6 +75,7 @@ std::optional<TcpParse> parse_frame(const schema::ProtocolSchema* protocol, cons
                         {field.name, field_definition->display_name,
                          std::string{schema::to_string(field_definition->type)}, std::move(value),
                          range->offset, range->length, std::move(enum_name)});
+                    parsed->fields.back().truncated = truncated;
                     if (const auto* raw = std::get_if<std::uint64_t>(&field.value)) {
                         auto& parsed_field = parsed->fields.back();
                         const auto order = field_definition->byte_order.value_or(

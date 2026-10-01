@@ -89,6 +89,8 @@ std::string address_of(const sockaddr_storage& address) {
 }
 bool parse_address(const std::string& host, std::uint16_t port, sockaddr_storage& address,
                    SockLength& size) {
+    if (host.find('\0') != std::string::npos)
+        return false;
     auto& ipv4 = reinterpret_cast<sockaddr_in&>(address);
     if (inet_pton(AF_INET, host.c_str(), &ipv4.sin_addr) == 1) {
         ipv4.sin_family = AF_INET;
@@ -173,6 +175,14 @@ struct TcpSession::Impl {
         status.error = std::move(detail);
         ++status.statistics.errors;
         record("SYS", {0, status.host + ":" + std::to_string(status.port)}, {}, status.error);
+    }
+    void discard_frames(std::string_view reason) {
+        for (auto& peer : peers) {
+            if (const auto partial = peer.framer.discard(reason))
+                record("SYS", peer.info, {}, partial->error);
+            if (const auto partial = peer.tx_framer.discard(reason))
+                record("SYS", peer.info, {}, "TX: " + partial->error);
+        }
     }
     void remove_peer(std::size_t i, std::string detail) {
         auto& peer = peers[i];
@@ -768,6 +778,7 @@ TransportResult TcpSession::start_udp(UdpOptions options) {
     in_addr interface_address{};
     if (!impl_->runtime_ready || options.host.size() > 64 || options.remote_host.size() > 64 ||
         options.interface_address.size() > 64 || options.remote_port == 0 ||
+        options.interface_address.find('\0') != std::string::npos ||
         !parse_address(options.host, options.port, local, local_size) ||
         !parse_address(options.remote_host, options.remote_port, remote, remote_size) ||
         local.ss_family != remote.ss_family ||
@@ -931,26 +942,26 @@ TransportResult TcpSession::set_framing(FrameRule rule) {
     if (const auto error = frame_rule_error(rule); !error.empty())
         return fail(TransportErrorCode::invalid_configuration, error);
     std::lock_guard lock(impl_->mutex);
+    impl_->discard_frames("framing rule changed");
     impl_->framing = std::move(rule);
     for (auto& peer : impl_->peers) {
-        if (const auto partial = peer.framer.discard("framing rule changed"))
-            impl_->record("SYS", peer.info, {}, partial->error);
         peer.framer.configure(impl_->framing);
-        if (const auto partial = peer.tx_framer.discard("framing rule changed"))
-            impl_->record("SYS", peer.info, {}, "TX: " + partial->error);
         peer.tx_framer.configure(impl_->framing);
     }
     return std::monostate{};
 }
 TransportResult TcpSession::bind_protocol(schema::ProtocolSchema protocol, std::string path,
                                           std::string message) {
-    if (path.empty() || !schema::validate(protocol).ok())
+    if (path.empty() || path.size() > 1024 ||
+        std::ranges::any_of(path, [](unsigned char c) { return c < 32 || c == 127; }) ||
+        !schema::validate(protocol).ok())
         return fail(TransportErrorCode::invalid_configuration, "Invalid protocol binding");
     if (!message.empty() && std::ranges::none_of(protocol.messages, [&](const auto& item) {
             return item.name == message;
         }))
         return fail(TransportErrorCode::invalid_configuration, "Message is not in the protocol");
     std::lock_guard lock(impl_->mutex);
+    impl_->discard_frames("protocol binding changed");
     impl_->bound_protocol = std::move(protocol);
     impl_->status.protocol_path = std::move(path);
     impl_->status.message_name = std::move(message);
@@ -962,6 +973,7 @@ TransportResult TcpSession::bind_protocol(schema::ProtocolSchema protocol, std::
 }
 void TcpSession::clear_binding() {
     std::lock_guard lock(impl_->mutex);
+    impl_->discard_frames("protocol binding cleared");
     impl_->bound_protocol.reset();
     impl_->status.protocol_path.clear();
     impl_->status.message_name.clear();

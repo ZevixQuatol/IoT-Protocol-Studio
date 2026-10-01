@@ -982,6 +982,8 @@ void write_traffic_records(std::ostream& out,
                     << ",\"type\":" << json_string(field.type)
                     << ",\"value\":" << json_string(field.value) << ",\"offset\":" << field.offset
                     << ",\"length\":" << field.length;
+                if (field.truncated)
+                    out << ",\"truncated\":true";
                 if (field.enum_name)
                     out << ",\"enumName\":" << json_string(*field.enum_name);
                 if (!field.bits.empty()) {

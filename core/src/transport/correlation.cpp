@@ -46,7 +46,7 @@ std::vector<Correlation> correlate(std::span<const TcpRecord> records, const Cor
             return item.name == (request ? rule.request_field : rule.response_field);
         });
         if (parsed.status != "ok" || field == parsed.fields.end() || field->type.empty() ||
-            field->value.empty() || field->value.size() > 512) {
+            field->value.empty() || field->value.size() > 512 || field->truncated) {
             rows.push_back({request ? record.id : 0, response ? record.id : 0, "skipped",
                             "Frame is invalid or correlation field is missing/truncated"});
             continue;

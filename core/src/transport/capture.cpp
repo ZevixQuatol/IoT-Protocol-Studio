@@ -55,6 +55,13 @@ struct Connection {
     bool reset{false};
     std::array<Stream, 2> streams;
 };
+std::size_t retained_size(const TcpRecord& record) {
+    auto size = record.data.size();
+    if (record.parsed)
+        for (const auto& field : record.parsed->fields)
+            size += field.value.size();
+    return size;
+}
 } // namespace
 
 CaptureResult import_pcap(Bytes file, const std::string& local, FrameRule framing,
@@ -104,12 +111,14 @@ CaptureResult import_pcap(Bytes file, const std::string& local, FrameRule framin
         record.flow = std::move(flow);
         if (record.direction == "FRAME")
             record.parsed = parse_frame(protocol, path, message, record.data);
-        retained_bytes += record.data.size();
-        result.records.push_back(std::move(record));
-        // ponytail: bounded 1000-record ring uses vector erase; replace if import profiling
-        // warrants it.
+        retained_bytes += retained_size(record);
+        // Reconstructed frames arrive after raw packets; evict by capture time, not add order.
+        // ponytail: bounded 1000-record window uses vector insertion; profile before indexing.
+        const auto position =
+            std::ranges::upper_bound(result.records, record.id, {}, &TcpRecord::id);
+        result.records.insert(position, std::move(record));
         while (result.records.size() > 1000 || retained_bytes > 4 * 1024 * 1024) {
-            retained_bytes -= result.records.front().data.size();
+            retained_bytes -= retained_size(result.records.front());
             result.records.erase(result.records.begin());
             ++result.dropped;
         }
@@ -396,7 +405,6 @@ CaptureResult import_pcap(Bytes file, const std::string& local, FrameRule framin
             "checksums not verified; no "
             "packets sent",
         {}, last_precise + 1);
-    std::ranges::stable_sort(result.records, {}, &TcpRecord::id);
     for (std::size_t i = 0; i < result.records.size(); ++i)
         result.records[i].id = i + 1;
     return result;

@@ -236,6 +236,44 @@ int main() {
               "retained record ring bounded");
         for (std::size_t i = 0; i < bounded.records.size(); i++)
             check(bounded.records[i].id == i + 1, "stable increasing IDs");
+        file = header();
+        append(file, packet(true, {}, 9, 2));
+        for (int i = 0; i < 600; i++)
+            append(file, packet(true, {1, 2, 3, 4}, 10 + 4 * i), 1000 * i);
+        append(file, packet(true, {}, 2410, 17), 600000);
+        bounded = import_pcap(file, "10.0.0.1", fixed);
+        check(bounded.records.size() == 1000 && bounded.dropped == 201,
+              "TCP raw and reassembled frames share bounded retention");
+        check(bounded.records.front().time_ms == 100100,
+              "retention evicts oldest capture time rather than reconstruction order");
+        check(std::ranges::any_of(
+                  bounded.records,
+                  [](const auto& row) { return row.direction == "TX" && row.time_ms == 100599; }),
+              "newest raw TCP payload remains available for replay");
+        file = header();
+        for (int i = 599; i >= 0; --i)
+            append(file, packet(false, {1}), 1000 * i);
+        bounded = import_pcap(file, "10.0.0.1", {});
+        check(bounded.records.front().time_ms == 100100,
+              "nonmonotonic packet timestamps retain newest chronological window");
+        file = header();
+        schema::ProtocolSchema large_protocol{
+            .protocol = {.name = "large", .version = "1"},
+            .messages = {
+                {.name = "packet",
+                 .fields = {{.name = "data", .type = schema::FieldType::bytes, .length = 8000}}}}};
+        for (int i = 0; i < 300; ++i)
+            append(file, packet(false, ByteBuffer(8000, 0xaa)), 1000 * i);
+        bounded = import_pcap(file, "10.0.0.1", {}, &large_protocol, "large.yaml", "packet");
+        std::size_t retained = 0;
+        for (const auto& record : bounded.records) {
+            retained += record.data.size();
+            if (record.parsed)
+                for (const auto& field : record.parsed->fields)
+                    retained += field.value.size();
+        }
+        check(retained <= 4 * 1024 * 1024 && bounded.dropped > 0,
+              "offline retention accounts for parsed previews like live transport");
         std::cout << "capture checks passed\n";
     } catch (const std::exception& error) {
         std::cerr << error.what() << '\n';

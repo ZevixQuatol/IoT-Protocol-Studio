@@ -140,7 +140,11 @@ export async function correlateTraffic(
         record.parsed?.messageName ?? "",
         record.parsed?.status ?? "",
         String(fields.length),
-        ...fields.flatMap((field) => [field.name, field.type, field.redacted ? "" : field.value]),
+        ...fields.flatMap((field) => [
+          field.name,
+          field.type,
+          field.redacted || field.truncated ? "" : field.value,
+        ]),
       ];
     }),
   );
@@ -456,6 +460,7 @@ type DebugFailure = {
 };
 export type DebugField = {
   redacted?: boolean;
+  truncated?: boolean;
   name: string;
   displayName: string;
   type: string;

@@ -49,6 +49,7 @@ struct TcpParsedField {
     std::size_t length;
     std::optional<std::string> enum_name;
     std::vector<TcpParsedBit> bits;
+    bool truncated{false};
 };
 struct TcpParse {
     std::string protocol_path;

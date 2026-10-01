@@ -1,3 +1,4 @@
+#include "iotps/core/transport/capture.hpp"
 #include "iotps/core/transport/correlation.hpp"
 
 #include <iostream>
@@ -90,6 +91,48 @@ int main() {
         check(correlate(records, rule, 1001)[1].state == "skipped", "missing keys skipped");
         records[1] = frame(2, 1001, "RX", std::string(513, 'a'));
         check(correlate(records, rule, 1001)[1].state == "skipped", "truncated key skipped");
+        // A four-byte UTF-8 scalar crossing byte 512 produces a 512-byte truncated preview.
+        iotps::core::schema::ProtocolSchema unicode{
+            .protocol = {.name = "unicode", .version = "1"},
+            .messages = {{.name = "reply",
+                          .fields = {{.name = "ack",
+                                      .type = iotps::core::schema::FieldType::string,
+                                      .length = 513}}}}};
+        iotps::core::ByteBuffer text(509, 'a');
+        text.insert(text.end(), {0xf0, 0x9f, 0x98, 0x80});
+        auto snapshot = parse_frame(&unicode, "wire.yaml", "reply", text);
+        check(snapshot && snapshot->status == "ok" && snapshot->fields[0].value.size() == 512 &&
+                  snapshot->fields[0].truncated,
+              "UTF-8-safe preview explicitly records truncation");
+        records = {frame(1, 1000, "TX", snapshot->fields[0].value),
+                   frame(2, 1001, "RX", snapshot->fields[0].value)};
+        records[0].parsed->fields[0].type = "string";
+        records[1].parsed = snapshot;
+        check(correlate(records, rule, 1001)[1].state == "skipped",
+              "shortened Unicode preview cannot correlate distinct original values");
+        auto empty_array = unicode;
+        empty_array.messages[0].fields = {
+            {.name = "count", .type = iotps::core::schema::FieldType::uint8},
+            {.name = "items",
+             .type = iotps::core::schema::FieldType::array,
+             .element_type = iotps::core::schema::FieldType::uint8,
+             .count_from = "count",
+             .max_count = 1024}};
+        snapshot = parse_frame(&empty_array, "wire.yaml", "reply", iotps::core::ByteBuffer{0});
+        check(snapshot && snapshot->status == "ok" && snapshot->fields[1].length == 0 &&
+                  snapshot->fields[1].value == "[]",
+              "zero-count dynamic array retains its empty value and zero-width range");
+        auto many_fields = unicode;
+        many_fields.messages[0].fields.clear();
+        for (int i = 0; i < 1001; ++i)
+            many_fields.messages[0].fields.push_back(
+                {.name = "value" + std::to_string(i),
+                 .type = iotps::core::schema::FieldType::uint8});
+        snapshot = parse_frame(&many_fields, "wire.yaml", "reply", iotps::core::ByteBuffer(1001));
+        check(snapshot && snapshot->status == "error" && snapshot->fields.empty() &&
+                  snapshot->error.find("1000 fields") != std::string::npos,
+              "oversized record snapshot reports its limit instead of creating an invalid archive");
+        records[1] = frame(2, 1001, "RX", "7");
         records[1] = frame(2, 1001, "RX", "7");
         records[1].parsed->protocol_path = "other.yaml";
         check(correlate(records, rule, 1001).size() == 1, "protocol isolation");

@@ -40,6 +40,8 @@ int main() {
         TcpSession server, first, second, collision;
         const ByteBuffer payload{0, 255, 1, 128, 13, 10};
         check(!first.start(false, "invalid", 9000).has_value(), "reject invalid IP");
+        check(!first.start(false, std::string{"127.0.0.1\0invalid", 17}, 9000).has_value(),
+              "reject embedded NUL instead of connecting to the prefix");
         check(!first.start(false, "127.0.0.1", 0).has_value(), "reject port zero");
         check(!first.send(1, payload).has_value(), "reject disconnected send");
         std::uint16_t port = 0;
@@ -173,9 +175,41 @@ int main() {
         check(server.bind_protocol(protocol, "protocols/wire.yaml", "data").has_value(),
               "bind fixed message");
         check(server.snapshot().message_name == "data", "binding visible in snapshot");
+        check(!server.bind_protocol(protocol, std::string(1025, 'x'), "data").has_value(),
+              "binding path fits persisted traffic contract");
+        check(server.snapshot().protocol_path == "protocols/wire.yaml",
+              "invalid binding preserves previous protocol");
+        // A protocol switch must not decode bytes received under the previous binding.
+        const auto received_before_switch = server.snapshot().statistics.bytes_received;
+        const auto frames_before_switch =
+            std::ranges::count_if(server.snapshot(0, 1000).records,
+                                  [](const auto& row) { return row.direction == "FRAME"; });
+        check(first.send(first_id, {payload.data(), 3}).has_value(), "buffer old protocol prefix");
+        wait_for([&] {
+            return server.snapshot().statistics.bytes_received == received_before_switch + 3;
+        });
+        check(server.bind_protocol(protocol, "protocols/new.yaml", "data").has_value(),
+              "switch protocol with partial RX frame");
+        check(first.bind_protocol(protocol, "protocols/new.yaml", "data").has_value(),
+              "switch protocol with partial TX frame");
+        check(first.send(first_id, {payload.data() + 3, 3}).has_value(),
+              "send new protocol suffix");
+        wait_for([&] {
+            return server.snapshot().statistics.bytes_received == received_before_switch + 6;
+        });
+        check(std::ranges::count_if(server.snapshot(0, 1000).records,
+                                    [](const auto& row) { return row.direction == "FRAME"; }) ==
+                  frames_before_switch,
+              "protocol switch discards old partial bytes without inventing a frame");
+        server.clear_binding();
+        check(server.bind_protocol(protocol, "protocols/wire.yaml", "data").has_value(),
+              "restore protocol after clearing partial frame");
+        first.clear_binding();
+        check(first.bind_protocol(protocol, "protocols/wire.yaml", "data").has_value(),
+              "restore client binding");
         server.clear_binding();
         check(server.snapshot().protocol_path.empty(), "clear binding");
-        check(traffic(first, "TX").size() == payload.size() * 6, "actual TX bytes");
+        check(traffic(first, "TX").size() == payload.size() * 7, "actual TX bytes");
         check(server.set_framing({}).has_value(), "disable framing");
         check(server.send(server_first, payload).has_value(), "selected server reply");
         wait_for([&] { return first.snapshot().statistics.bytes_received == payload.size(); });
@@ -204,7 +238,7 @@ int main() {
         const auto prior_cursor = first.snapshot().cursor;
         first.clear_records();
         check(first.snapshot().records.empty(), "clear records");
-        check(first.snapshot().statistics.bytes_sent == payload.size() * 6,
+        check(first.snapshot().statistics.bytes_sent == payload.size() * 7,
               "clear retains counters");
         // Exercise segmentation and paged snapshots without assuming one recv per send.
         ByteBuffer large(65536);
@@ -247,7 +281,7 @@ int main() {
         }
         check(server.set_framing(framing).has_value(), "restore framing for truncation");
         check(first.send(first_id, {payload.data(), 2}).has_value(), "send incomplete frame");
-        wait_for([&] { return server.snapshot().statistics.bytes_received == 38; });
+        wait_for([&] { return server.snapshot().statistics.bytes_received == 44; });
         const auto frame_count =
             std::ranges::count_if(server.snapshot(0, 1000, 4 * 1024 * 1024).records,
                                   [](const auto& item) { return item.direction == "FRAME"; });

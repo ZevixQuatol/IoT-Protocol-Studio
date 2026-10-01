@@ -111,6 +111,7 @@ export function readTrafficArchive(content: string): TrafficArchive {
             field.type.length > 64 ||
             typeof field.value !== "string" ||
             (field.redacted !== undefined && typeof field.redacted !== "boolean") ||
+            (field.truncated !== undefined && typeof field.truncated !== "boolean") ||
             field.value.length > 515 ||
             (field.enumName !== undefined &&
               (typeof field.enumName !== "string" || field.enumName.length > 200)) ||
@@ -140,7 +141,7 @@ export function readTrafficArchive(content: string): TrafficArchive {
             !Number.isSafeInteger(field.offset) ||
             !Number.isSafeInteger(field.length) ||
             field.offset < 0 ||
-            field.length < 1 ||
+            field.length < 0 ||
             field.offset + field.length > item.size,
         )
       )

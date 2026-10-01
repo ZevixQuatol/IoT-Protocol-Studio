@@ -20,6 +20,15 @@
         "IOTPS_BUILD_DESKTOP_WIN": "ON",
         "IOTPS_BUILD_WEB_UI": "ON"
       }
+    },
+    {
+      "name": "core-windows-x86_64",
+      "displayName": "Windows x86_64 Core and CLI",
+      "inherits": "windows-x86_64",
+      "cacheVariables": {
+        "IOTPS_BUILD_DESKTOP_WIN": "OFF",
+        "IOTPS_BUILD_WEB_UI": "OFF"
+      }
     }
   ],
   "buildPresets": [
@@ -31,6 +40,16 @@
     {
       "name": "windows-x86_64-release",
       "configurePreset": "windows-x86_64",
+      "configuration": "Release"
+    },
+    {
+      "name": "core-windows-x86_64-debug",
+      "configurePreset": "core-windows-x86_64",
+      "configuration": "Debug"
+    },
+    {
+      "name": "core-windows-x86_64-release",
+      "configurePreset": "core-windows-x86_64",
       "configuration": "Release"
     }
   ],
@@ -50,7 +69,18 @@
       "output": {
         "outputOnFailure": true
       }
+    },
+    {
+      "name": "core-windows-x86_64-debug",
+      "configurePreset": "core-windows-x86_64",
+      "configuration": "Debug",
+      "output": { "outputOnFailure": true }
+    },
+    {
+      "name": "core-windows-x86_64-release",
+      "configurePreset": "core-windows-x86_64",
+      "configuration": "Release",
+      "output": { "outputOnFailure": true }
     }
   ]
 }
-

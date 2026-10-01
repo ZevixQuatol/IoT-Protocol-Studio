@@ -201,6 +201,17 @@ int main(int argc, char** argv) {
         invalid.stop();
         check(!invalid.start_udp({"127.0.0.1", 0, "::1", 9000}).has_value(),
               "reject mixed families");
+        check(!invalid.start_udp({std::string{"127.0.0.1\0invalid", 17}, 0, "127.0.0.1", 9000})
+                   .has_value(),
+              "reject embedded NUL in local endpoint");
+        check(!invalid.start_udp({"127.0.0.1", 0, std::string{"127.0.0.1\0invalid", 17}, 9000})
+                   .has_value(),
+              "reject embedded NUL in remote endpoint");
+        check(!invalid
+                   .start_udp({"127.0.0.1", 0, "127.0.0.1", 9000, "unicast",
+                               std::string{"0.0.0.0\0invalid", 15}})
+                   .has_value(),
+              "reject embedded NUL in selected interface");
         check(!invalid.start_udp({"0.0.0.0", 0, "239.1.1.1", 9000}).has_value(),
               "require multicast mode");
         check(!invalid.start_udp({"0.0.0.0", 0, "127.0.0.1", 9000, "multicast"}).has_value(),
