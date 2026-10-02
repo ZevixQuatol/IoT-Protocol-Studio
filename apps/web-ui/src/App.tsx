@@ -25,7 +25,7 @@ import {
   Square,
   Sun,
   X,
-} from "lucide-react";
+} from "./feather-icons";
 import {
   useEffect,
   useLayoutEffect,
@@ -34,10 +34,12 @@ import {
   type FormEvent,
   type PointerEvent,
 } from "react";
-import DotsHorizontalIcon from "./icons/dots-horizontal-icon";
-import KeyframesIcon from "./icons/keyframes-icon";
-import SparklesIcon from "./icons/sparkles-icon";
-import UnorderedListIcon from "./icons/unordered-list-icon";
+import {
+  DotsHorizontalIcon,
+  KeyframesIcon,
+  SparklesIcon,
+  UnorderedListIcon,
+} from "./feather-icons";
 import DebugTools, { type DebugAnnotation, type DebugRange } from "./DebugTools";
 import SchemaEditor, { type SchemaEditTarget } from "./SchemaEditor";
 import MessageTemplates, { MessageOutput } from "./MessageTemplates";
