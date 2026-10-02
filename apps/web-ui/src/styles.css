@@ -189,7 +189,8 @@ button {
 }
 
 .navigation-rail .nav-button.active {
-  box-shadow: inset -2px 0 var(--accent);
+  border-radius: 10px;
+  box-shadow: none;
 }
 
 .schema-sidebar {

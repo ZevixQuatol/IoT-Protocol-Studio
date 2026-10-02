@@ -81,14 +81,15 @@
   border-right: 1px solid var(--line);
 }
 .startup-home .navigation-rail .nav-button {
-  width: 82px;
+  width: 60px;
   height: 60px;
   color: var(--start-icon);
 }
 .startup-home .navigation-rail .nav-button.active {
-  background: transparent;
-  box-shadow: inset 3px 0 var(--accent);
-  color: var(--accent);
+  border-radius: 12px;
+  background: var(--start-control);
+  box-shadow: none;
+  color: var(--text);
 }
 .startup-home .nav-button:hover:not(:disabled),
 .startup-home .window-control:hover:not(.close) {
@@ -360,9 +361,6 @@
   }
   .startup-home .navigation-rail {
     flex-basis: 70px;
-  }
-  .startup-home .navigation-rail .nav-button {
-    width: 62px;
   }
   .start-page {
     padding: 54px 28px 32px;
