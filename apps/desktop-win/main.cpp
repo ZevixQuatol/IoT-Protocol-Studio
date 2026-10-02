@@ -1021,7 +1021,7 @@ debug_file(HWND owner, const std::string& request, int kind = 0,
             return encode_error_response("invalid_request", "File request exceeds size limit");
         const auto args = string_arguments(request);
         if (!args || args->size() != 2 || ((*args)[0] != "open" && (*args)[0] != "save") ||
-            (((kind == 2 || kind == 4) && (*args)[0] != "save") ||
+            (((kind == 2 || kind == 4 || kind == 5) && (*args)[0] != "save") ||
              (kind == 3 && (*args)[0] != "open")) ||
             (*args)[1].size() > limit)
             return encode_error_response("invalid_request",
@@ -1031,29 +1031,34 @@ debug_file(HWND owner, const std::string& request, int kind = 0,
         if (FAILED(CoCreateInstance(save ? CLSID_FileSaveDialog : CLSID_FileOpenDialog, nullptr,
                                     CLSCTX_INPROC_SERVER, IID_PPV_ARGS(&dialog))))
             throw std::runtime_error("Cannot create file dialog");
-        const COMDLG_FILTERSPEC filters[]{{kind == 4   ? L"Protocol YAML (*.yaml;*.yml)"
+        const COMDLG_FILTERSPEC filters[]{{kind == 5   ? L"HEX text (*.hex)"
+                                           : kind == 4 ? L"Protocol YAML (*.yaml;*.yml)"
                                            : kind == 3 ? L"Classic PCAP (*.pcap)"
                                            : kind == 1 ? L"IoT traffic records (*.iottraffic.json)"
                                            : kind == 2 ? L"IoT diagnostic log (*.iotlog.json)"
                                                        : L"IoT Debug annotations (*.iotdebug.json)",
-                                           kind == 4   ? L"*.yaml;*.yml"
+                                           kind == 5   ? L"*.hex"
+                                           : kind == 4 ? L"*.yaml;*.yml"
                                            : kind == 3 ? L"*.pcap"
                                            : kind == 1 ? L"*.iottraffic.json"
                                            : kind == 2 ? L"*.iotlog.json"
                                                        : L"*.iotdebug.json"},
                                           {L"JSON (*.json)", L"*.json"}};
-        dialog->SetFileTypes(kind == 3 || kind == 4 ? 1 : 2, filters);
-        dialog->SetDefaultExtension(kind == 4   ? L"yaml"
+        dialog->SetFileTypes(kind == 3 || kind == 4 || kind == 5 ? 1 : 2, filters);
+        dialog->SetDefaultExtension(kind == 5   ? L"hex"
+                                    : kind == 4 ? L"yaml"
                                     : kind == 3 ? L"pcap"
                                     : kind == 1 ? L"iottraffic.json"
                                     : kind == 2 ? L"iotlog.json"
                                                 : L"iotdebug.json");
-        dialog->SetFileName(kind == 4   ? L"protocol.yaml"
+        dialog->SetFileName(kind == 5   ? L"message.hex"
+                            : kind == 4 ? L"protocol.yaml"
                             : kind == 1 ? L"traffic.iottraffic.json"
                             : kind == 2 ? L"diagnostics.iotlog.json"
                                         : L"annotations.iotdebug.json");
         dialog->SetTitle(
-            kind == 4   ? L"Export protocol YAML"
+            kind == 5   ? L"Export message HEX"
+            : kind == 4 ? L"Export protocol YAML"
             : kind == 3 ? L"Import PCAP offline"
             : kind == 1 ? (save ? L"Export traffic records" : L"Import traffic records")
             : kind == 2 ? L"Export diagnostic log"
@@ -1225,7 +1230,8 @@ window.addEventListener("DOMContentLoaded", () => {
           const invalidValidationRequest = await window.iotpsValidateProtocol("smoke.yaml");
           const oversizedDraft = await window.iotpsValidateProtocol("smoke.yaml", 'x'.repeat(1024 * 1024 + 1));
           const invalidExport = await window.iotpsProtocolFile("open", "");
-          if (invalidExport?.error?.code !== "invalid_request") {
+          const invalidHexExport = await window.iotpsHexFile("open", "");
+          if (invalidExport?.error?.code !== "invalid_request" || invalidHexExport?.error?.code !== "invalid_request") {
             report("protocol-export-validation-failed"); return;
           }
           if (!validDraft?.ok || invalidDraft?.ok !== false || invalidDraft.error?.code !== "yaml_unknown_field_type" || invalidDraft.error?.line !== 9 || invalidValidationRequest?.ok !== false || oversizedDraft?.ok !== false) {
@@ -2093,6 +2099,9 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR command_line, int) {
         });
         window.bind("iotpsProtocolFile", [window_handle](const std::string& request) {
             return debug_file(window_handle, request, 4);
+        });
+        window.bind("iotpsHexFile", [window_handle](const std::string& request) {
+            return debug_file(window_handle, request, 5);
         });
         window.bind("iotpsWorkspaceCurrent", [&current_project](const std::string&) {
             return current_workspace(current_project);

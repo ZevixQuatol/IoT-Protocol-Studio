@@ -416,6 +416,7 @@ declare global {
     iotpsPcapFile?: (session: string, localIpv4: string) => Promise<DebugFileResult>;
     iotpsLogFile?: (action: string, content: string) => Promise<DebugFileResult>;
     iotpsProtocolFile?: (action: string, content: string) => Promise<DebugFileResult>;
+    iotpsHexFile?: (action: string, content: string) => Promise<DebugFileResult>;
     iotpsCoreInfo?: () => Promise<CoreInfo>;
     iotpsInspectHex?: (input: string) => Promise<InspectionResult>;
     iotpsWindowAction?: (action: WindowAction) => Promise<{ ok: boolean }>;
@@ -742,6 +743,10 @@ export async function validateProtocol(
 
 export async function exportProtocolFile(content: string): Promise<DebugFileResult> {
   return window.iotpsProtocolFile ? window.iotpsProtocolFile("save", content) : debugNativeRequired;
+}
+
+export async function exportMessageHex(content: string): Promise<DebugFileResult> {
+  return window.iotpsHexFile ? window.iotpsHexFile("save", content) : debugNativeRequired;
 }
 
 export async function updateFieldDisplayName(

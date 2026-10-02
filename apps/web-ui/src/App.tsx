@@ -40,7 +40,7 @@ import SparklesIcon from "./icons/sparkles-icon";
 import UnorderedListIcon from "./icons/unordered-list-icon";
 import DebugTools, { type DebugAnnotation, type DebugRange } from "./DebugTools";
 import SchemaEditor, { type SchemaEditTarget } from "./SchemaEditor";
-import MessageTemplates from "./MessageTemplates";
+import MessageTemplates, { MessageOutput } from "./MessageTemplates";
 import Environments from "./Environments";
 import TcpWorkspace from "./TcpWorkspace";
 import StartPage from "./StartPage";
@@ -72,6 +72,7 @@ import {
   performWindowAction,
   saveProtocol,
   validateProtocol,
+  exportMessageHex,
   logFile,
   updateFieldDisplayName,
   type CoreInfo,
@@ -559,7 +560,8 @@ export default function App() {
   const isStartPage = page === "schema" && !project;
   const isProjectOverview = page === "schema" && !!project && !selectedProtocolPath;
   const isProtocolCode = page === "schema" && !!selectedProtocolPath && designerView === "code";
-  const hasProjectExplorer = isProjectOverview || isProtocolCode;
+  const isMessageStudio = page === "schema" && !!selectedProtocolPath && designerView === "message";
+  const hasProjectExplorer = isProjectOverview || isProtocolCode || isMessageStudio;
   const currentProtocolCheck =
     protocolCheck &&
     protocolCheck.path === selectedProtocolPath &&
@@ -1411,6 +1413,18 @@ export default function App() {
     }
   };
 
+  const exportSelectedMessage = async () => {
+    if (!messageEncodeResult?.ok || isDirty || busy) return;
+    try {
+      const result = await exportMessageHex(messageEncodeResult.normalizedHex);
+      if (!result.ok) setMessageActionStatus(result.error.message);
+      else if (!result.cancelled)
+        setMessageActionStatus(locale === "zh-CN" ? "HEX 已导出" : "HEX exported");
+    } catch (error) {
+      setMessageActionStatus(String(error));
+    }
+  };
+
   const [tcpDraft, setTcpDraft] = useState<TcpDraft | null>(null);
   const openHexInDebug = (hex: string, record?: TcpRecord) => {
     if (debugBusy) return;
@@ -1501,7 +1515,7 @@ export default function App() {
 
   return (
     <div
-      className={`app-shell ${isStartPage || hasProjectExplorer ? "startup-home" : ""} ${hasProjectExplorer ? "project-home" : ""} ${isProtocolCode ? `protocol-home ${protocolProblemsOpen ? "protocol-errors-open" : ""}` : ""}`}
+      className={`app-shell ${isStartPage || hasProjectExplorer ? "startup-home" : ""} ${hasProjectExplorer ? "project-home" : ""} ${isProtocolCode ? `protocol-home ${protocolProblemsOpen ? "protocol-errors-open" : ""}` : ""} ${isMessageStudio ? "message-home" : ""}`}
     >
       <header className="titlebar" onPointerDown={startWindowDrag}>
         <div className="titlebar-brand">
@@ -2898,47 +2912,45 @@ export default function App() {
                         </div>
                       ) : (
                         <div className="message-studio" role="tabpanel">
-                          {isDirty && (
-                            <div className="message-studio-notice">
-                              <CircleAlert size={14} />
-                              {translation.messageStudio.unsavedHint}
-                            </div>
-                          )}
-                          <div className="message-studio-header">
-                            <div>
-                              <span className="content-eyebrow">
-                                {translation.messageStudio.title}
-                              </span>
-                              <h2>
-                                {selectedMessage?.displayName || selectedMessage?.name || "—"}
-                              </h2>
-                            </div>
-                            <label className="message-selector">
-                              <span>{translation.messageStudio.selectMessage}</span>
-                              <select
-                                disabled={busy || selectedProtocol.schema.messages.length === 0}
-                                onChange={(event) => selectMessage(event.target.value)}
-                                value={messageName}
-                              >
-                                {selectedProtocol.schema.messages.map((message) => (
-                                  <option key={message.name} value={message.name}>
-                                    {message.displayName || message.name}
-                                    {message.displayName ? ` (${message.name})` : ""}
-                                  </option>
-                                ))}
-                              </select>
-                            </label>
-                          </div>
                           {!selectedMessage ? (
                             <div className="message-preview-empty">
                               <ListTree size={24} />
                               <strong>{translation.messageStudio.noMessage}</strong>
+                              <button onClick={() => setDesignerView("code")}>
+                                {translation.editor.code}
+                              </button>
                             </div>
                           ) : (
                             <>
                               <MessageTemplates
                                 key={`${project?.rootPath}:${selectedProtocol.path}:${selectedMessage.name}:${selectedProtocol.content}`}
-                                path={selectedProtocol.path}
+                                protocol={selectedProtocol}
+                                projectRoot={project?.rootPath ?? ""}
+                                messageLabel={selectedMessage.displayName || selectedMessage.name}
+                                fieldCount={visibleMessageFields.length}
+                                onView={setDesignerView}
+                                onCopy={() => void copyMessageHex()}
+                                onExport={() => void exportSelectedMessage()}
+                                canCopy={!!messageEncodeResult?.ok}
+                                selector={
+                                  <label className="message-selector">
+                                    <span>{translation.messageStudio.selectMessage}</span>
+                                    <select
+                                      disabled={
+                                        busy || selectedProtocol.schema.messages.length === 0
+                                      }
+                                      onChange={(event) => selectMessage(event.target.value)}
+                                      value={messageName}
+                                    >
+                                      {selectedProtocol.schema.messages.map((message) => (
+                                        <option key={message.name} value={message.name}>
+                                          {message.displayName || message.name}
+                                          {message.displayName ? ` (${message.name})` : ""}
+                                        </option>
+                                      ))}
+                                    </select>
+                                  </label>
+                                }
                                 message={selectedMessage.name}
                                 fields={visibleMessageFields
                                   .filter(
@@ -2964,152 +2976,46 @@ export default function App() {
                                     ),
                                   )
                                 }
-                              />
-                              <div className="message-field-grid">
-                                <div className="message-field-row message-field-heading">
-                                  <span>{translation.structure.name}</span>
-                                  <span>{translation.structure.type}</span>
-                                  <span>{translation.messageStudio.fieldValue}</span>
-                                </div>
-                                {visibleMessageFields.map((field) => {
-                                  const hint =
-                                    field.type === "bytes"
-                                      ? translation.messageStudio.bytesHint
-                                      : field.type === "array"
-                                        ? translation.messageStudio.arrayHint
-                                        : undefined;
-                                  return (
-                                    <div className="message-field-row" key={field.name}>
-                                      <div className="message-field-meta">
-                                        <strong>{field.displayName || field.name}</strong>
-                                        <code>{field.name}</code>
-                                        <small>
-                                          @{field.offset} · {field.length ?? "—"} B
-                                        </small>
-                                      </div>
-                                      <code className="message-field-type">
-                                        {field.type === "array"
-                                          ? `${field.elementType ?? "?"}[${field.count ?? "?"}]`
-                                          : field.type}
-                                      </code>
-                                      {field.lengthOf ||
-                                      field.name === selectedMessage.checksumTarget ||
-                                      field.name === selectedProtocol.schema.messageTypeField ? (
-                                        <div className="message-derived-value">
-                                          <strong>{translation.messageStudio.derived}</strong>
-                                          <span>{translation.messageStudio.automatic}</span>
+                              >
+                                <div className="message-field-grid">
+                                  <div className="message-field-row message-field-heading">
+                                    <span>{translation.structure.name}</span>
+                                    <span>{translation.structure.type}</span>
+                                    <span>{translation.messageStudio.fieldValue}</span>
+                                  </div>
+                                  {visibleMessageFields.map((field) => {
+                                    const hint =
+                                      field.type === "bytes"
+                                        ? translation.messageStudio.bytesHint
+                                        : field.type === "array"
+                                          ? translation.messageStudio.arrayHint
+                                          : undefined;
+                                    return (
+                                      <div className="message-field-row" key={field.name}>
+                                        <div className="message-field-meta">
+                                          <strong>{field.displayName || field.name}</strong>
+                                          <code>{field.name}</code>
+                                          <small>
+                                            @{field.offset} · {field.length ?? "—"} B
+                                          </small>
                                         </div>
-                                      ) : field.bits?.length ? (
-                                        <div className="message-value-input">
-                                          <input
-                                            disabled={busy}
-                                            aria-label={`${translation.messageStudio.fieldValue}: ${field.name}`}
-                                            value={
-                                              messageFieldValues[field.name] ??
-                                              defaultMessageFieldValue(field)
-                                            }
-                                            onChange={(event) =>
-                                              setMessageFieldValues((current) => ({
-                                                ...current,
-                                                [field.name]: event.target.value,
-                                              }))
-                                            }
-                                          />
-                                          {field.bits.map((bit) => (
-                                            <label className="message-bit-row" key={bit.name}>
-                                              <span>
-                                                {bit.displayName || bit.name} · bit {bit.offset}–
-                                                {bit.offset + bit.width - 1}
-                                              </span>
-                                              {bit.width === 1 ? (
-                                                <input
-                                                  type="checkbox"
-                                                  disabled={busy}
-                                                  checked={
-                                                    bitPart(
-                                                      messageFieldValues[field.name] ?? "0",
-                                                      bit.offset,
-                                                      1,
-                                                    ) === "1"
-                                                  }
-                                                  onChange={(event) =>
-                                                    setMessageFieldValues((current) => ({
-                                                      ...current,
-                                                      [field.name]: replaceBitPart(
-                                                        current[field.name] ?? "0",
-                                                        bit.offset,
-                                                        1,
-                                                        event.target.checked ? "1" : "0",
-                                                      ),
-                                                    }))
-                                                  }
-                                                />
-                                              ) : (
-                                                <input
-                                                  type="number"
-                                                  min="0"
-                                                  max={((1n << BigInt(bit.width)) - 1n).toString()}
-                                                  disabled={busy}
-                                                  aria-label={`${bit.displayName || bit.name} (bit ${bit.offset}–${bit.offset + bit.width - 1})`}
-                                                  value={bitPart(
-                                                    messageFieldValues[field.name] ?? "0",
-                                                    bit.offset,
-                                                    bit.width,
-                                                  )}
-                                                  onChange={(event) =>
-                                                    setMessageFieldValues((current) => ({
-                                                      ...current,
-                                                      [field.name]: replaceBitPart(
-                                                        current[field.name] ?? "0",
-                                                        bit.offset,
-                                                        bit.width,
-                                                        event.target.value,
-                                                      ),
-                                                    }))
-                                                  }
-                                                />
-                                              )}
-                                            </label>
-                                          ))}
-                                        </div>
-                                      ) : field.enumValues?.length ? (
-                                        <label className="message-value-input">
-                                          <select
-                                            disabled={busy}
-                                            aria-label={`${translation.messageStudio.fieldValue}: ${field.name}`}
-                                            value={
-                                              field.enumValues.some(
-                                                (item) =>
-                                                  item.value === messageFieldValues[field.name],
-                                              )
-                                                ? messageFieldValues[field.name]
-                                                : "__custom__"
-                                            }
-                                            onChange={(event) =>
-                                              setMessageFieldValues((current) => ({
-                                                ...current,
-                                                [field.name]:
-                                                  event.target.value === "__custom__"
-                                                    ? ""
-                                                    : event.target.value,
-                                              }))
-                                            }
-                                          >
-                                            {field.enumValues.map((item) => (
-                                              <option key={item.name} value={item.value}>
-                                                {item.name} ({item.value})
-                                              </option>
-                                            ))}
-                                            <option value="__custom__">
-                                              {locale === "zh-CN" ? "自定义数值" : "Custom value"}
-                                            </option>
-                                          </select>
-                                          {!field.enumValues.some(
-                                            (item) => item.value === messageFieldValues[field.name],
-                                          ) && (
+                                        <code className="message-field-type">
+                                          {field.type === "array"
+                                            ? `${field.elementType ?? "?"}[${field.count ?? "?"}]`
+                                            : field.type}
+                                        </code>
+                                        {field.lengthOf ||
+                                        field.name === selectedMessage.checksumTarget ||
+                                        field.name === selectedProtocol.schema.messageTypeField ? (
+                                          <div className="message-derived-value">
+                                            <strong>{translation.messageStudio.derived}</strong>
+                                            <span>{translation.messageStudio.automatic}</span>
+                                          </div>
+                                        ) : field.bits?.length ? (
+                                          <div className="message-value-input">
                                             <input
                                               disabled={busy}
-                                              aria-label={`${translation.messageStudio.fieldValue}: ${field.name} (${locale === "zh-CN" ? "原始数值" : "raw value"})`}
+                                              aria-label={`${translation.messageStudio.fieldValue}: ${field.name}`}
                                               value={
                                                 messageFieldValues[field.name] ??
                                                 defaultMessageFieldValue(field)
@@ -3121,123 +3027,155 @@ export default function App() {
                                                 }))
                                               }
                                             />
-                                          )}
-                                        </label>
-                                      ) : (
-                                        <label className="message-value-input">
-                                          <input
-                                            disabled={busy}
-                                            aria-label={`${translation.messageStudio.fieldValue}: ${field.name}`}
-                                            onChange={(event) =>
-                                              setMessageFieldValues((current) => ({
-                                                ...current,
-                                                [field.name]: event.target.value,
-                                              }))
-                                            }
-                                            placeholder={hint}
-                                            value={
-                                              messageFieldValues[field.name] ??
-                                              defaultMessageFieldValue(field)
-                                            }
-                                          />
-                                          {hint && <small>{hint}</small>}
-                                        </label>
-                                      )}
-                                    </div>
-                                  );
-                                })}
-                              </div>
-                              <div className="message-studio-actions">
-                                <button
-                                  className="primary"
-                                  disabled={busy || isDirty}
-                                  onClick={() => void encodeSelectedMessage()}
-                                  type="button"
-                                >
-                                  <Send size={14} />
-                                  {translation.messageStudio.encode}
-                                </button>
-                                <span>{translation.messageStudio.emptyPreview}</span>
-                              </div>
-                              {messageEncodeResult && (
-                                <div
-                                  className={`message-preview ${messageEncodeResult.ok ? "success" : "error"}`}
-                                >
-                                  <div className="message-preview-header">
-                                    <strong>{translation.messageStudio.encodedPreview}</strong>
-                                    {messageEncodeResult.ok && (
-                                      <span>
-                                        {translation.messageStudio.byteCount}:{" "}
-                                        {messageEncodeResult.byteCount}
-                                      </span>
-                                    )}
-                                  </div>
-                                  {messageEncodeResult.ok ? (
-                                    <>
-                                      {selectedMessageRequest()?.fields.some((field) =>
-                                        field.value.includes("{{"),
-                                      ) && (
-                                        <small>
-                                          {locale === "zh-CN"
-                                            ? "动态值预览是样例；通信会话发送时按该会话的序列号重新生成并编码。"
-                                            : "Dynamic preview is a sample; the connection regenerates and encodes values using its session sequence."}
-                                        </small>
-                                      )}
-                                      <div className="message-studio-actions">
-                                        <button
-                                          type="button"
-                                          disabled={busy || isDirty}
-                                          onClick={() => void copyMessageHex()}
-                                        >
-                                          {translation.messageStudio.copyHex}
-                                        </button>
-                                        <button
-                                          type="button"
-                                          disabled={busy || isDirty || debugBusy}
-                                          onClick={openMessageInDebug}
-                                        >
-                                          {translation.messageStudio.toDebug}
-                                        </button>
-                                        <button
-                                          type="button"
-                                          disabled={busy || isDirty}
-                                          onClick={() => {
-                                            setTcpDraft({
-                                              id: Date.now(),
-                                              hex: messageEncodeResult.normalizedHex,
-                                              message: selectedMessageRequest() ?? undefined,
-                                            });
-                                            navigate("tcp");
-                                          }}
-                                        >
-                                          {locale === "zh-CN" ? "送入通信" : "Open in Connections"}
-                                        </button>
-                                        {messageActionStatus && (
-                                          <span role="status">{redact(messageActionStatus)}</span>
+                                            {field.bits.map((bit) => (
+                                              <label className="message-bit-row" key={bit.name}>
+                                                <span>
+                                                  {bit.displayName || bit.name} · bit {bit.offset}–
+                                                  {bit.offset + bit.width - 1}
+                                                </span>
+                                                {bit.width === 1 ? (
+                                                  <input
+                                                    type="checkbox"
+                                                    disabled={busy}
+                                                    checked={
+                                                      bitPart(
+                                                        messageFieldValues[field.name] ?? "0",
+                                                        bit.offset,
+                                                        1,
+                                                      ) === "1"
+                                                    }
+                                                    onChange={(event) =>
+                                                      setMessageFieldValues((current) => ({
+                                                        ...current,
+                                                        [field.name]: replaceBitPart(
+                                                          current[field.name] ?? "0",
+                                                          bit.offset,
+                                                          1,
+                                                          event.target.checked ? "1" : "0",
+                                                        ),
+                                                      }))
+                                                    }
+                                                  />
+                                                ) : (
+                                                  <input
+                                                    type="number"
+                                                    min="0"
+                                                    max={(
+                                                      (1n << BigInt(bit.width)) -
+                                                      1n
+                                                    ).toString()}
+                                                    disabled={busy}
+                                                    aria-label={`${bit.displayName || bit.name} (bit ${bit.offset}–${bit.offset + bit.width - 1})`}
+                                                    value={bitPart(
+                                                      messageFieldValues[field.name] ?? "0",
+                                                      bit.offset,
+                                                      bit.width,
+                                                    )}
+                                                    onChange={(event) =>
+                                                      setMessageFieldValues((current) => ({
+                                                        ...current,
+                                                        [field.name]: replaceBitPart(
+                                                          current[field.name] ?? "0",
+                                                          bit.offset,
+                                                          bit.width,
+                                                          event.target.value,
+                                                        ),
+                                                      }))
+                                                    }
+                                                  />
+                                                )}
+                                              </label>
+                                            ))}
+                                          </div>
+                                        ) : field.enumValues?.length ? (
+                                          <label className="message-value-input">
+                                            <select
+                                              disabled={busy}
+                                              aria-label={`${translation.messageStudio.fieldValue}: ${field.name}`}
+                                              value={
+                                                field.enumValues.some(
+                                                  (item) =>
+                                                    item.value === messageFieldValues[field.name],
+                                                )
+                                                  ? messageFieldValues[field.name]
+                                                  : "__custom__"
+                                              }
+                                              onChange={(event) =>
+                                                setMessageFieldValues((current) => ({
+                                                  ...current,
+                                                  [field.name]:
+                                                    event.target.value === "__custom__"
+                                                      ? ""
+                                                      : event.target.value,
+                                                }))
+                                              }
+                                            >
+                                              {field.enumValues.map((item) => (
+                                                <option key={item.name} value={item.value}>
+                                                  {item.name} ({item.value})
+                                                </option>
+                                              ))}
+                                              <option value="__custom__">
+                                                {locale === "zh-CN" ? "自定义数值" : "Custom value"}
+                                              </option>
+                                            </select>
+                                            {!field.enumValues.some(
+                                              (item) =>
+                                                item.value === messageFieldValues[field.name],
+                                            ) && (
+                                              <input
+                                                disabled={busy}
+                                                aria-label={`${translation.messageStudio.fieldValue}: ${field.name} (${locale === "zh-CN" ? "原始数值" : "raw value"})`}
+                                                value={
+                                                  messageFieldValues[field.name] ??
+                                                  defaultMessageFieldValue(field)
+                                                }
+                                                onChange={(event) =>
+                                                  setMessageFieldValues((current) => ({
+                                                    ...current,
+                                                    [field.name]: event.target.value,
+                                                  }))
+                                                }
+                                              />
+                                            )}
+                                          </label>
+                                        ) : (
+                                          <label className="message-value-input">
+                                            <input
+                                              disabled={busy}
+                                              aria-label={`${translation.messageStudio.fieldValue}: ${field.name}`}
+                                              onChange={(event) =>
+                                                setMessageFieldValues((current) => ({
+                                                  ...current,
+                                                  [field.name]: event.target.value,
+                                                }))
+                                              }
+                                              placeholder={hint}
+                                              value={
+                                                messageFieldValues[field.name] ??
+                                                defaultMessageFieldValue(field)
+                                              }
+                                            />
+                                            {hint && <small>{hint}</small>}
+                                          </label>
                                         )}
                                       </div>
-                                      <code className="message-preview-hex">
-                                        {messageEncodeResult.normalizedHex}
-                                      </code>
-                                      <div className="message-preview-ascii">
-                                        <span>{translation.messageStudio.ascii}</span>
-                                        <code>{messageEncodeResult.ascii}</code>
-                                      </div>
-                                    </>
-                                  ) : (
-                                    <div className="message-preview-error">
-                                      <strong>
-                                        [{messageEncodeResult.error.code}]{" "}
-                                        {messageEncodeResult.error.path}
-                                      </strong>
-                                      <span>{redact(messageEncodeResult.error.message)}</span>
-                                      {messageEncodeResult.error.offset !== undefined && (
-                                        <code>offset {messageEncodeResult.error.offset}</code>
-                                      )}
-                                    </div>
-                                  )}
+                                    );
+                                  })}
                                 </div>
-                              )}
+                                <div className="message-studio-actions">
+                                  <button
+                                    className="primary"
+                                    disabled={busy || isDirty}
+                                    onClick={() => void encodeSelectedMessage()}
+                                    type="button"
+                                  >
+                                    <Send size={14} />
+                                    {translation.messageStudio.encode}
+                                  </button>
+                                  <span>{translation.messageStudio.emptyPreview}</span>
+                                </div>
+                              </MessageTemplates>
                             </>
                           )}
                         </div>
@@ -3249,6 +3187,31 @@ export default function App() {
             )}
           </main>
         </section>
+        {isMessageStudio && (
+          <MessageOutput
+            result={messageEncodeResult}
+            locale={locale}
+            disabled={busy || isDirty}
+            onCopy={() => void copyMessageHex()}
+            onExport={() => void exportSelectedMessage()}
+            onDebug={openMessageInDebug}
+            debugDisabled={debugBusy}
+            onConnection={() => {
+              if (!messageEncodeResult?.ok) return;
+              setTcpDraft({
+                id: Date.now(),
+                hex: messageEncodeResult.normalizedHex,
+                message: selectedMessageRequest() ?? undefined,
+              });
+              navigate("tcp");
+            }}
+            status={redact(messageActionStatus)}
+            onStatus={setMessageActionStatus}
+            dynamic={
+              selectedMessageRequest()?.fields.some((field) => field.value.includes("{{")) ?? false
+            }
+          />
+        )}
         {isProtocolCode && selectedProtocol && (
           <ProtocolProblems
             locale={locale}

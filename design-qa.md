@@ -1,3 +1,35 @@
+# P04 message workbench design QA — 2026-10-03
+
+final result: passed
+
+## Visual evidence and accepted requirements
+
+- Reference: `C:/Users/MaoEr/AppData/Local/Temp/codex-clipboard-3f49cd69-3535-450c-bc89-385ec40d4ce4.png`. The supplied references show the same overwrite-confirmation state.
+- Evidence directory: `C:/Users/MaoEr/.codex/visualizations/2026/10/02/01a0fb0f-028a-7c92-befb-91290b10cfcf/`. `p04-comparison.png` contains reference and final capture in one input at 1586×992 per side, 1:1 density. `p04-dialog-comparison.png` compares the same 732×632 modal region. Both combined inputs were visually inspected.
+- Layout: existing project explorer, central message workbench / tabs / selectors / field cards, right message and template inspector, bottom HEX / ASCII strip. Overwrite modal is 732×631 at x427 / y252.5; the reference is approximately x428 / y253 with the same width and height. It includes target details, warning, content rows, backup availability, cancel, save-as and overwrite actions.
+- Typography and spacing: existing app font stack, 29px protocol title, 26px modal title, 15–16px confirmation text, compact inspector rows, monospace HEX bytes and offsets. Full source and focused comparison confirm readable hierarchy and matching section placement.
+- Theme / assets: existing dark and light tokens, installed icons and retained chip logo. Selected navigation keeps the user's rounded background without stripes, outline / filled icon pair, distinct Bug debug icon and Radio communication icon. Schema remains the correct selected module. No new dependency or raster asset.
+- Copy / data: production displays actual protocol, message, field defaults and `message-templates.yaml` location. The Core template model has no creator, dates, description, raw payload or backup support; the UI avoids invented values, explains that payload is generated from fields, and disables backup / sample code. Mock frame IDs, example folders and fictional frame bytes are not production data.
+
+## Findings and corrections
+
+- Initial dialog was too tall and vertically centered above the reference. Reduced section spacing and applied an overwrite-only offset at tall viewports; the final dialog matches the reference geometry. Short windows retain native centering and bounded scrolling.
+- Initial inspector clipped its last action; tightened heading / row spacing. Chinese actions fit at the reference viewport; English inspector remains scrollable.
+- Initial primary action was white on bright green. Dark theme uses dark text; light theme uses white on its darker accent. Light warning text now uses a darker ochre for contrast.
+- Replaced stale “regenerate” loading notice with “Template loaded”, since it remained after encoding. Draft status uses a warning icon, and successful HEX export gets visible feedback.
+- Inspected final dark / light workbench and dialog, English dialog, and 1000×720 English layout. At 1000px the inspector hides, toolbar / output actions remain accessible, document width equals viewport width, and all modal actions fit. No remaining P0/P1/P2 visual issue; P3 differences are retained titlebar / branding, flat background and installed icon shapes.
+
+## Functional and native verification
+
+- Development-only `/test/project-preview.html?protocol=1&message=1` uses mock bridges with valid Core schema v0.1. The fixture performs no real project or template file writes and is outside the production Vite entry. Its fixed-field encoder exists only for UI verification; production still delegates encoding and automatic fields to Core.
+- Browser checked: message switching / empty template list, compatible load, incompatible load disabled, field edit clearing old output, encode success / out-of-range error, overwrite then re-load, cancel, save-as, duplicate-name confirmation, failed save retaining dialog, HEX / ASCII copy verified through clipboard, ASCII view, HEX export success feedback, output handoff into actual debug input and communication draft, and unsaved YAML blocking template writes / encoding. No communication was sent.
+- Dark / light, Chinese / English, keyboard / small-window checks passed. Browser warning / error log returned no entries. Final browser screenshot evidence is in the directory above.
+- Frontend TypeScript / Vite and focused formatting passed. Windows Release build passed; CTest `desktop_ui_smoke|schema_loader|workspace` passed 3/3. Existing Workspace tests exercise real template persistence / conflict / replace / load; WebView2 smoke now also rejects invalid HEX export actions before opening a picker.
+- HEX export reuses the existing native file-dialog and atomic-write helper. Its full Windows picker save / cancel / overwrite workflow still needs manual desktop acceptance. Mocked export feedback does not establish native picker acceptance.
+- No Core template-format changes, metadata persistence, backup implementation or sample-code generator were added. These remain separately scoped capabilities.
+
+---
+
 # P03 protocol code editor design QA — 2026-10-03
 
 final result: passed

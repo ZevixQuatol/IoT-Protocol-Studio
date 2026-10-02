@@ -5,6 +5,7 @@ import "./styles.css";
 import "./start-page.css";
 import "./project-page.css";
 import "./protocol-code.css";
+import "./message-workbench.css";
 
 createRoot(document.getElementById("root")!).render(
   <StrictMode>

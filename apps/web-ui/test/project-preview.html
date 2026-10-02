@@ -150,6 +150,156 @@
           return { ok: true, cancelled: false, content: "" };
         };
       }
+      if (new URLSearchParams(location.search).has("message")) {
+        const field = (name, type, offset, length) => ({
+          name,
+          displayName: name,
+          type,
+          offset: String(offset),
+          length: String(length),
+          declaredOffset: null,
+          declaredLength: null,
+          byteOrder: "little",
+          byteOrderInherited: true,
+          lengthOf: null,
+          elementType: null,
+          count: null,
+        });
+        project.protocols[0].schema.messages = [
+          {
+            name: "StatusRequest",
+            displayName: "读取设备状态",
+            typeId: "1",
+            checksumTarget: "checksum",
+            fields: [
+              field("sequence", "uint16", 0, 2),
+              field("deviceId", "uint32", 2, 4),
+              field("checksum", "uint16", 6, 2),
+            ],
+          },
+          {
+            name: "StatusReply",
+            displayName: "设备状态响应",
+            typeId: "129",
+            checksumTarget: "checksum",
+            fields: [
+              field("sequence", "uint16", 0, 2),
+              field("deviceId", "uint32", 2, 4),
+              field("temperature", "float32", 6, 4),
+              field("humidity", "uint16", 10, 2),
+              field("checksum", "uint16", 12, 2),
+            ],
+          },
+        ];
+        const defaults = ["sequence", "deviceId", "temperature", "humidity"].map((name, index) => ({
+          name,
+          value: ["1", "287454020", "21.5", "55"][index],
+        }));
+        const templates = new Map([
+          [
+            "StatusReply",
+            [
+              { name: "Lab 默认应答", compatible: true, fields: defaults },
+              { name: "旧版模板", compatible: false, fields: [] },
+            ],
+          ],
+          ["StatusRequest", []],
+        ]);
+        window.iotpsMessageTemplates = async (action, path, message, name, ...values) => {
+          window.projectUICalls.push(["templates", action, message, name]);
+          const items = templates.get(message) ?? [];
+          const existing = items.find((item) => item.name === name);
+          const failure = (code) => ({
+            ok: false,
+            error: {
+              code,
+              message: "Preview template operation failed",
+              path: "message-templates.yaml",
+            },
+          });
+          if (action === "list") return { ok: true, templates: items };
+          if (action === "load")
+            return existing?.compatible
+              ? { ok: true, templates: [existing] }
+              : failure("message_template_incompatible");
+          if (action === "save" && existing) return failure("message_template_conflict");
+          if ((action === "replace" || action === "delete") && !existing)
+            return failure("message_template_not_found");
+          if (name === "失败模板") return failure("message_template_invalid");
+          if (action === "delete")
+            templates.set(
+              message,
+              items.filter((item) => item.name !== name),
+            );
+          else {
+            const fields = Array.from({ length: values.length / 2 }, (_, index) => ({
+              name: values[index * 2],
+              value: values[index * 2 + 1],
+            }));
+            templates.set(message, [
+              ...items.filter((item) => item.name !== name),
+              { name, compatible: true, fields },
+            ]);
+          }
+          return { ok: true, templates: templates.get(message) };
+        };
+        // Preview-only codec for these fixed fields; production always calls Core.
+        window.iotpsEncodeProtocolMessage = async (path, message, ...values) => {
+          const fields = Object.fromEntries(
+            Array.from({ length: values.length / 2 }, (_, i) => [
+              values[i * 2],
+              Number(values[i * 2 + 1]),
+            ]),
+          );
+          if (
+            Object.values(fields).some((value) => !Number.isFinite(value)) ||
+            fields.sequence < 0 ||
+            fields.sequence > 65535 ||
+            fields.deviceId < 0 ||
+            fields.deviceId > 4294967295 ||
+            fields.humidity < 0 ||
+            fields.humidity > 65535
+          )
+            return {
+              ok: false,
+              source: "browser-preview",
+              error: {
+                code: "field_value_out_of_range",
+                message: "Field value is out of range",
+                path: message,
+              },
+            };
+          const bytes = new Uint8Array(message === "StatusReply" ? 14 : 8),
+            view = new DataView(bytes.buffer);
+          view.setUint16(0, fields.sequence ?? 0, true);
+          view.setUint32(2, fields.deviceId ?? 0, true);
+          if (message === "StatusReply") {
+            view.setFloat32(6, fields.temperature ?? 0, true);
+            view.setUint16(10, fields.humidity ?? 0, true);
+          }
+          let crc = 0xffff;
+          for (const byte of bytes.slice(0, -2)) {
+            crc ^= byte;
+            for (let i = 0; i < 8; i++) crc = crc & 1 ? (crc >> 1) ^ 0xa001 : crc >> 1;
+          }
+          view.setUint16(bytes.length - 2, crc, true);
+          return {
+            ok: true,
+            source: "browser-preview",
+            normalizedHex: Array.from(bytes, (byte) =>
+              byte.toString(16).toUpperCase().padStart(2, "0"),
+            ).join(" "),
+            ascii: Array.from(bytes, (byte) =>
+              byte >= 32 && byte < 127 ? String.fromCharCode(byte) : ".",
+            ).join(""),
+            byteCount: bytes.length,
+          };
+        };
+        window.iotpsHexFile = async (action, content) => {
+          window.projectUICalls.push(["hex-export", action, content]);
+          return { ok: true, cancelled: false, content: "" };
+        };
+      }
       await import("/src/main.tsx");
     </script>
   </body>
