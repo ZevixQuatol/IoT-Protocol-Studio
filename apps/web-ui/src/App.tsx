@@ -46,6 +46,8 @@ import SchemaEditor, { type SchemaEditTarget } from "./SchemaEditor";
 import MessageTemplates from "./MessageTemplates";
 import Environments from "./Environments";
 import TcpWorkspace from "./TcpWorkspace";
+import StartPage from "./StartPage";
+import { Box, Radio, Settings } from "lucide-react";
 import { activeVariables, resolveValue, sendValues } from "./sendVariables";
 import {
   closeProject,
@@ -60,6 +62,7 @@ import {
   getCurrentProject,
   inspectHex,
   openProject,
+  revealProject,
   renameProject,
   performWindowAction,
   saveProtocol,
@@ -540,6 +543,7 @@ export default function App() {
   const translation = messages[locale];
   const page = navigation.entries[navigation.index];
   const project = workspace?.ok ? workspace.project : null;
+  const isStartPage = page === "schema" && !project;
   const redact = (value: string) => {
     for (const secret of sortedSensitiveValues.current) value = value.split(secret).join("•");
     return value;
@@ -1412,8 +1416,12 @@ export default function App() {
   };
 
   return (
-    <div className="app-shell">
+    <div className={`app-shell ${isStartPage ? "startup-home" : ""}`}>
       <header className="titlebar" onPointerDown={startWindowDrag}>
+        <div className="titlebar-brand">
+          <img src="/iot-protocol-studio.svg" alt="" />
+          <span>IoT Protocol Studio</span>
+        </div>
         <nav aria-label={translation.navigation.title} className="titlebar-nav">
           <button
             aria-label={translation.navigation.back}
@@ -1443,8 +1451,18 @@ export default function App() {
             <ArrowRight size={17} />
           </button>
         </nav>
+        <span className="titlebar-project">{project?.name ?? translation.workspace.noProject}</span>
         <div aria-hidden="true" className="titlebar-drag-region" />
         <div className="window-controls">
+          <button
+            aria-label={translation.navigation.settings}
+            title={translation.navigation.settings}
+            className="window-control titlebar-settings"
+            onClick={() => navigate("settings")}
+            type="button"
+          >
+            <Settings size={20} />
+          </button>
           <button
             aria-label={translation.window.minimize}
             className="window-control"
@@ -1479,7 +1497,7 @@ export default function App() {
             title={translation.navigation.schema}
             type="button"
           >
-            <KeyframesIcon size={17} />
+            {isStartPage ? <Folder size={27} /> : <KeyframesIcon size={17} />}
           </button>
           <button
             aria-current={page === "debug" ? "page" : undefined}
@@ -1489,7 +1507,7 @@ export default function App() {
             title={translation.navigation.debug}
             type="button"
           >
-            <BugIcon size={17} />
+            {isStartPage ? <Radio size={26} /> : <BugIcon size={17} />}
           </button>
           <button
             aria-current={page === "tcp" ? "page" : undefined}
@@ -1499,7 +1517,7 @@ export default function App() {
             title={locale === "zh-CN" ? "通信连接" : "Connections"}
             type="button"
           >
-            <Network size={17} />
+            {isStartPage ? <Radio size={26} /> : <Network size={17} />}
           </button>
           <button
             aria-current={page === "environments" ? "page" : undefined}
@@ -1509,7 +1527,7 @@ export default function App() {
             title={translation.navigation.environments}
             type="button"
           >
-            <Braces size={17} />
+            {isStartPage ? <Box size={26} /> : <Braces size={17} />}
           </button>
           <button
             aria-current={page === "settings" ? "page" : undefined}
@@ -1519,11 +1537,11 @@ export default function App() {
             title={translation.navigation.settings}
             type="button"
           >
-            <DotsHorizontalIcon size={16} />
+            {isStartPage ? <Settings size={26} /> : <DotsHorizontalIcon size={16} />}
           </button>
         </aside>
 
-        {page === "schema" && (
+        {page === "schema" && project && (
           <>
             <aside className="schema-sidebar" style={{ width: `${sidebarWidth}px` }}>
               <div className="sidebar-header">
@@ -1661,15 +1679,17 @@ export default function App() {
         <section className="content-stage">
           <main
             className={`content-card ${
-              page === "environments"
-                ? "environment-page"
-                : page === "settings"
-                  ? "settings-page"
-                  : page === "debug"
-                    ? "debug-page"
-                    : page === "tcp"
-                      ? "tcp-page"
-                      : "schema-page"
+              isStartPage
+                ? "start-page-card"
+                : page === "environments"
+                  ? "environment-page"
+                  : page === "settings"
+                    ? "settings-page"
+                    : page === "debug"
+                      ? "debug-page"
+                      : page === "tcp"
+                        ? "tcp-page"
+                        : "schema-page"
             }`}
           >
             {errorMessage && (
@@ -2232,7 +2252,26 @@ export default function App() {
                   )}
                 </section>
               </div>
-            ) : !project ? null : (
+            ) : !project ? (
+              <StartPage
+                locale={locale}
+                projects={recentProjects}
+                busy={busy}
+                onCreate={() => openTreeDialog("project")}
+                onOpen={(path) => {
+                  void run(() => openProject(path));
+                }}
+                onForget={(path) =>
+                  setRecentProjects((items) => items.filter((item) => item.rootPath !== path))
+                }
+                onClear={() => setRecentProjects([])}
+                onReveal={(path) => {
+                  void revealProject(path).catch((error: unknown) =>
+                    setErrorMessage(error instanceof Error ? error.message : String(error)),
+                  );
+                }}
+              />
+            ) : (
               <>
                 <header className="content-header">
                   <div className="content-heading-icon">

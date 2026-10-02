@@ -1,0 +1,425 @@
+.startup-home {
+  --chrome: #0d1718;
+  --surface: #0d1718;
+  --line: #29383a;
+  --muted: #9ba7ad;
+  --text: #f1f4f5;
+  --accent: #00dc8b;
+  --accent-soft: #12342b;
+  --start-icon: #c6ccd1;
+  --start-danger: #ff4b50;
+  --start-control: #192326;
+  color: var(--text);
+}
+
+:root[data-theme="light"] .startup-home {
+  --chrome: #f4f8f7;
+  --surface: #f4f8f7;
+  --line: #d2ddda;
+  --muted: #65756f;
+  --text: #192b26;
+  --accent: #008557;
+  --accent-soft: #e0f2e9;
+  --start-icon: #62736c;
+  --start-danger: #cb3038;
+  --start-control: #ffffff;
+}
+
+.startup-home .titlebar {
+  flex-basis: 66px;
+  border-bottom: 1px solid var(--line);
+}
+.startup-home .titlebar-brand {
+  gap: 27px;
+  padding: 0 38px 0 28px;
+  font-size: 27px;
+  font-weight: 500;
+}
+.startup-home .titlebar-brand img {
+  width: 36px;
+  height: 36px;
+}
+.startup-home .titlebar-nav {
+  height: 38px;
+  padding: 0;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+}
+.startup-home .titlebar-nav .nav-button {
+  width: 55px;
+  height: 36px;
+  color: var(--muted);
+}
+.startup-home .titlebar-nav svg {
+  width: 22px;
+  height: 22px;
+}
+.startup-home .history-forward {
+  border-left: 1px solid var(--line);
+}
+.startup-home .titlebar-project {
+  margin-left: 35px;
+  font-size: 20px;
+}
+.startup-home .window-controls {
+  align-items: center;
+}
+.startup-home .window-control {
+  width: 51px;
+  height: 38px;
+  color: var(--start-icon);
+}
+.startup-home .titlebar-settings {
+  width: 64px;
+  margin-right: 4px;
+  border-left: 1px solid var(--line);
+}
+.startup-home .navigation-rail {
+  flex-basis: 94px;
+  gap: 10px;
+  padding-top: 22px;
+  border-right: 1px solid var(--line);
+}
+.startup-home .navigation-rail .nav-button {
+  width: 82px;
+  height: 60px;
+  color: var(--start-icon);
+}
+.startup-home .navigation-rail .nav-button.active {
+  background: transparent;
+  box-shadow: inset 3px 0 var(--accent);
+  color: var(--accent);
+}
+.startup-home .nav-button:hover:not(:disabled),
+.startup-home .window-control:hover:not(.close) {
+  background: var(--accent-soft);
+  color: var(--text);
+}
+.startup-home .nav-button:disabled {
+  opacity: 0.6;
+}
+.startup-home .content-stage {
+  padding: 0;
+  min-width: 0;
+}
+.startup-home .start-page-card {
+  border: 0;
+  border-radius: 0;
+  background: var(--surface);
+  overflow: auto;
+}
+.start-page {
+  padding: 85px 40px 28px 46px;
+}
+.start-hero {
+  padding-left: 40px;
+}
+.start-hero h1 {
+  margin: 0;
+  font-size: clamp(34px, 3.6vw, 56px);
+  line-height: 1.3;
+  letter-spacing: -0.02em;
+  font-weight: 700;
+}
+.start-hero > p {
+  margin: 7px 0 0;
+  color: var(--muted);
+  font-size: clamp(18px, 1.8vw, 27px);
+  line-height: 1.5;
+}
+.start-actions {
+  display: flex;
+  gap: 35px;
+  margin: 42px 0 20px;
+}
+.start-actions button {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: space-between;
+  gap: 19px;
+  min-width: 92px;
+  height: 90px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--start-icon);
+  cursor: pointer;
+}
+.start-actions button span,
+.start-section-heading button span {
+  padding: 7px 13px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--start-control);
+  color: var(--text);
+  font-size: 16px;
+}
+.start-actions .start-primary > svg {
+  color: var(--accent);
+  filter: drop-shadow(0 0 12px color-mix(in srgb, var(--accent), transparent 55%));
+}
+.start-folder {
+  fill: var(--start-icon);
+  stroke: var(--start-icon);
+  stroke-width: 1.4;
+}
+.start-section-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+  min-height: 67px;
+  border-bottom: 1px solid var(--line);
+}
+.start-page h2 {
+  margin: 0;
+  font-size: 21px;
+  line-height: 1.5;
+  font-weight: 600;
+}
+.start-recent {
+  border-top: 1px solid var(--line);
+}
+.start-section-heading > button {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--start-icon);
+  cursor: pointer;
+}
+.start-section-heading button span {
+  font-size: 15px;
+}
+.start-table-scroll {
+  overflow-x: auto;
+}
+.start-projects {
+  width: 100%;
+  border-collapse: collapse;
+  table-layout: fixed;
+  text-align: left;
+  font-size: 17px;
+}
+.start-projects th {
+  height: 56px;
+  padding: 0 14px;
+  color: var(--muted);
+  font-weight: 400;
+}
+.start-projects th:first-child {
+  width: 32%;
+}
+.start-projects th:nth-child(2) {
+  width: 35%;
+}
+.start-projects th:nth-child(3) {
+  width: 22%;
+}
+.start-projects th:last-child {
+  width: 11%;
+}
+.start-projects td {
+  height: 58px;
+  padding: 0 14px;
+  border-top: 1px solid var(--line);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.start-projects tbody tr:last-child td {
+  border-bottom: 1px solid var(--line);
+}
+.start-projects td:first-child button {
+  display: flex;
+  align-items: center;
+  gap: 28px;
+  width: 100%;
+  padding: 0 4px;
+  text-align: left;
+}
+.start-projects td:first-child svg {
+  flex-shrink: 0;
+}
+.start-projects td:first-child span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.start-projects button {
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+}
+.start-projects time,
+.start-project-path {
+  color: var(--muted);
+}
+.start-row-actions {
+  text-align: right;
+}
+.start-row-actions button {
+  width: 50%;
+  height: 40px;
+  padding: 0;
+  color: var(--start-icon);
+  vertical-align: middle;
+}
+.start-row-actions .start-remove {
+  color: var(--start-danger);
+}
+.start-projects .start-empty {
+  height: 232px;
+  text-align: center;
+  color: var(--muted);
+  white-space: normal;
+}
+.start-other {
+  margin-top: 29px;
+  padding-top: 23px;
+  border-top: 1px solid var(--line);
+}
+.start-shortcuts {
+  display: grid;
+  grid-template-columns: 1fr 1.1fr 1.05fr;
+  margin-top: 9px;
+}
+.start-shortcuts > button {
+  display: flex;
+  align-items: center;
+  gap: 37px;
+  min-width: 0;
+  min-height: 73px;
+  padding: 10px 16px;
+  border: 0;
+  background: transparent;
+  color: var(--start-icon);
+  text-align: left;
+  cursor: pointer;
+}
+.start-shortcuts > button + button {
+  border-left: 1px solid var(--line);
+  padding-left: 34px;
+}
+.start-shortcuts > button > svg {
+  flex-shrink: 0;
+}
+.start-shortcuts > button > svg:last-child {
+  margin-left: auto;
+}
+.start-shortcuts span {
+  min-width: 0;
+}
+.start-shortcuts strong {
+  display: block;
+  color: var(--text);
+  font-size: 19px;
+  font-weight: 500;
+}
+.start-shortcuts small {
+  display: block;
+  margin-top: 5px;
+  color: var(--muted);
+  font-size: 16px;
+  line-height: 1.5;
+}
+.start-page button:disabled {
+  cursor: default;
+  opacity: 0.55;
+}
+.start-page button:hover:not(:disabled) {
+  color: var(--accent);
+}
+.start-shortcuts button:hover:not(:disabled),
+.start-row-actions button:hover:not(:disabled) {
+  background: var(--accent-soft);
+}
+.start-page button:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 3px;
+  border-radius: 4px;
+}
+.start-sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+@media (max-width: 1200px) {
+  .startup-home .titlebar-brand {
+    gap: 14px;
+    padding-right: 24px;
+    font-size: 22px;
+  }
+  .startup-home .navigation-rail {
+    flex-basis: 70px;
+  }
+  .startup-home .navigation-rail .nav-button {
+    width: 62px;
+  }
+  .start-page {
+    padding: 54px 28px 32px;
+  }
+  .start-hero {
+    padding-left: 18px;
+  }
+  .start-projects {
+    font-size: 14px;
+  }
+  .start-projects td:first-child button {
+    gap: 12px;
+  }
+  .start-projects th:first-child {
+    width: 29%;
+  }
+  .start-projects th:nth-child(2) {
+    width: 34%;
+  }
+  .start-projects th:nth-child(3) {
+    width: 25%;
+  }
+  .start-projects th:last-child {
+    width: 12%;
+  }
+  .start-shortcuts > button,
+  .start-shortcuts > button + button {
+    gap: 16px;
+    padding: 10px 16px;
+  }
+  .start-shortcuts strong {
+    font-size: 15px;
+  }
+  .start-shortcuts small {
+    font-size: 13px;
+  }
+}
+
+@media (max-width: 900px) {
+  .startup-home .titlebar-brand {
+    font-size: 18px;
+  }
+  .startup-home .titlebar-project {
+    font-size: 14px;
+    margin-left: 20px;
+  }
+  .startup-home .titlebar-nav .nav-button {
+    width: 36px;
+  }
+  .start-projects {
+    min-width: 660px;
+  }
+  .start-shortcuts {
+    grid-template-columns: 1fr;
+  }
+  .start-shortcuts > button + button {
+    border-left: 0;
+    border-top: 1px solid var(--line);
+  }
+}

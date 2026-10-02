@@ -1,36 +1,41 @@
-# Design QA — Schema workspace redesign
-
-- Source visual: `C:\Users\MaoEr\AppData\Local\Temp\codex-clipboard-2bb8bf5e-1f73-48ed-b80e-3f0438bbe862.png`
-- Implementation: `http://127.0.0.1:4173/` (in-app Browser screenshot captured from tab 5)
-- Viewport: source 1283×808; implementation 1280×800 at 1× density
-- State: Schema tab active, sidebar expanded, `环境传感器` selected
-
-## Full-page comparison
-
-The source and implementation were reviewed together in one comparison input. The implementation intentionally replaces the source's branded native header, secondary command row, inspector, and console with the requested compact custom titlebar, physical Schema tree, and single content card. The dark palette and restrained teal selection treatment remain visually consistent with the source.
-
-No clipping, horizontal overflow, accidental whitespace, fake assets, or mismatched control states were found at 1280×800. A separate 960×640 pass also stayed within the viewport.
-
-## Focused comparison
-
-| Region | Result |
-| --- | --- |
-| Topbar | Back, forward, Schema, and settings appear in the requested order; Schema is selected by default. Native minimize, maximize/restore, and close controls remain on the right. The non-client white top edge was removed in the native window. |
-| Sidebar | Uses the same `#101820` chrome color as the topbar, reads as one continuous surface, supports collapse/expand, and renders nested physical folders without a depth limit. |
-| Content | Fills the remaining area with a differentiated `#151e27` surface and only a 16 px top-right radius. Selected protocol content and physical path are legible without competing panels. |
-
-## Interaction and runtime checks
-
-- Settings opens its placeholder page; back returns to Schema; forward history is enabled by the same navigation model.
-- Sidebar collapse/restore, folder collapse/expand, and protocol selection were exercised in the in-app Browser.
-- Native minimize, maximize/restore, close, custom hit-test resize frame, and physical workspace bridge were exercised by the desktop smoke test and native app check.
-- Fresh browser console: Vite connection and React development info only; no errors or warnings.
-- Debug CTest: 20/20 passed. Release CTest: 20/20 passed.
-
-## Iteration history
-
-1. Initial native comparison exposed a pale non-client line at the top edge.
-2. The window was changed to full-client rendering with explicit resize hit testing and maximized-work-area handling.
-3. Native and browser comparisons were repeated; no P1/P2 visual issues remained.
+# Startup home design QA — 2026-10-02
 
 final result: passed
+
+Source visual truth: `C:/Users/MaoEr/AppData/Local/Temp/codex-clipboard-55d9b149-1b6d-49d7-b3d4-13e8c2806c33.png`.
+Implementation evidence: `C:/Users/MaoEr/.codex/visualizations/2026/10/02/01a0fb0f-028a-7c92-befb-91290b10cfcf/startup-dark.png` and `startup-light.png` in the same directory.
+Source and implementation dimensions: 1586×992 pixels; CSS viewport 1586×992; 1:1 density. State: no open project, four sample recent entries supplied only by a temporary verification fixture. Production uses actual stored projects.
+
+## Findings and comparison history
+
+- Initial light capture found an unnecessary vertical scrollbar and active navigation background from stylesheet ordering. Moved home CSS after base CSS and reduced action height / bottom padding. Recaptured dark and light: home card clientHeight and scrollHeight are both 926px; no document horizontal overflow.
+- Full-view comparison opened source and dark implementation together in one tool input. Hero, rail, table columns / rows, separator positions and bottom shortcuts match the reference composition. Main separators are at approximately y=423, 490, 780 and 810. No remaining actionable P0/P1/P2 differences.
+- Focused inspection of the titlebar, action group, project row icons and shortcut labels in the 1:1 captures found readable text and consistent alignment. Dark / light functional icons use theme colors; destructive actions retain a red semantic color.
+
+## Required fidelity surfaces
+
+- Typography: existing Segoe UI / Microsoft YaHei UI stack, 56px hero at the reference width, 27px subtitle, 21px section headings and 17px table. Existing installed fonts retained. English copy can make the bottom shortcut taller and scrolls within the main content.
+- Layout: 66px home titlebar, 94px rail, 46px content left inset and 40px hero inset. 58px recent rows. At 900×700, shortcuts stack and content scrolls; window controls remain visible and document does not overflow horizontally.
+- Colors: near-black teal background, restrained separators, green main action and red deletion; corresponding light tokens produce a pale background and dark icons. Flat application background deliberately preserves readability; the source's subtle background texture is a P3 difference.
+- Assets: existing approved green chip logo retained instead of the mock's different logo. Existing Lucide library supplies standard icons. Brand asset remains crisp; no generated or placeholder graphics. Existing uncommitted Feather icon changes elsewhere preserved.
+- Copy: source home headings and Chinese descriptions retained. P01-A is a reference frame label and is omitted from production. Actual project timestamps / names replace illustrative records; missing old timestamps show “—”. Sample import remains disabled with an explanatory title because the existing product has no implementation.
+
+## Verification
+
+- Browser: dark, light, English, 900×700, empty history, create dialog / mocked create-to-workspace, recent deletion / clear, directory shortcut, and failed opening retaining history. Console error / warning inspection returned no entries.
+- Test fixtures were temporary, never included in production, and removed after verification; browser fixture storage is cleared on leaving the fixture.
+- `node test/recent_projects_test.mjs`: legacy history, invalid timestamps, current timestamp, case-insensitive deduplication, persistence, damaged JSON and reveal Bridge success / failure checked.
+- Release Windows Host build and real WebView2 startup smoke test passed. Native smoke checks home landmarks, sidebar absence, three window controls plus settings, history navigation, theme switching and invalid directory-reveal requests.
+- Native directory picker / successful File Explorer opening and full manual desktop acceptance remain unperformed.
+
+## Implementation checklist
+
+- [x] Reuse the existing workspace / recent-project logic.
+- [x] Match main layout and adapt both themes / icon colors.
+- [x] Check empty / failure / responsive states.
+- [x] Fix and recapture layout issues.
+- [x] Build desktop package and verify native startup.
+
+## Follow-up polish
+
+P3: background texture and minor icon / font differences from the raster reference. Existing application branding and explicit disabled sample state are intentional product constraints.

@@ -25,6 +25,7 @@
 #include <map>
 #include <memory>
 #include <optional>
+#include <shellapi.h>
 #include <shobjidl.h>
 #include <sstream>
 #include <stdexcept>
@@ -1177,10 +1178,13 @@ window.addEventListener("DOMContentLoaded", () => {
     const contentCard = document.querySelector(".content-card");
     const framingRules = document.querySelectorAll(".tcp-framing select option");
     const bindingForms = document.querySelectorAll(".tcp-framing");
-    const windowControls = document.querySelectorAll(".window-control");
-    if (shell && titlebar && schemaButton && debug && settings && sidebar &&
-        sidebarResizeHandle && contentCard && framingRules.length >= 4 && bindingForms.length >= 2 &&
-        windowControls.length === 3) {
+    const windowControls = document.querySelectorAll(".window-control:not(.titlebar-settings)");
+    const startPage = document.querySelector(".start-page");
+    if (shell && titlebar && schemaButton && debug && settings && !sidebar &&
+        !sidebarResizeHandle && contentCard && startPage &&
+        document.querySelector("#start-title") && document.querySelector(".start-projects") &&
+        document.querySelector(".titlebar-settings") &&
+        framingRules.length >= 4 && bindingForms.length >= 2 && windowControls.length === 3) {
       Promise.all([
         window.iotpsWorkspaceCurrent(),
         window.iotpsWorkspaceCreateProtocol(
@@ -1200,6 +1204,11 @@ window.addEventListener("DOMContentLoaded", () => {
         window.iotpsSmokeDecodeFixture(),
       ])
         .then(async ([current, createResult, saveResult, fieldResult, closed, windowResult, folderResult, projectResult, converted, checksum, decoded, file, fixture]) => {
+          const invalidReveal = await window.iotpsWorkspaceReveal("relative-project");
+          if (invalidReveal?.ok !== false || !invalidReveal.error) {
+            report("project-reveal-validation-failed");
+            return;
+          }
           await window.iotpsTcp("smoke", "create");
           const tcpPoll = await window.iotpsTcp("smoke", "poll", "0");
           const tcpInvalid = await window.iotpsTcp("smoke", "start", "client", "bad-ip", "9000");
@@ -1454,10 +1463,10 @@ window.addEventListener("DOMContentLoaded", () => {
                     }
                     document.querySelector(".history-back")?.click();
                     window.setTimeout(() => {
-                      if (!document.querySelector(".schema-page") ||
+                      if (!document.querySelector(".start-page") ||
                           !document.querySelector(".schema-button.active") ||
-                          !document.querySelector(".schema-sidebar") ||
-                          !document.querySelector(".sidebar-resize-handle")) {
+                          document.querySelector(".schema-sidebar") ||
+                          document.querySelector(".sidebar-resize-handle")) {
                         report("history-navigation-failed");
                         return;
                       }
@@ -2075,6 +2084,26 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR command_line, int) {
                 return load_workspace(path, current_project);
             } catch (const std::exception& error) {
                 return workspace_error_response("workspace_operation_failed", error.what());
+            }
+        });
+        window.bind("iotpsWorkspaceReveal", [window_handle](const std::string& request) {
+            try {
+                const auto args = string_arguments(request);
+                if (!args || args->size() != 1)
+                    return std::string{
+                        R"({"ok":false,"error":"An absolute project directory is required."})"};
+                const auto& utf8 = (*args)[0];
+                const auto path = std::filesystem::path{std::u8string{utf8.begin(), utf8.end()}};
+                if (!path.is_absolute() || !std::filesystem::is_directory(path))
+                    return std::string{
+                        R"({"ok":false,"error":"Project directory does not exist."})"};
+                const auto result = ShellExecuteW(window_handle, L"explore", path.c_str(), nullptr,
+                                                  nullptr, SW_SHOWNORMAL);
+                return reinterpret_cast<INT_PTR>(result) > 32
+                           ? std::string{R"({"ok":true})"}
+                           : std::string{R"({"ok":false,"error":"Could not open File Explorer."})"};
+            } catch (const std::exception& error) {
+                return std::string{"{\"ok\":false,\"error\":"} + json_string(error.what()) + "}";
             }
         });
         window.bind("iotpsWorkspaceRename", [&current_project](const std::string& request) {

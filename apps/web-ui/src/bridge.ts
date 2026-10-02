@@ -412,6 +412,7 @@ declare global {
     iotpsWindowAction?: (action: WindowAction) => Promise<{ ok: boolean }>;
     iotpsWorkspaceCurrent?: () => Promise<WorkspaceResult>;
     iotpsWorkspaceOpen?: (path?: string) => Promise<WorkspaceResult>;
+    iotpsWorkspaceReveal?: (path: string) => Promise<{ ok: boolean; error?: string }>;
     iotpsWorkspaceRename?: (name: string) => Promise<WorkspaceResult>;
     iotpsWorkspaceCreate?: (name: string) => Promise<WorkspaceResult>;
     iotpsWorkspaceChangeFolder?: (
@@ -626,6 +627,13 @@ export async function getCurrentProject(): Promise<WorkspaceResult> {
 
 export async function openProject(path = ""): Promise<WorkspaceResult> {
   return window.iotpsWorkspaceOpen ? window.iotpsWorkspaceOpen(path) : nativeRequired();
+}
+
+export async function revealProject(path: string): Promise<void> {
+  if (!window.iotpsWorkspaceReveal)
+    throw new Error("File Explorer is available in the desktop app.");
+  const result = await window.iotpsWorkspaceReveal(path);
+  if (!result.ok) throw new Error(result.error ?? "Could not open the project directory.");
 }
 
 export async function renameProject(name: string): Promise<WorkspaceResult> {
