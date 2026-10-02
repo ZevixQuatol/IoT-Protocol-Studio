@@ -47,7 +47,7 @@ import MessageTemplates from "./MessageTemplates";
 import Environments from "./Environments";
 import TcpWorkspace from "./TcpWorkspace";
 import StartPage from "./StartPage";
-import { Box, Radio, Settings } from "lucide-react";
+import { Box, Bug as DebugIcon, Radio, Settings } from "lucide-react";
 import { activeVariables, resolveValue, sendValues } from "./sendVariables";
 import {
   closeProject,
@@ -1507,7 +1507,7 @@ export default function App() {
             title={translation.navigation.debug}
             type="button"
           >
-            {isStartPage ? <Radio size={26} /> : <BugIcon size={17} />}
+            {isStartPage ? <DebugIcon size={26} /> : <BugIcon size={17} />}
           </button>
           <button
             aria-current={page === "tcp" ? "page" : undefined}
