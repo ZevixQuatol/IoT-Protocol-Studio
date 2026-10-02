@@ -5,7 +5,6 @@ import {
   ChevronRight,
   CircleAlert,
   Cpu,
-  Braces,
   FileCode2,
   Folder,
   FolderOpen,
@@ -19,7 +18,6 @@ import {
   ListTree,
   LoaderCircle,
   Moon,
-  Network,
   Minus,
   Palette,
   Send,
@@ -37,7 +35,6 @@ import {
   type PointerEvent,
 } from "react";
 import DotsHorizontalIcon from "./icons/dots-horizontal-icon";
-import BugIcon from "./icons/bug-icon";
 import KeyframesIcon from "./icons/keyframes-icon";
 import SparklesIcon from "./icons/sparkles-icon";
 import UnorderedListIcon from "./icons/unordered-list-icon";
@@ -47,7 +44,8 @@ import MessageTemplates from "./MessageTemplates";
 import Environments from "./Environments";
 import TcpWorkspace from "./TcpWorkspace";
 import StartPage from "./StartPage";
-import { Box, Bug as DebugIcon, Radio, Settings } from "lucide-react";
+import { Settings } from "lucide-react";
+import NavigationIcon from "./NavigationIcon";
 import { activeVariables, resolveValue, sendValues } from "./sendVariables";
 import {
   closeProject,
@@ -1497,7 +1495,11 @@ export default function App() {
             title={translation.navigation.schema}
             type="button"
           >
-            {isStartPage ? <Folder size={27} /> : <KeyframesIcon size={17} />}
+            <NavigationIcon
+              name="schema"
+              selected={page === "schema"}
+              size={isStartPage ? 27 : 17}
+            />
           </button>
           <button
             aria-current={page === "debug" ? "page" : undefined}
@@ -1507,7 +1509,7 @@ export default function App() {
             title={translation.navigation.debug}
             type="button"
           >
-            {isStartPage ? <DebugIcon size={26} /> : <BugIcon size={17} />}
+            <NavigationIcon name="debug" selected={page === "debug"} size={isStartPage ? 26 : 17} />
           </button>
           <button
             aria-current={page === "tcp" ? "page" : undefined}
@@ -1517,7 +1519,7 @@ export default function App() {
             title={locale === "zh-CN" ? "通信连接" : "Connections"}
             type="button"
           >
-            {isStartPage ? <Radio size={26} /> : <Network size={17} />}
+            <NavigationIcon name="tcp" selected={page === "tcp"} size={isStartPage ? 26 : 17} />
           </button>
           <button
             aria-current={page === "environments" ? "page" : undefined}
@@ -1527,7 +1529,11 @@ export default function App() {
             title={translation.navigation.environments}
             type="button"
           >
-            {isStartPage ? <Box size={26} /> : <Braces size={17} />}
+            <NavigationIcon
+              name="environments"
+              selected={page === "environments"}
+              size={isStartPage ? 26 : 17}
+            />
           </button>
           <button
             aria-current={page === "settings" ? "page" : undefined}
@@ -1537,7 +1543,11 @@ export default function App() {
             title={translation.navigation.settings}
             type="button"
           >
-            {isStartPage ? <Settings size={26} /> : <DotsHorizontalIcon size={16} />}
+            <NavigationIcon
+              name="settings"
+              selected={page === "settings"}
+              size={isStartPage ? 26 : 17}
+            />
           </button>
         </aside>
 
