@@ -1,0 +1,46 @@
+# SensorLink 协议定义
+# 版本：1.0.0
+# 用于智能传感器设备的数据通信协议
+
+schemaVersion: "0.1"
+protocol:
+  name: SensorLink
+  displayName: SensorLink
+  version: "1.0.0"
+  description: 智能传感器设备通信协议
+  defaultByteOrder: little
+
+messages:
+  StatusRequest:
+    displayName: 读取设备状态
+    typeId: 1
+    fields:
+      - name: sequence
+        type: uint16
+      - name: deviceId
+        type: uint32
+      - name: checksum
+        type: uint16
+    checksum:
+      name: checksum
+      algorithm: crc16-modbus
+      targetField: checksum
+
+  StatusReply:
+    displayName: 设备状态响应
+    typeId: 129
+    fields:
+      - name: sequence
+        type: uint16
+      - name: deviceId
+        type: uint32
+      - name: temperature
+        type: float32
+      - name: humidity
+        type: uint16
+      - name: checksum
+        type: uint16
+    checksum:
+      name: checksum
+      algorithm: crc16-modbus
+      targetField: checksum

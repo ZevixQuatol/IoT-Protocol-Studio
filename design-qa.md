@@ -1,3 +1,35 @@
+# P03 protocol code editor design QA — 2026-10-03
+
+final result: passed
+
+## Visual evidence and accepted requirements
+
+- Saved reference: `C:/Users/MaoEr/AppData/Local/Temp/codex-clipboard-a225c65b-a046-4398-8ea1-39ed048e099a.png`; error reference: `C:/Users/MaoEr/AppData/Local/Temp/codex-clipboard-6fd4d949-cd87-43f5-9f90-036fce81c1cb.png`.
+- Evidence directory: `C:/Users/MaoEr/.codex/visualizations/2026/10/02/01a0fb0f-028a-7c92-befb-91290b10cfcf/`. `p03-saved-comparison.png` and `p03-error-comparison.png` each contain source and capture side by side at 1586×992, 1:1 density; both combined inputs were visually inspected.
+- Explicit user changes take precedence: selected navigation uses rounded backgrounds without stripes, outline / solid icons switch with selection, and debug uses Bug while communication uses Radio. The existing chip logo and the correct Schema navigation selection are retained.
+- Layout: project explorer, code header and tabs, line-number gutter, saved protocol inspector / quick actions, collapsed problems; validation failure expands problems and removes the inspector to give the code more width. Tree selection remains on the actual YAML file. No fictional example / documentation files or mock frame IDs enter production.
+- Typography: existing application font stack; title 29px; editor uses Cascadia Code / Consolas, saved 13px / 16px lines and failed 14px / 20px lines. The source's concrete YAML shape is illustrative; the fixture uses valid existing Core schema v0.1, so content, error line 38 and token distribution differ intentionally.
+- Colors: existing dark / light theme tokens plus readable syntax colors; green saved / success, red dirty / failure / error row. Assets are existing application branding and installed icon libraries; no additional dependency or generated raster UI.
+- Copy and actions: actual saved metadata, source path and current draft diagnostics. Structure / message tabs reuse their existing views. Export reuses the host SaveDialog; clipboard copies the current draft. Formatting, protocol documentation and sample directory are disabled until those capabilities exist.
+
+## Findings and corrections
+
+- Initial saved code density was too sparse at 22px; adjusted to 16px, with 20px in error state to match the supplied distinct states.
+- Light-theme inspection found the legacy `.protocol-source` textarea background covering the syntax overlay. Removed that unnecessary class from the new editor instead of adding global overrides; recaptured both themes with visible code.
+- The error row includes the native schema path as a second line. Increased the expanded footer to 128px so the full row fits; narrow tables scroll inside their own region.
+- At 1000×720, document width equals viewport width, the inspector hides and toolbar actions remain available. English labels remain readable. Restored the explorer width after responsive checks.
+- Final saved / failed comparisons and light captures show no remaining P0/P1/P2 visual issue. P3 differences: flat background, existing titlebar styling and minor icon / spacing variations; these preserve established application choices.
+
+## Functional and native verification
+
+- Development-only `/test/project-preview.html?protocol=1` uses mock bridges and `test/protocol-preview.yaml`; it performs no real project writes and is outside the production Vite entry. Browser acceptance covers editing, validation / failed save preserving drafts, corrected save and Ctrl+S, error-line jump, structure / code switching, copy, export dispatch, problem collapse, menu Escape, dark / light, English and responsive layout. Console warning / error check returned no entries.
+- Frontend TypeScript / Vite build and focused formatting passed. The sample YAML also passed the real CLI schema validator.
+- Windows Release build and CTest `desktop_ui_smoke|schema_loader|workspace`: 3/3 passed. The WebView2 smoke invokes the actual Core draft-validation bridge for valid YAML, unsupported `float128`, line 9, bad arity and oversize rejection; export rejects an unsupported open request before displaying a dialog.
+- Draft validation calls Core Loader without writing files. Existing Workspace save validates before writing; the UI applies new workspace data only after success. Browser mocks establish UI behavior, while native checks establish real bridge / loader behavior.
+- The Windows export picker and its complete save / cancel / overwrite interaction remain for manual desktop acceptance. The automated export check does not claim native picker acceptance.
+
+---
+
 # Project management and creation design QA — 2026-10-02
 
 final result: passed

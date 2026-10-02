@@ -48,6 +48,11 @@ import { Plus, Search, Settings } from "lucide-react";
 import NavigationIcon from "./NavigationIcon";
 import ProjectOverview, { ProjectFooter } from "./ProjectOverview";
 import ProjectCreateDialog from "./ProjectCreateDialog";
+import ProtocolCodeEditor, {
+  ProtocolProblems,
+  jumpToProtocolLine,
+  type ProtocolCheck,
+} from "./ProtocolCodeEditor";
 import { activeVariables, resolveValue, sendValues } from "./sendVariables";
 import {
   closeProject,
@@ -66,6 +71,7 @@ import {
   renameProject,
   performWindowAction,
   saveProtocol,
+  validateProtocol,
   logFile,
   updateFieldDisplayName,
   type CoreInfo,
@@ -485,6 +491,9 @@ export default function App() {
   const [treeSearch, setTreeSearch] = useState("");
   const [draftContent, setDraftContent] = useState("");
   const [designerView, setDesignerView] = useState<DesignerView>("code");
+  const [protocolCheck, setProtocolCheck] = useState<ProtocolCheck>();
+  const [protocolProblemsOpen, setProtocolProblemsOpen] = useState(false);
+  const protocolEditorRef = useRef<HTMLTextAreaElement>(null);
   const [messageName, setMessageName] = useState("");
   const [messageFieldValues, setMessageFieldValues] = useState<Record<string, string>>({});
   const [messageEncodeResult, setMessageEncodeResult] = useState<MessageEncodeResult>();
@@ -549,6 +558,14 @@ export default function App() {
   const project = workspace?.ok ? workspace.project : null;
   const isStartPage = page === "schema" && !project;
   const isProjectOverview = page === "schema" && !!project && !selectedProtocolPath;
+  const isProtocolCode = page === "schema" && !!selectedProtocolPath && designerView === "code";
+  const hasProjectExplorer = isProjectOverview || isProtocolCode;
+  const currentProtocolCheck =
+    protocolCheck &&
+    protocolCheck.path === selectedProtocolPath &&
+    protocolCheck.content === draftContent
+      ? protocolCheck.result
+      : undefined;
   const projectTree = project
     ? buildTree(
         treeSearch
@@ -1110,9 +1127,49 @@ export default function App() {
     });
   };
 
-  const saveSelectedProtocol = () => {
-    if (selectedProtocol) {
-      void run(() => saveProtocol(selectedProtocol.path, draftContent), selectedProtocol.path);
+  const saveSelectedProtocol = async () => {
+    if (!selectedProtocol || busy) return;
+    const path = selectedProtocol.path;
+    const content = draftContent;
+    setBusy(true);
+    try {
+      const result = await saveProtocol(path, content);
+      setProtocolCheck({ path, content, result: result.ok ? { ok: true } : result });
+      if (!result.ok) setProtocolProblemsOpen(true);
+      if (result.ok) applyWorkspace(result, path);
+      else setErrorMessage(undefined);
+    } catch (error) {
+      setErrorMessage(error instanceof Error ? error.message : String(error));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const validateSelectedProtocol = async () => {
+    if (!selectedProtocol || busy) return;
+    const path = selectedProtocol.path;
+    const content = draftContent;
+    setBusy(true);
+    try {
+      const result = await validateProtocol(path, content);
+      setProtocolCheck({ path, content, result });
+      setProtocolProblemsOpen(!result.ok);
+    } catch (error) {
+      setProtocolCheck({
+        path,
+        content,
+        result: {
+          ok: false,
+          error: {
+            code: "validation_failed",
+            path,
+            message: error instanceof Error ? error.message : String(error),
+          },
+        },
+      });
+      setProtocolProblemsOpen(true);
+    } finally {
+      setBusy(false);
     }
   };
 
@@ -1444,7 +1501,7 @@ export default function App() {
 
   return (
     <div
-      className={`app-shell ${isStartPage || isProjectOverview ? "startup-home" : ""} ${isProjectOverview ? "project-home" : ""}`}
+      className={`app-shell ${isStartPage || hasProjectExplorer ? "startup-home" : ""} ${hasProjectExplorer ? "project-home" : ""} ${isProtocolCode ? `protocol-home ${protocolProblemsOpen ? "protocol-errors-open" : ""}` : ""}`}
     >
       <header className="titlebar" onPointerDown={startWindowDrag}>
         <div className="titlebar-brand">
@@ -1529,7 +1586,7 @@ export default function App() {
             <NavigationIcon
               name="schema"
               selected={page === "schema"}
-              size={isStartPage || isProjectOverview ? 27 : 17}
+              size={isStartPage || hasProjectExplorer ? 27 : 17}
             />
           </button>
           <button
@@ -1543,7 +1600,7 @@ export default function App() {
             <NavigationIcon
               name="debug"
               selected={page === "debug"}
-              size={isStartPage || isProjectOverview ? 26 : 17}
+              size={isStartPage || hasProjectExplorer ? 26 : 17}
             />
           </button>
           <button
@@ -1557,7 +1614,7 @@ export default function App() {
             <NavigationIcon
               name="tcp"
               selected={page === "tcp"}
-              size={isStartPage || isProjectOverview ? 26 : 17}
+              size={isStartPage || hasProjectExplorer ? 26 : 17}
             />
           </button>
           <button
@@ -1571,7 +1628,7 @@ export default function App() {
             <NavigationIcon
               name="environments"
               selected={page === "environments"}
-              size={isStartPage || isProjectOverview ? 26 : 17}
+              size={isStartPage || hasProjectExplorer ? 26 : 17}
             />
           </button>
           <button
@@ -1585,7 +1642,7 @@ export default function App() {
             <NavigationIcon
               name="settings"
               selected={page === "settings"}
-              size={isStartPage || isProjectOverview ? 26 : 17}
+              size={isStartPage || hasProjectExplorer ? 26 : 17}
             />
           </button>
         </aside>
@@ -1595,14 +1652,14 @@ export default function App() {
             <aside className="schema-sidebar" style={{ width: `${sidebarWidth}px` }}>
               <div className="sidebar-header">
                 <span>
-                  {isProjectOverview
+                  {hasProjectExplorer
                     ? locale === "zh-CN"
                       ? "项目目录"
                       : "Project explorer"
                     : translation.workspace.project}
                 </span>
                 <div className="project-tree-tools">
-                  {isProjectOverview && (
+                  {hasProjectExplorer && (
                     <>
                       <button
                         type="button"
@@ -1672,7 +1729,7 @@ export default function App() {
                   </div>
                 </div>
               </div>
-              {isProjectOverview && treeSearchOpen && (
+              {hasProjectExplorer && treeSearchOpen && (
                 <div className="project-tree-search">
                   <input
                     aria-label={locale === "zh-CN" ? "搜索协议" : "Search protocols"}
@@ -1717,7 +1774,7 @@ export default function App() {
                         }}
                       >
                         <span>{project.name}</span>
-                        {isProjectOverview && (
+                        {hasProjectExplorer && (
                           <small title={project.rootPath}>{project.rootPath}</small>
                         )}
                       </button>
@@ -1736,11 +1793,11 @@ export default function App() {
                       </div>
                     </div>
                     <TreeItems
-                      showFileNames={isProjectOverview}
+                      showFileNames={hasProjectExplorer}
                       depth={0}
                       expanded={expanded}
                       nodes={
-                        isProjectOverview
+                        hasProjectExplorer
                           ? [
                               {
                                 key: "folder:protocols",
@@ -2390,6 +2447,22 @@ export default function App() {
                     setErrorMessage(error instanceof Error ? error.message : String(error)),
                   );
                 }}
+              />
+            ) : isProtocolCode && selectedProtocol ? (
+              <ProtocolCodeEditor
+                key={selectedProtocol.path}
+                protocol={selectedProtocol}
+                locale={locale}
+                value={draftContent}
+                dirty={isDirty}
+                busy={busy}
+                check={currentProtocolCheck}
+                editorRef={protocolEditorRef}
+                onChange={setDraftContent}
+                onSave={() => void saveSelectedProtocol()}
+                onValidate={() => void validateSelectedProtocol()}
+                onView={setDesignerView}
+                onActionError={setErrorMessage}
               />
             ) : isProjectOverview && project ? (
               <ProjectOverview
@@ -3176,6 +3249,23 @@ export default function App() {
             )}
           </main>
         </section>
+        {isProtocolCode && selectedProtocol && (
+          <ProtocolProblems
+            locale={locale}
+            protocol={selectedProtocol}
+            check={currentProtocolCheck}
+            expanded={protocolProblemsOpen}
+            onToggle={() => setProtocolProblemsOpen((open) => !open)}
+            onJump={() => {
+              if (currentProtocolCheck && !currentProtocolCheck.ok)
+                jumpToProtocolLine(
+                  protocolEditorRef.current,
+                  currentProtocolCheck.error.line,
+                  currentProtocolCheck.error.column,
+                );
+            }}
+          />
+        )}
         {isProjectOverview && (
           <ProjectFooter
             locale={locale}

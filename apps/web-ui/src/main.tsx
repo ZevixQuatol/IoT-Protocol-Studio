@@ -4,6 +4,7 @@ import App from "./App";
 import "./styles.css";
 import "./start-page.css";
 import "./project-page.css";
+import "./protocol-code.css";
 
 createRoot(document.getElementById("root")!).render(
   <StrictMode>

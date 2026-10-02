@@ -96,6 +96,61 @@
         source: "browser-preview",
       });
     </script>
-    <script type="module" src="/src/main.tsx"></script>
+    <script type="module">
+      // Dev-only bridge fixture; no real project files are modified.
+      if (new URLSearchParams(location.search).has("protocol")) {
+        const response = await fetch("/test/protocol-preview.yaml");
+        const content = await response.text();
+        project.protocols[0].content = content;
+        project.protocols[0].description = "智能传感器设备通信协议";
+        project.protocols[0].schema.protocolVersion = "1.0.0";
+        project.protocols[0].schema.defaultByteOrder = "little";
+        project.protocols[0].schema.messages = ["StatusRequest", "StatusReply"].map((name) => ({
+          name,
+          displayName: name,
+          typeId: "1",
+          checksumTarget: null,
+          fields: [
+            {
+              name: "temperature",
+              displayName: "temperature",
+              type: "float32",
+              offset: "0",
+              length: "4",
+              byteOrder: "little",
+              byteOrderInherited: true,
+            },
+          ],
+        }));
+        window.iotpsValidateProtocol = async (path, draft) => {
+          const line = draft.split("\n").findIndex((text) => text.includes("float128"));
+          window.projectUICalls.push(["validate", path]);
+          return line < 0
+            ? { ok: true }
+            : {
+                ok: false,
+                error: {
+                  code: "yaml_unknown_field_type",
+                  message: "unknown field type 'float128'",
+                  path: "messages.StatusReply.fields.temperature.type",
+                  line: line + 1,
+                  column: 9,
+                },
+              };
+        };
+        window.iotpsWorkspaceSaveProtocol = async (path, draft) => {
+          const checked = await window.iotpsValidateProtocol(path, draft);
+          if (!checked.ok) return { ...checked, source: "native-workspace" };
+          project.protocols.find((item) => item.path === path).content = draft;
+          window.projectUICalls.push(["save", path]);
+          return result();
+        };
+        window.iotpsProtocolFile = async (action, draft) => {
+          window.projectUICalls.push(["protocol-export", action, draft]);
+          return { ok: true, cancelled: false, content: "" };
+        };
+      }
+      await import("/src/main.tsx");
+    </script>
   </body>
 </html>

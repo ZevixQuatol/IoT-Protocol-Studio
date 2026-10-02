@@ -235,6 +235,13 @@ export type WorkspaceResult =
       error: { code: string; message: string; path: string; line?: number; column?: number };
     };
 
+export type ProtocolValidationResult =
+  | { ok: true }
+  | {
+      ok: false;
+      error: { code: string; message: string; path: string; line?: number; column?: number };
+    };
+
 export type ProtocolCreateRequest = {
   relativePath: string;
   name: string;
@@ -408,6 +415,7 @@ declare global {
     iotpsTrafficFile?: (action: string, content: string) => Promise<DebugFileResult>;
     iotpsPcapFile?: (session: string, localIpv4: string) => Promise<DebugFileResult>;
     iotpsLogFile?: (action: string, content: string) => Promise<DebugFileResult>;
+    iotpsProtocolFile?: (action: string, content: string) => Promise<DebugFileResult>;
     iotpsCoreInfo?: () => Promise<CoreInfo>;
     iotpsInspectHex?: (input: string) => Promise<InspectionResult>;
     iotpsWindowAction?: (action: WindowAction) => Promise<{ ok: boolean }>;
@@ -416,6 +424,7 @@ declare global {
     iotpsWorkspaceReveal?: (path: string) => Promise<{ ok: boolean; error?: string }>;
     iotpsWorkspaceRename?: (name: string) => Promise<WorkspaceResult>;
     iotpsWorkspaceCreate?: (name: string, parentPath?: string) => Promise<WorkspaceResult>;
+    iotpsValidateProtocol?: (path: string, content: string) => Promise<ProtocolValidationResult>;
     iotpsWorkspaceChooseDirectory?: () => Promise<
       { ok: true; cancelled: boolean; path: string } | { ok: false; error: string }
     >;
@@ -713,6 +722,26 @@ export async function saveProtocol(
   return window.iotpsWorkspaceSaveProtocol
     ? window.iotpsWorkspaceSaveProtocol(relativePath, content)
     : nativeRequired();
+}
+
+export async function validateProtocol(
+  path: string,
+  content: string,
+): Promise<ProtocolValidationResult> {
+  return window.iotpsValidateProtocol
+    ? window.iotpsValidateProtocol(path, content)
+    : {
+        ok: false,
+        error: {
+          code: "native_required",
+          message: "Protocol validation requires the desktop app / 协议校验需要桌面客户端",
+          path,
+        },
+      };
+}
+
+export async function exportProtocolFile(content: string): Promise<DebugFileResult> {
+  return window.iotpsProtocolFile ? window.iotpsProtocolFile("save", content) : debugNativeRequired;
 }
 
 export async function updateFieldDisplayName(

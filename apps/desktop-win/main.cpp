@@ -2,6 +2,7 @@
 #include "iotps/core/debug.hpp"
 #include "iotps/core/engine.hpp"
 #include "iotps/core/hex.hpp"
+#include "iotps/core/schema/loader.hpp"
 #include "iotps/core/transport/capture.hpp"
 #include "iotps/core/transport/correlation.hpp"
 #include "iotps/core/transport/tcp.hpp"
@@ -1020,7 +1021,8 @@ debug_file(HWND owner, const std::string& request, int kind = 0,
             return encode_error_response("invalid_request", "File request exceeds size limit");
         const auto args = string_arguments(request);
         if (!args || args->size() != 2 || ((*args)[0] != "open" && (*args)[0] != "save") ||
-            ((kind == 2 && (*args)[0] != "save") || (kind == 3 && (*args)[0] != "open")) ||
+            (((kind == 2 || kind == 4) && (*args)[0] != "save") ||
+             (kind == 3 && (*args)[0] != "open")) ||
             (*args)[1].size() > limit)
             return encode_error_response("invalid_request",
                                          "Invalid file request or size limit exceeded");
@@ -1029,25 +1031,30 @@ debug_file(HWND owner, const std::string& request, int kind = 0,
         if (FAILED(CoCreateInstance(save ? CLSID_FileSaveDialog : CLSID_FileOpenDialog, nullptr,
                                     CLSCTX_INPROC_SERVER, IID_PPV_ARGS(&dialog))))
             throw std::runtime_error("Cannot create file dialog");
-        const COMDLG_FILTERSPEC filters[]{{kind == 3   ? L"Classic PCAP (*.pcap)"
+        const COMDLG_FILTERSPEC filters[]{{kind == 4   ? L"Protocol YAML (*.yaml;*.yml)"
+                                           : kind == 3 ? L"Classic PCAP (*.pcap)"
                                            : kind == 1 ? L"IoT traffic records (*.iottraffic.json)"
                                            : kind == 2 ? L"IoT diagnostic log (*.iotlog.json)"
                                                        : L"IoT Debug annotations (*.iotdebug.json)",
-                                           kind == 3   ? L"*.pcap"
+                                           kind == 4   ? L"*.yaml;*.yml"
+                                           : kind == 3 ? L"*.pcap"
                                            : kind == 1 ? L"*.iottraffic.json"
                                            : kind == 2 ? L"*.iotlog.json"
                                                        : L"*.iotdebug.json"},
                                           {L"JSON (*.json)", L"*.json"}};
-        dialog->SetFileTypes(kind == 3 ? 1 : 2, filters);
-        dialog->SetDefaultExtension(kind == 3   ? L"pcap"
+        dialog->SetFileTypes(kind == 3 || kind == 4 ? 1 : 2, filters);
+        dialog->SetDefaultExtension(kind == 4   ? L"yaml"
+                                    : kind == 3 ? L"pcap"
                                     : kind == 1 ? L"iottraffic.json"
                                     : kind == 2 ? L"iotlog.json"
                                                 : L"iotdebug.json");
-        dialog->SetFileName(kind == 1   ? L"traffic.iottraffic.json"
+        dialog->SetFileName(kind == 4   ? L"protocol.yaml"
+                            : kind == 1 ? L"traffic.iottraffic.json"
                             : kind == 2 ? L"diagnostics.iotlog.json"
                                         : L"annotations.iotdebug.json");
         dialog->SetTitle(
-            kind == 3   ? L"Import PCAP offline"
+            kind == 4   ? L"Export protocol YAML"
+            : kind == 3 ? L"Import PCAP offline"
             : kind == 1 ? (save ? L"Export traffic records" : L"Import traffic records")
             : kind == 2 ? L"Export diagnostic log"
                         : (save ? L"Export debug annotations" : L"Import debug annotations"));
@@ -1210,6 +1217,19 @@ window.addEventListener("DOMContentLoaded", () => {
           const invalidPicker = await window.iotpsWorkspaceChooseDirectory("unexpected");
           if (invalidParent?.ok !== false || invalidPicker?.ok !== false) {
             report("project-directory-validation-failed");
+            return;
+          }
+          const validYaml = 'schemaVersion: "0.1"\nprotocol:\n  name: smoke\n  version: "1.0"\nmessages: {}\n';
+          const validDraft = await window.iotpsValidateProtocol("smoke.yaml", validYaml);
+          const invalidDraft = await window.iotpsValidateProtocol("smoke.yaml", validYaml.replace('messages: {}', 'messages:\n  reply:\n    fields:\n      - name: temperature\n        type: float128'));
+          const invalidValidationRequest = await window.iotpsValidateProtocol("smoke.yaml");
+          const oversizedDraft = await window.iotpsValidateProtocol("smoke.yaml", 'x'.repeat(1024 * 1024 + 1));
+          const invalidExport = await window.iotpsProtocolFile("open", "");
+          if (invalidExport?.error?.code !== "invalid_request") {
+            report("protocol-export-validation-failed"); return;
+          }
+          if (!validDraft?.ok || invalidDraft?.ok !== false || invalidDraft.error?.code !== "yaml_unknown_field_type" || invalidDraft.error?.line !== 9 || invalidValidationRequest?.ok !== false || oversizedDraft?.ok !== false) {
+            report("protocol-validation-failed");
             return;
           }
           if (invalidReveal?.ok !== false || !invalidReveal.error) {
@@ -2071,6 +2091,9 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR command_line, int) {
         window.bind("iotpsLogFile", [window_handle](const std::string& request) {
             return debug_file(window_handle, request, 2);
         });
+        window.bind("iotpsProtocolFile", [window_handle](const std::string& request) {
+            return debug_file(window_handle, request, 4);
+        });
         window.bind("iotpsWorkspaceCurrent", [&current_project](const std::string&) {
             return current_workspace(current_project);
         });
@@ -2204,6 +2227,21 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR command_line, int) {
         });
         window.bind("iotpsWorkspaceSaveProtocol", [&current_project](const std::string& request) {
             return save_workspace_protocol(request, current_project);
+        });
+        window.bind("iotpsValidateProtocol", [](const std::string& request) {
+            const auto args = string_arguments(request);
+            if (!args || args->size() != 2 || (*args)[0].size() > 1024 ||
+                (*args)[1].size() > 1024 * 1024 || (*args)[1].find('\0') != std::string::npos)
+                return workspace_error_response(
+                    "invalid_request", "Expected a source path and YAML draft up to 1 MiB");
+            const auto result = iotps::core::schema::load_yaml((*args)[1], (*args)[0]);
+            if (const auto* error = result.error_if()) {
+                const auto line = error->source_location ? error->source_location->line : 0;
+                const auto column = error->source_location ? error->source_location->column : 0;
+                return workspace_error_response(iotps::core::schema::to_string(error->code),
+                                                error->detail, error->path, line, column);
+            }
+            return std::string{"{\"ok\":true}"};
         });
         window.bind("iotpsWorkspaceUpdateFieldDisplayName",
                     [&current_project](const std::string& request) {
