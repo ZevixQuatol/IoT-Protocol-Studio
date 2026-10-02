@@ -44,8 +44,10 @@ import MessageTemplates from "./MessageTemplates";
 import Environments from "./Environments";
 import TcpWorkspace from "./TcpWorkspace";
 import StartPage from "./StartPage";
-import { Settings } from "lucide-react";
+import { Plus, Search, Settings } from "lucide-react";
 import NavigationIcon from "./NavigationIcon";
+import ProjectOverview, { ProjectFooter } from "./ProjectOverview";
+import ProjectCreateDialog from "./ProjectCreateDialog";
 import { activeVariables, resolveValue, sendValues } from "./sendVariables";
 import {
   closeProject,
@@ -148,7 +150,7 @@ const ANNOTATION_COLORS = {
 const SIDEBAR_MIN_WIDTH = 210;
 
 function getSidebarMaxWidth() {
-  return Math.max(SIDEBAR_MIN_WIDTH, Math.floor(window.innerWidth / 5));
+  return Math.max(SIDEBAR_MIN_WIDTH, Math.floor(window.innerWidth / 4));
 }
 
 function buildTree(project: WorkspaceProject): TreeNode[] {
@@ -324,6 +326,7 @@ function replaceBitPart(raw: string, offset: number, width: number, part: string
 }
 
 type TreeItemsProps = {
+  showFileNames?: boolean;
   nodes: TreeNode[];
   depth: number;
   expanded: Set<string>;
@@ -442,7 +445,7 @@ function TreeItems(props: TreeItemsProps) {
           type="button"
         >
           <FileCode2 size={15} />
-          <span>{node.name}</span>
+          <span>{props.showFileNames ? node.path.split("/").at(-1) : node.name}</span>
         </button>
         <div className="row-actions">
           <button
@@ -477,6 +480,9 @@ export default function App() {
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [busy, setBusy] = useState(false);
   const [createOpen, setCreateOpen] = useState(false);
+  const [projectCreateOpen, setProjectCreateOpen] = useState(false);
+  const [treeSearchOpen, setTreeSearchOpen] = useState(false);
+  const [treeSearch, setTreeSearch] = useState("");
   const [draftContent, setDraftContent] = useState("");
   const [designerView, setDesignerView] = useState<DesignerView>("code");
   const [messageName, setMessageName] = useState("");
@@ -542,6 +548,21 @@ export default function App() {
   const page = navigation.entries[navigation.index];
   const project = workspace?.ok ? workspace.project : null;
   const isStartPage = page === "schema" && !project;
+  const isProjectOverview = page === "schema" && !!project && !selectedProtocolPath;
+  const projectTree = project
+    ? buildTree(
+        treeSearch
+          ? {
+              ...project,
+              protocols: project.protocols.filter((protocol) =>
+                `${protocol.name} ${protocol.path}`
+                  .toLowerCase()
+                  .includes(treeSearch.toLowerCase()),
+              ),
+            }
+          : project,
+      )
+    : [];
   const redact = (value: string) => {
     for (const secret of sortedSensitiveValues.current) value = value.split(secret).join("•");
     return value;
@@ -785,11 +806,18 @@ export default function App() {
     if (opened) {
       setRecentProjects((current) => rememberProject(current, opened));
     }
-    const path =
-      result.project?.protocols.find((protocol) => protocol.path === preferredPath)?.path ??
-      result.project?.protocols[0]?.path;
+    const sameProject = opened?.rootPath === project?.rootPath;
+    const path = opened?.protocols.find(
+      (protocol) =>
+        protocol.path === (preferredPath ?? (sameProject ? selectedProtocolPath : undefined)),
+    )?.path;
+    if (opened && !sameProject) {
+      setSidebarWidth(Math.min(360, getSidebarMaxWidth()));
+      setTreeSearch("");
+    }
     setSelectedProtocolPath(path);
     const keys = new Set<string>();
+    keys.add("folder:protocols");
     if (result.project) {
       collectExpandedKeys(buildTree(result.project), keys);
     }
@@ -962,7 +990,8 @@ export default function App() {
       setErrorMessage(translation.structure.saveBlocked);
       return;
     }
-    setTreeDialog({ action, path });
+    if (action === "project") setProjectCreateOpen(true);
+    else setTreeDialog({ action, path });
     setErrorMessage(undefined);
   };
 
@@ -1414,7 +1443,9 @@ export default function App() {
   };
 
   return (
-    <div className={`app-shell ${isStartPage ? "startup-home" : ""}`}>
+    <div
+      className={`app-shell ${isStartPage || isProjectOverview ? "startup-home" : ""} ${isProjectOverview ? "project-home" : ""}`}
+    >
       <header className="titlebar" onPointerDown={startWindowDrag}>
         <div className="titlebar-brand">
           <img src="/iot-protocol-studio.svg" alt="" />
@@ -1498,7 +1529,7 @@ export default function App() {
             <NavigationIcon
               name="schema"
               selected={page === "schema"}
-              size={isStartPage ? 27 : 17}
+              size={isStartPage || isProjectOverview ? 27 : 17}
             />
           </button>
           <button
@@ -1509,7 +1540,11 @@ export default function App() {
             title={translation.navigation.debug}
             type="button"
           >
-            <NavigationIcon name="debug" selected={page === "debug"} size={isStartPage ? 26 : 17} />
+            <NavigationIcon
+              name="debug"
+              selected={page === "debug"}
+              size={isStartPage || isProjectOverview ? 26 : 17}
+            />
           </button>
           <button
             aria-current={page === "tcp" ? "page" : undefined}
@@ -1519,7 +1554,11 @@ export default function App() {
             title={locale === "zh-CN" ? "通信连接" : "Connections"}
             type="button"
           >
-            <NavigationIcon name="tcp" selected={page === "tcp"} size={isStartPage ? 26 : 17} />
+            <NavigationIcon
+              name="tcp"
+              selected={page === "tcp"}
+              size={isStartPage || isProjectOverview ? 26 : 17}
+            />
           </button>
           <button
             aria-current={page === "environments" ? "page" : undefined}
@@ -1532,7 +1571,7 @@ export default function App() {
             <NavigationIcon
               name="environments"
               selected={page === "environments"}
-              size={isStartPage ? 26 : 17}
+              size={isStartPage || isProjectOverview ? 26 : 17}
             />
           </button>
           <button
@@ -1546,7 +1585,7 @@ export default function App() {
             <NavigationIcon
               name="settings"
               selected={page === "settings"}
-              size={isStartPage ? 26 : 17}
+              size={isStartPage || isProjectOverview ? 26 : 17}
             />
           </button>
         </aside>
@@ -1555,55 +1594,97 @@ export default function App() {
           <>
             <aside className="schema-sidebar" style={{ width: `${sidebarWidth}px` }}>
               <div className="sidebar-header">
-                <span>{translation.workspace.project}</span>
-                <div className="project-menu" ref={projectMenuRef}>
-                  <button
-                    aria-expanded={projectMenuOpen}
-                    aria-haspopup="menu"
-                    aria-label={translation.workspace.projectActions}
-                    className="sidebar-menu-trigger"
-                    onClick={() => setProjectMenuOpen((current) => !current)}
-                    title={translation.workspace.projectActions}
-                    type="button"
-                  >
-                    <SparklesIcon size={17} />
-                  </button>
-                  {projectMenuOpen && (
-                    <div
-                      aria-label={translation.workspace.projectActions}
-                      className="project-menu-popover"
-                      role="menu"
-                    >
+                <span>
+                  {isProjectOverview
+                    ? locale === "zh-CN"
+                      ? "项目目录"
+                      : "Project explorer"
+                    : translation.workspace.project}
+                </span>
+                <div className="project-tree-tools">
+                  {isProjectOverview && (
+                    <>
                       <button
-                        disabled={busy}
+                        type="button"
+                        aria-label={locale === "zh-CN" ? "搜索项目目录" : "Search project tree"}
                         onClick={() => {
-                          setProjectMenuOpen(false);
-                          if (isDirty) {
-                            setErrorMessage(translation.structure.saveBlocked);
-                            return;
-                          }
-                          openTreeDialog("recent");
+                          setTreeSearchOpen((value) => !value);
+                          setTreeSearch("");
                         }}
-                        role="menuitem"
-                        type="button"
                       >
-                        <FolderOpen size={15} />
-                        {translation.workspace.openProject}
+                        <Search size={23} />
                       </button>
                       <button
-                        disabled={busy}
-                        onClick={() => openTreeDialog("project")}
-                        role="menuitem"
                         type="button"
+                        disabled={busy || isDirty}
+                        aria-label={translation.workspace.createProtocol}
+                        onClick={() => treeAction("createProtocol", "protocols")}
                       >
-                        <SparklesIcon size={15} />
-                        {translation.workspace.newProject}
+                        <Plus size={25} />
                       </button>
-                    </div>
+                    </>
                   )}
+                  <div className="project-menu" ref={projectMenuRef}>
+                    <button
+                      aria-expanded={projectMenuOpen}
+                      aria-haspopup="menu"
+                      aria-label={translation.workspace.projectActions}
+                      className="sidebar-menu-trigger"
+                      onClick={() => setProjectMenuOpen((current) => !current)}
+                      title={translation.workspace.projectActions}
+                      type="button"
+                    >
+                      <DotsHorizontalIcon size={23} />
+                    </button>
+                    {projectMenuOpen && (
+                      <div
+                        aria-label={translation.workspace.projectActions}
+                        className="project-menu-popover"
+                        role="menu"
+                      >
+                        <button
+                          disabled={busy}
+                          onClick={() => {
+                            setProjectMenuOpen(false);
+                            if (isDirty) {
+                              setErrorMessage(translation.structure.saveBlocked);
+                              return;
+                            }
+                            openTreeDialog("recent");
+                          }}
+                          role="menuitem"
+                          type="button"
+                        >
+                          <FolderOpen size={15} />
+                          {translation.workspace.openProject}
+                        </button>
+                        <button
+                          disabled={busy}
+                          onClick={() => openTreeDialog("project")}
+                          role="menuitem"
+                          type="button"
+                        >
+                          <SparklesIcon size={15} />
+                          {translation.workspace.newProject}
+                        </button>
+                      </div>
+                    )}
+                  </div>
                 </div>
               </div>
-
+              {isProjectOverview && treeSearchOpen && (
+                <div className="project-tree-search">
+                  <input
+                    aria-label={locale === "zh-CN" ? "搜索协议" : "Search protocols"}
+                    autoFocus
+                    placeholder={
+                      locale === "zh-CN" ? "搜索协议名称或路径…" : "Search name or path…"
+                    }
+                    value={treeSearch}
+                    onChange={(event) => setTreeSearch(event.target.value)}
+                  />
+                </div>
+              )}
               <div className="schema-tree">
                 {busy && (
                   <div className="tree-state">
@@ -1623,7 +1704,23 @@ export default function App() {
                       }}
                     >
                       <FolderOpen size={15} />
-                      <span>{project.name}</span>
+                      <button
+                        className="project-tree-identity"
+                        disabled={busy}
+                        type="button"
+                        onClick={() => {
+                          if (isDirty) {
+                            setErrorMessage(translation.structure.saveBlocked);
+                            return;
+                          }
+                          setSelectedProtocolPath(undefined);
+                        }}
+                      >
+                        <span>{project.name}</span>
+                        {isProjectOverview && (
+                          <small title={project.rootPath}>{project.rootPath}</small>
+                        )}
+                      </button>
                       <span className="project-count">{project.protocols.length}</span>
                       <div className="row-actions project-row-actions">
                         <button
@@ -1639,9 +1736,22 @@ export default function App() {
                       </div>
                     </div>
                     <TreeItems
+                      showFileNames={isProjectOverview}
                       depth={0}
                       expanded={expanded}
-                      nodes={buildTree(project)}
+                      nodes={
+                        isProjectOverview
+                          ? [
+                              {
+                                key: "folder:protocols",
+                                name: "protocols",
+                                path: "protocols",
+                                type: "folder",
+                                children: projectTree,
+                              },
+                            ]
+                          : projectTree
+                      }
                       onSelect={(protocol) => {
                         if (busy) return;
                         if (isDirty) {
@@ -2280,6 +2390,23 @@ export default function App() {
                     setErrorMessage(error instanceof Error ? error.message : String(error)),
                   );
                 }}
+              />
+            ) : isProjectOverview && project ? (
+              <ProjectOverview
+                key={project.rootPath}
+                project={project}
+                locale={locale}
+                busy={busy}
+                recent={recentProjects.find((item) => item.rootPath === project.rootPath)}
+                onCreateProtocol={() => treeAction("createProtocol", "protocols")}
+                onOpenProtocol={(protocol) => setSelectedProtocolPath(protocol.path)}
+                onDeleteProtocol={(protocol) => openTreeDialog("deleteProtocol", protocol.path)}
+                onReveal={() => {
+                  void revealProject(project.rootPath).catch((error: unknown) =>
+                    setErrorMessage(error instanceof Error ? error.message : String(error)),
+                  );
+                }}
+                onSettings={() => openTreeDialog("projectActions")}
               />
             ) : (
               <>
@@ -3049,8 +3176,37 @@ export default function App() {
             )}
           </main>
         </section>
+        {isProjectOverview && (
+          <ProjectFooter
+            locale={locale}
+            projects={recentProjects}
+            busy={busy}
+            problems={diagnostics
+              .filter((item) => item.problem)
+              .map((item) => ({ ...item, message: redact(item.message) }))}
+            onOpen={(path) => {
+              void run(() => openProject(path));
+            }}
+            onVisit={(id) => {
+              const item = diagnostics.find((item) => item.id === id);
+              if (item) {
+                navigate(item.page);
+                if (item.protocol) setSelectedProtocolPath(item.protocol);
+              }
+            }}
+          />
+        )}
       </div>
-
+      {projectCreateOpen && (
+        <ProjectCreateDialog
+          workspaceError={errorMessage && redact(errorMessage)}
+          locale={locale}
+          busy={busy}
+          initialParent={project?.rootPath.replace(/[\\/][^\\/]+$/, "") ?? ""}
+          onCreate={(name, parent) => run(() => createProject(name, parent))}
+          onClose={() => setProjectCreateOpen(false)}
+        />
+      )}
       {schemaEditTarget && selectedProtocol && (
         <SchemaEditor
           key={`${schemaEditTarget.action}:${schemaEditTarget.message?.name}:${schemaEditTarget.field?.name}`}

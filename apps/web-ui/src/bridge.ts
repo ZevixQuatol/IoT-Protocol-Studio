@@ -201,6 +201,7 @@ export type WorkspaceMessage = {
 
 export type WorkspaceProtocol = {
   name: string;
+  description?: string;
   path: string;
   content: string;
   schema: {
@@ -414,7 +415,10 @@ declare global {
     iotpsWorkspaceOpen?: (path?: string) => Promise<WorkspaceResult>;
     iotpsWorkspaceReveal?: (path: string) => Promise<{ ok: boolean; error?: string }>;
     iotpsWorkspaceRename?: (name: string) => Promise<WorkspaceResult>;
-    iotpsWorkspaceCreate?: (name: string) => Promise<WorkspaceResult>;
+    iotpsWorkspaceCreate?: (name: string, parentPath?: string) => Promise<WorkspaceResult>;
+    iotpsWorkspaceChooseDirectory?: () => Promise<
+      { ok: true; cancelled: boolean; path: string } | { ok: false; error: string }
+    >;
     iotpsWorkspaceChangeFolder?: (
       action: string,
       path: string,
@@ -661,8 +665,21 @@ export async function editSchema(request: SchemaEditRequest): Promise<WorkspaceR
     : nativeRequired();
 }
 
-export async function createProject(name: string): Promise<WorkspaceResult> {
-  return window.iotpsWorkspaceCreate ? window.iotpsWorkspaceCreate(name) : nativeRequired();
+export async function createProject(name: string, parentPath?: string): Promise<WorkspaceResult> {
+  return window.iotpsWorkspaceCreate
+    ? parentPath === undefined
+      ? window.iotpsWorkspaceCreate(name)
+      : window.iotpsWorkspaceCreate(name, parentPath)
+    : nativeRequired();
+}
+
+export async function chooseProjectDirectory() {
+  return window.iotpsWorkspaceChooseDirectory
+    ? window.iotpsWorkspaceChooseDirectory()
+    : {
+        ok: false as const,
+        error: "Directory selection requires the desktop app / 选择目录需要桌面客户端",
+      };
 }
 
 export async function changeFolder(

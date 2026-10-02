@@ -1,0 +1,708 @@
+.project-home .workspace-layout {
+  display: grid;
+  grid-template-columns: 94px auto 5px minmax(0, 1fr);
+  grid-template-rows: minmax(0, 1fr) 210px;
+  gap: 0;
+}
+.project-home .navigation-rail {
+  grid-column: 1;
+  grid-row: 1;
+}
+.project-home .schema-sidebar {
+  grid-column: 2;
+  grid-row: 1;
+  width: 340px;
+  max-width: none;
+  border-right: 1px solid var(--line);
+  background: transparent;
+}
+.project-home .sidebar-resize-handle {
+  grid-column: 3;
+  grid-row: 1;
+}
+.project-home .content-stage {
+  grid-column: 4;
+  grid-row: 1;
+  display: flex;
+}
+.project-home .content-card {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+}
+.project-home .sidebar-header {
+  height: 64px;
+  flex-basis: 64px;
+  padding: 0 20px;
+  margin: 0 15px;
+  border-bottom: 1px solid var(--line);
+}
+.project-home .sidebar-header > span {
+  color: var(--text);
+  font-size: 19px;
+  letter-spacing: 0;
+  white-space: nowrap;
+}
+.project-tree-tools {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.project-tree-tools > button,
+.project-home .sidebar-menu-trigger {
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  color: var(--start-icon);
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+}
+.project-tree-search {
+  margin: 14px 20px 0;
+}
+.project-tree-search input {
+  width: 100%;
+  padding: 8px 10px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--chrome);
+  color: var(--text);
+  font: inherit;
+}
+.project-home .schema-tree {
+  padding: 16px 15px;
+}
+.project-home .project-title {
+  min-height: 66px;
+  gap: 12px;
+  padding: 4px 14px;
+  font-size: 17px;
+}
+.project-home .project-title > svg {
+  width: 25px;
+  height: 25px;
+  flex-shrink: 0;
+}
+.project-tree-identity {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-width: 0;
+  gap: 5px;
+  padding: 0;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  background: transparent;
+  border: 0;
+  cursor: pointer;
+}
+.project-tree-identity small {
+  overflow: hidden;
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 400;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.project-home .project-title {
+  cursor: pointer;
+}
+.project-home .tree-item {
+  min-height: 44px;
+  font-size: 16px;
+  color: var(--start-icon);
+  gap: 12px;
+}
+.project-home .tree-item > svg:nth-of-type(2) {
+  width: 24px;
+  height: 24px;
+  flex-shrink: 0;
+}
+.project-home .protocol-row .tree-item > svg {
+  width: 22px;
+  height: 22px;
+  flex-shrink: 0;
+}
+.project-home .folder-item > svg:nth-of-type(2) {
+  color: #d6b953;
+}
+.project-home .tree-item[aria-current="page"] {
+  border-radius: 8px;
+  background: var(--accent-soft);
+  box-shadow: none;
+  color: var(--text);
+}
+.project-home .project-count {
+  display: none;
+}
+.project-home .row-actions button {
+  color: var(--muted);
+  background: transparent;
+}
+.project-overview {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 300px;
+  height: 100%;
+  min-height: 0;
+}
+.project-manager {
+  display: flex;
+  min-width: 0;
+  min-height: 0;
+  flex-direction: column;
+  padding: 36px 20px 24px;
+}
+.project-manager-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 15px;
+  min-height: 100px;
+  padding-bottom: 24px;
+  border-bottom: 1px solid var(--line);
+}
+.project-manager-header h1 {
+  margin: 0 0 8px;
+  font-size: 30px;
+  line-height: 1.2;
+}
+.project-manager-header p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 19px;
+}
+.project-toolbar {
+  display: flex;
+  gap: 15px;
+}
+.project-toolbar button,
+.project-row-controls button {
+  display: grid;
+  place-items: center;
+  padding: 0;
+  width: 36px;
+  height: 38px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--start-icon);
+  cursor: pointer;
+}
+.project-home button:disabled {
+  cursor: default;
+  opacity: 0.4;
+}
+.project-home button:hover:not(:disabled) {
+  background: var(--accent-soft);
+}
+.project-home button:focus-visible,
+.project-home input:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+.project-home .accent-icon {
+  color: var(--accent);
+}
+.project-home .danger-icon {
+  color: var(--start-danger);
+}
+.project-table-scroll {
+  min-width: 0;
+  min-height: 0;
+  overflow: auto;
+}
+.project-object-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 16px;
+}
+.project-object-table th {
+  padding: 18px 10px;
+  border-bottom: 1px solid var(--line);
+  text-align: left;
+  color: var(--muted);
+  font-weight: 400;
+  white-space: nowrap;
+}
+.project-object-table td {
+  height: 82px;
+  padding: 12px 10px;
+  border-bottom: 1px solid var(--line);
+}
+.project-object-table .focused {
+  background: color-mix(in srgb, var(--accent-soft) 30%, transparent);
+}
+.project-object-table .focused td:first-child {
+  box-shadow: inset 2px 0 var(--accent);
+}
+.project-object-table .project-check {
+  width: 32px;
+}
+.project-object-table input[type="checkbox"] {
+  accent-color: var(--accent);
+  width: 17px;
+  height: 17px;
+  margin: 0;
+  cursor: pointer;
+}
+.project-object-name {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  text-align: left;
+  color: var(--text);
+  cursor: pointer;
+}
+.project-object-name > svg {
+  flex-shrink: 0;
+  color: var(--start-icon);
+}
+.focused .project-object-name > svg {
+  color: var(--accent);
+}
+.project-object-name span {
+  min-width: 85px;
+}
+.project-object-name small {
+  display: block;
+  margin-top: 4px;
+  color: var(--muted);
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+.project-object-path {
+  min-width: 130px;
+  max-width: 180px;
+  overflow-wrap: anywhere;
+  color: var(--muted);
+  line-height: 1.7;
+}
+.project-row-controls {
+  display: flex;
+  gap: 2px;
+}
+.project-row-controls button {
+  width: 27px;
+}
+.project-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  white-space: nowrap;
+}
+.project-status::before {
+  content: "";
+  width: 11px;
+  height: 11px;
+  border-radius: 50%;
+  background: var(--start-icon);
+}
+.project-status.configured {
+  color: var(--accent);
+}
+.project-status.configured::before {
+  background: var(--accent);
+}
+.project-selection-count {
+  color: var(--muted);
+  font-size: 13px;
+}
+.project-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+  min-height: 250px;
+  color: var(--muted);
+}
+.project-inspector {
+  margin-top: 16px;
+  padding: 0 24px;
+  border-left: 1px solid var(--line);
+  overflow: auto;
+}
+.project-inspector h2 {
+  margin: 0;
+  padding: 10px 0;
+  font-size: 19px;
+  border-bottom: 1px solid var(--line);
+}
+.project-summary {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 16px 0;
+  border-bottom: 1px solid var(--line);
+}
+.project-summary > svg {
+  flex-shrink: 0;
+  color: var(--accent);
+}
+.project-summary > div {
+  min-width: 0;
+}
+.project-summary strong {
+  display: block;
+  font-size: 17px;
+  font-weight: 500;
+}
+.project-summary span {
+  display: block;
+  color: var(--muted);
+  font-size: 12px;
+  margin-top: 6px;
+  overflow-wrap: anywhere;
+}
+.project-facts {
+  margin: 0 0 10px;
+  font-size: 14px;
+}
+.project-facts > div {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--line);
+}
+.project-facts dt {
+  color: var(--muted);
+}
+.project-facts dd {
+  margin: 0;
+}
+.project-inspector-actions {
+  padding: 4px 0 8px;
+}
+.project-inspector-actions button {
+  display: flex;
+  width: 100%;
+  align-items: center;
+  gap: 26px;
+  min-height: 44px;
+  padding: 8px 10px;
+  border: 0;
+  border-bottom: 1px solid var(--line);
+  background: transparent;
+  color: var(--start-icon);
+  text-align: left;
+  font-size: 15px;
+  cursor: pointer;
+}
+.project-footer {
+  grid-column: 1 / -1;
+  grid-row: 2;
+  display: grid;
+  grid-template-columns: 42% minmax(0, 1fr);
+  margin: 0 24px 20px;
+  padding-top: 12px;
+  border-top: 1px solid var(--line);
+  min-height: 0;
+  gap: 22px;
+}
+.project-footer > section {
+  display: flex;
+  min-width: 0;
+  min-height: 0;
+  flex-direction: column;
+}
+.project-footer h2 {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  margin: 0;
+  padding: 6px 0 14px;
+  border-bottom: 1px solid var(--line);
+  font-size: 19px;
+}
+.project-problems {
+  padding-left: 22px;
+  border-left: 1px solid var(--line);
+}
+.project-footer-scroll {
+  overflow: auto;
+  min-height: 0;
+}
+.project-recent button {
+  width: 100%;
+  display: grid;
+  grid-template-columns: 26px minmax(80px, 1fr) minmax(80px, 1.3fr) auto;
+  gap: 15px;
+  align-items: center;
+  min-height: 45px;
+  padding: 8px 4px;
+  background: transparent;
+  color: var(--text);
+  border: 0;
+  border-bottom: 1px solid var(--line);
+  text-align: left;
+  cursor: pointer;
+  font-size: 15px;
+}
+.project-recent strong {
+  font-weight: 400;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.project-recent span {
+  color: var(--muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.project-recent time {
+  color: var(--muted);
+}
+.project-problems table {
+  width: 100%;
+  min-width: 520px;
+  border-collapse: collapse;
+  font-size: 14px;
+}
+.project-problems th {
+  font-weight: 400;
+  color: var(--muted);
+  text-align: left;
+  padding: 12px 8px;
+  border-bottom: 1px solid var(--line);
+}
+.project-problems th:first-child {
+  width: 50px;
+  white-space: nowrap;
+}
+.project-problems time {
+  white-space: nowrap;
+}
+.project-problems td {
+  padding: 12px 8px;
+  border-bottom: 1px solid var(--line);
+}
+.project-problems td button {
+  border: 0;
+  background: transparent;
+  color: var(--text);
+  text-align: left;
+  padding: 0;
+  font-size: 13px;
+  cursor: pointer;
+}
+.project-no-problems {
+  color: var(--muted);
+  padding: 15px 8px;
+  font-size: 14px;
+}
+.project-problem-count {
+  color: var(--muted);
+  font-size: 15px;
+  font-weight: 400;
+}
+.project-create-dialog {
+  width: min(750px, calc(100vw - 48px));
+  padding: 0;
+  border: 1px solid var(--line, #29383a);
+  border-radius: 14px;
+  background: var(--chrome);
+  color: var(--text);
+  box-shadow: 0 20px 80px rgb(0 0 0 / 35%);
+}
+.project-create-dialog::backdrop {
+  background: rgb(0 0 0 / 35%);
+}
+.project-create-dialog form {
+  padding: 30px 34px 20px;
+}
+.project-create-dialog header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  border-bottom: 1px solid var(--line);
+  padding-bottom: 20px;
+  margin-bottom: 22px;
+}
+.project-create-dialog h2 {
+  margin: 0;
+  font-size: 28px;
+}
+.project-create-dialog button {
+  display: grid;
+  place-items: center;
+  gap: 4px;
+  padding: 6px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+}
+.project-create-dialog button:hover:not(:disabled) {
+  background: var(--accent-soft);
+  color: var(--text);
+}
+.project-create-dialog button:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+.project-create-fields {
+  display: grid;
+  grid-template-columns: 112px minmax(0, 1fr);
+  gap: 24px 18px;
+  align-items: start;
+  padding: 0 12px;
+}
+.project-create-fields label {
+  padding-top: 12px;
+  font-size: 16px;
+}
+.project-create-fields label > span {
+  color: #ff4b50;
+  margin-left: 5px;
+}
+.project-create-fields input {
+  width: 100%;
+  min-width: 0;
+  min-height: 44px;
+  padding: 10px 14px;
+  background: transparent;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  font: inherit;
+  color: var(--text);
+}
+.project-create-fields input:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+.project-create-fields p {
+  margin: 8px 0 0;
+  font-size: 13px;
+  color: var(--muted);
+  line-height: 1.6;
+}
+.project-name-control {
+  position: relative;
+}
+.project-name-control input {
+  padding-right: 38px;
+}
+.project-name-control button {
+  position: absolute;
+  top: 7px;
+  right: 8px;
+}
+.project-location-control {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+.project-location-control button {
+  flex: 0 0 54px;
+  height: 45px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+}
+.project-destination {
+  display: flex;
+  gap: 18px;
+  padding: 18px;
+  margin: 22px 12px 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--accent-soft) 25%, transparent);
+  color: var(--muted);
+}
+.project-destination svg {
+  flex-shrink: 0;
+  color: #19b4df;
+}
+.project-destination strong {
+  display: block;
+  margin-top: 8px;
+  color: var(--accent);
+  overflow-wrap: anywhere;
+  font-weight: 500;
+}
+.project-create-dialog footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 30px;
+  padding: 5px 10px 0;
+}
+.project-create-dialog footer button {
+  min-width: 62px;
+  font-size: 16px;
+  color: var(--text);
+}
+.project-create-dialog footer button[type="submit"] > svg {
+  color: var(--accent);
+}
+.project-create-error {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 14px 12px;
+  color: #ff4b50;
+  font-size: 14px;
+}
+@media (max-width: 1300px) {
+  .project-home .workspace-layout {
+    grid-template-columns: 70px auto 5px minmax(0, 1fr);
+    grid-template-rows: minmax(0, 1fr) 180px;
+  }
+  .project-overview {
+    grid-template-columns: minmax(0, 1fr) 240px;
+  }
+  .project-manager {
+    padding: 24px 16px;
+  }
+  .project-toolbar {
+    gap: 5px;
+  }
+  .project-manager-header h1 {
+    font-size: 26px;
+  }
+  .project-manager-header p {
+    font-size: 16px;
+  }
+  .project-object-table th,
+  .project-object-table td {
+    padding-left: 6px;
+    padding-right: 6px;
+  }
+  .project-object-table th:nth-child(4),
+  .project-object-table td:nth-child(4) {
+    display: none;
+  }
+  .project-inspector {
+    padding: 0 16px;
+  }
+  .project-footer {
+    grid-template-columns: 46% minmax(0, 1fr);
+    margin: 0 16px 12px;
+  }
+  .project-recent button {
+    grid-template-columns: 25px minmax(75px, 1fr) auto;
+    gap: 8px;
+  }
+  .project-recent button > span {
+    display: none;
+  }
+}
+@media (max-width: 1050px) {
+  .project-overview {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .project-inspector {
+    display: none;
+  }
+  .project-home .titlebar-project {
+    font-size: 16px;
+    margin-left: 20px;
+  }
+}

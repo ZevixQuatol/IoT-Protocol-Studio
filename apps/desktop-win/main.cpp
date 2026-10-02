@@ -410,6 +410,7 @@ void append_protocol_schema(std::ostringstream& response,
                                     ? protocol_metadata.name
                                     : protocol_metadata.display_name)
                  << ",\"path\":" << json_string(path_utf8(protocol.relative_path))
+                 << ",\"description\":" << json_string(protocol_metadata.description)
                  << ",\"content\":"
                  << json_string(read_text_file(project.root_directory / protocol.relative_path))
                  << ",\"schema\":";
@@ -1205,6 +1206,12 @@ window.addEventListener("DOMContentLoaded", () => {
       ])
         .then(async ([current, createResult, saveResult, fieldResult, closed, windowResult, folderResult, projectResult, converted, checksum, decoded, file, fixture]) => {
           const invalidReveal = await window.iotpsWorkspaceReveal("relative-project");
+          const invalidParent = await window.iotpsWorkspaceCreate("smoke", "relative-project");
+          const invalidPicker = await window.iotpsWorkspaceChooseDirectory("unexpected");
+          if (invalidParent?.ok !== false || invalidPicker?.ok !== false) {
+            report("project-directory-validation-failed");
+            return;
+          }
           if (invalidReveal?.ok !== false || !invalidReveal.error) {
             report("project-reveal-validation-failed");
             return;
@@ -2130,25 +2137,56 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR command_line, int) {
                     *current_project, {args->begin() + 1, args->end()}));
             return workspace_error_response("invalid_request", "unknown protocol operation");
         });
-        window.bind("iotpsWorkspaceCreate", [window_handle,
-                                             &current_project](const std::string& request) {
+        window.bind("iotpsWorkspaceChooseDirectory", [window_handle](const std::string& request) {
             const auto arguments = string_arguments(request);
-            if (!arguments || arguments->size() != 1) {
-                return workspace_error_response("invalid_request", "createProject expects a name");
-            }
+            if (!arguments || !arguments->empty())
+                return std::string{
+                    "{\"ok\":false,\"error\":\"Directory selection expects no arguments\"}"};
             try {
                 const auto parent = select_project_directory(
                     window_handle, L"Select parent directory for the new project");
-                if (!parent)
-                    return empty_workspace_response(true);
-                auto result = iotps::core::workspace::create_project(*parent, (*arguments)[0]);
-                if (result.has_value())
-                    current_project = result.value().root_directory;
-                return workspace_result_response(result);
+                return std::string{"{\"ok\":true,\"cancelled\":"} + (parent ? "false" : "true") +
+                       ",\"path\":" + json_string(parent ? path_utf8(*parent) : "") + "}";
             } catch (const std::exception& error) {
-                return workspace_error_response("directory_picker_failed", error.what());
+                return std::string{"{\"ok\":false,\"error\":"} + json_string(error.what()) + "}";
             }
         });
+        window.bind(
+            "iotpsWorkspaceCreate", [window_handle, &current_project](const std::string& request) {
+                const auto arguments = string_arguments(request);
+                if (!arguments || (arguments->size() != 1 && arguments->size() != 2)) {
+                    return workspace_error_response(
+                        "invalid_request",
+                        "createProject expects a name and optional parent directory");
+                }
+                try {
+                    std::optional<std::filesystem::path> parent;
+                    if (arguments->size() == 2) {
+                        const auto& path = (*arguments)[1];
+                        if (path.empty() || path.size() > 32767 ||
+                            std::any_of(path.begin(), path.end(),
+                                        [](const unsigned char ch) { return ch < 32; }))
+                            return workspace_error_response("invalid_project_directory",
+                                                            "Invalid parent directory");
+                        parent = std::filesystem::path{std::u8string{path.begin(), path.end()}};
+                        if (!parent->is_absolute() || !std::filesystem::is_directory(*parent))
+                            return workspace_error_response(
+                                "invalid_project_directory",
+                                "Parent directory must exist and be absolute");
+                    } else {
+                        parent = select_project_directory(
+                            window_handle, L"Select parent directory for the new project");
+                    }
+                    if (!parent)
+                        return empty_workspace_response(true);
+                    auto result = iotps::core::workspace::create_project(*parent, (*arguments)[0]);
+                    if (result.has_value())
+                        current_project = result.value().root_directory;
+                    return workspace_result_response(result);
+                } catch (const std::exception& error) {
+                    return workspace_error_response("directory_picker_failed", error.what());
+                }
+            });
         window.bind("iotpsWorkspaceChangeFolder", [&current_project](const std::string& request) {
             const auto arguments = string_arguments(request);
             if (!arguments || arguments->size() != 4) {

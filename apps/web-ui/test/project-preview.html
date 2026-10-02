@@ -1,0 +1,101 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Project UI verification</title>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script>
+      const protocol = (name, path, description, messages) => ({
+        name,
+        path,
+        description,
+        content: `protocol:\n  name: ${name}\n  version: 1.0\nmessages: {}\n`,
+        schema: {
+          version: "0.1",
+          protocolVersion: "1.0",
+          defaultByteOrder: "big",
+          messageTypeField: "",
+          messages,
+        },
+      });
+      let project = {
+        name: "Smart Sensor Demo",
+        description: "Sensor protocol project",
+        rootPath: "D:\\Projects\\SmartSensorDemo",
+        folders: ["protocols/SensorLink", "protocols/Modbus"],
+        protocols: [
+          protocol("SensorLink", "protocols/SensorLink/sensorlink.yaml", "传感器链路示例协议", [
+            { name: "report", fields: [] },
+          ]),
+          protocol("Modbus", "protocols/Modbus/modbus.yaml", "基础寄存器协议集合", []),
+        ],
+      };
+      const result = () => ({ ok: true, source: "native-workspace", cancelled: false, project });
+      window.projectUICalls = [];
+      window.iotpsWorkspaceCurrent = async () => result();
+      window.iotpsWorkspaceOpen = async () => result();
+      window.iotpsWorkspaceReveal = async (path) => {
+        window.projectUICalls.push(["reveal", path]);
+        return { ok: true };
+      };
+      window.iotpsWorkspaceChooseDirectory = async () => ({
+        ok: true,
+        cancelled: false,
+        path: "D:\\Projects",
+      });
+      window.iotpsWorkspaceCreate = async (name, parent) => {
+        if (!/^[A-Za-z]:[\\/]/.test(parent))
+          return {
+            ok: false,
+            source: "native-workspace",
+            error: {
+              code: "invalid_project_directory",
+              message: "Invalid parent directory",
+              path: parent,
+            },
+          };
+        window.projectUICalls.push(["create", name, parent]);
+        project = {
+          name,
+          rootPath: parent + "\\" + name,
+          description: "",
+          folders: [],
+          protocols: [],
+        };
+        return result();
+      };
+      window.iotpsWorkspaceCreateProtocol = async (
+        path,
+        name,
+        displayName,
+        version,
+        description,
+      ) => {
+        window.projectUICalls.push(["protocol", path, name]);
+        project.protocols.push(protocol(displayName || name, "protocols/" + path, description, []));
+        return result();
+      };
+      window.iotpsWorkspaceClose = async () => {
+        project = null;
+        return result();
+      };
+      window.iotpsWorkspaceProtocols = async (action, path) => {
+        window.projectUICalls.push([action, path]);
+        if (action === "delete")
+          project.protocols = project.protocols.filter((item) => item.path !== path);
+        return result();
+      };
+      window.iotpsCoreInfo = async () => ({
+        product: "IoT Protocol Studio",
+        version: "0.1.0",
+        platform: "Windows",
+        architecture: "x86_64",
+        source: "browser-preview",
+      });
+    </script>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

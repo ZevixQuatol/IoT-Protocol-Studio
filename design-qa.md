@@ -1,3 +1,33 @@
+# Project management and creation design QA — 2026-10-02
+
+final result: passed
+
+## Visual evidence and accepted requirements
+
+- Project reference: `C:/Users/MaoEr/AppData/Local/Temp/codex-clipboard-078d1a84-877d-4527-a5e2-3e5bc00bf790.png`.
+- Dialog reference: `C:/Users/MaoEr/AppData/Local/Temp/codex-clipboard-51c6cb64-5988-4f6b-9fe3-416dddbd0596.png`.
+- Evidence directory: `C:/Users/MaoEr/.codex/visualizations/2026/10/02/01a0fb0f-028a-7c92-befb-91290b10cfcf/`. `project-comparison.png` and `project-create-comparison.png` each combine the original reference and implementation in the same comparison image. Both source and capture are 1586×992 at 1:1 density.
+- The user's explicit prior changes override the reference: rounded navigation selection with no stripe; outline icons by default and solid icons when selected; Bug for debug and Radio for communication. Existing branding and the completed startup home are retained.
+- Matched surfaces: explorer / center table / right inspector composition, section separators, project toolbar, bottom recent projects and problems, and the modal's name, location, destination preview and icon actions. Dark and light themes use existing application tokens.
+- State differences are intentional: the fixture has two actual protocol records and no example files; production shows real workspace data. Counts represent protocol and message types, and the timestamp says last opened. Unimplemented sample import, templates and documentation controls are disabled. Mockup frame IDs and fictional warnings are omitted.
+
+## Findings and corrections
+
+- Initial capture: missing protocols root, small center typography, and clipped inspector quick links. Added the actual protocols hierarchy, increased table text to 16px and reduced inspector section spacing. Recaptured both themes; links fit at the reference viewport.
+- Responsive capture: narrow problem columns wrapped their headings. Kept the problem table at a readable minimum width inside its scrolling region. At 1000×720, page width remains 1000px; the inspector hides and its primary actions remain in the toolbar.
+- Error-state check: a previous invalid-name message masked a subsequent native directory error. Cleared local validation errors before submitting valid fields and verified invalid name → corrected name / invalid directory displays the directory error inside the dialog.
+- Final combined visual comparisons were inspected after these corrections. No remaining P0/P1/P2 visual issues. P3 differences: library icon shapes, flat background, and minor font / spacing differences; these do not change the accepted interaction requirements.
+
+## Functional and native verification
+
+- Isolated development fixture: `apps/web-ui/test/project-preview.html`, served at port 5174. Its mock bridges perform no filesystem operations and it is outside the production Vite entry. Browser storage is isolated from the existing preview at port 5173.
+- Browser checked: loaded project overview, directory search, selection and select all, protocol editing and return to overview, protocol creation, deletion confirmation / cancellation, empty project, project creation success and failure, folder selection, live destination preview, dark / light and Chinese / English. Console error inspection returned no entries.
+- The preview's communication diagnostic is expected because the fixture has no native communication bridge. It demonstrates real diagnostic display rather than a fabricated warning.
+- TypeScript, Vite / Windows Release build, formatting, workspace unit test and real WebView2 UI smoke passed. Native smoke checks the new directory selection argument contract and rejects relative project parent paths.
+- The native folder picker and successful File Explorer opening have not undergone full manual desktop acceptance. Browser creation and folder selection checks use mocked bridges; they do not establish native picker acceptance.
+
+---
+
 # Startup home design QA — 2026-10-02
 
 final result: passed

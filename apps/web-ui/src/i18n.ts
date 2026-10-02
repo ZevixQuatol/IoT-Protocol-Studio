@@ -661,6 +661,7 @@ const chineseWorkspaceErrors: Record<string, string> = {
   invalid_byte_order: "默认字节序无效",
   directory_picker_failed: "无法打开项目目录选择器",
   project_directory_not_found: "项目目录不存在",
+  invalid_project_directory: "保存位置必须是已存在的绝对目录路径",
   project_manifest_open_failed: "无法打开 project.yaml",
   project_manifest_read_failed: "无法读取 project.yaml",
   yaml_parse_error: "YAML 语法错误",
