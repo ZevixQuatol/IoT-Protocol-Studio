@@ -52,3 +52,61 @@ async function checkDebugTools(page) {
   );
   return "PASS: protocol selection, field linking, tool navigation, file round trip, CRC failure, jump";
 }
+
+// Run against test/project-preview.html?debug with Playwright or the CUA Playwright facade.
+export async function checkP06Tools(page) {
+  const check = (value, message) => {
+    if (!value) throw new Error(message);
+  };
+  await page.getByRole("button", { name: "调试", exact: true }).click();
+  const input = page.getByRole("textbox", { name: "原始 HEX", exact: true });
+  await input.fill("31 32 33 34 35 36 37 38 39 37 4B");
+  await page.getByRole("button", { name: "解析", exact: true }).click();
+  const toggle = page.getByRole("button", { name: "调试工具", exact: true });
+  if ((await toggle.getAttribute("aria-expanded")) !== "true") await toggle.click();
+  const dock = page.getByRole("complementary", { name: "工具面板", exact: true });
+  await dock.getByRole("button", { name: "数值转换", exact: true }).click();
+  await dock.getByLabel("数据位宽", { exact: true }).selectOption("16");
+  await dock.getByRole("textbox", { name: "转换输入", exact: true }).fill("26 1A");
+  await dock
+    .getByRole("button", { name: "复制 DEC（有符号）", exact: true })
+    .waitFor({ state: "visible" });
+  check((await dock.innerText()).includes("6694"), "Little-endian conversion");
+  // A spaced conversion HEX result must never be rendered as a checksum BigInt.
+  await dock.getByRole("button", { name: "CRC / 校验", exact: true }).click();
+  await dock.getByLabel("结束偏移（含）", { exact: true }).fill("8");
+  await dock.getByRole("button", { name: "计算", exact: true }).click();
+  await dock.getByText("0x4B37", { exact: true }).waitFor({ state: "visible" });
+  check(
+    (await dock.innerText()).includes("与范围后校验字节一致"),
+    "CRC byte order and following-byte comparison",
+  );
+  await dock.getByRole("button", { name: "大端 (BE)", exact: true }).click();
+  check(
+    (await dock.innerText()).includes("与范围后字节不一致"),
+    "CRC byte-order change retains calculated result",
+  );
+  await dock.getByRole("button", { name: "查找替换", exact: true }).click();
+  await dock.getByRole("textbox", { name: "查找内容", exact: true }).fill("37");
+  await dock.getByRole("textbox", { name: "替换内容", exact: true }).fill("FF");
+  await dock.getByRole("button", { name: "查找", exact: true }).click();
+  check((await page.locator(".debug-match-table tbody tr").count()) === 2, "Complete-byte matches");
+  await dock.getByRole("button", { name: "下一个", exact: true }).click();
+  await dock.getByRole("button", { name: "替换", exact: true }).click();
+  check(
+    (await input.evaluate((element) => element.value)) === "31 32 33 34 35 36 37 38 39 FF 4B",
+    "Replace only current match",
+  );
+  check(
+    (await page.locator(".debug-hex-select").count()) === 0,
+    "Changed bytes clear prior inspection",
+  );
+  await page.getByRole("button", { name: "解析", exact: true }).click();
+  await dock.getByRole("button", { name: "查找", exact: true }).click();
+  await dock.getByRole("button", { name: "全部替换", exact: true }).click();
+  check(
+    (await input.evaluate((element) => element.value)) === "31 32 33 34 35 36 FF 38 39 FF 4B",
+    "Replace remaining matches",
+  );
+  return "PASS: P06 conversion, cross-tool result isolation, CRC range/order, current/all replacements and inspection invalidation";
+}

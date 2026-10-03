@@ -363,7 +363,10 @@
           return { ok: true, cancelled: false, content: action === "open" ? saved : "" };
         };
       }
-      await import("/src/main.tsx");
+      if (new URLSearchParams(location.search).has("debug")) {
+        await import("/test/debug-tool-fixture.js");
+        await import("/test/debug-preview.tsx");
+      } else await import("/src/main.tsx");
     </script>
   </body>
 </html>

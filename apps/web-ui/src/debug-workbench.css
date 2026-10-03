@@ -8,6 +8,7 @@
   overflow: hidden;
 }
 .debug-workbench {
+  position: relative;
   display: flex;
   flex-direction: column;
   flex: 1;
@@ -194,7 +195,7 @@
   overflow: hidden;
 }
 .debug-workbench-body.tools-open {
-  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) 400px;
+  grid-template-columns: minmax(0, 0.9fr) minmax(0, 1.3fr);
   grid-template-rows: minmax(120px, 1fr) minmax(150px, 1fr) auto;
 }
 .tools-open .debug-data-column {
@@ -209,7 +210,16 @@
   grid-column: 1;
   grid-row: 2;
   min-height: 0;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: 1fr;
+  align-content: start;
+  gap: 6px;
+}
+.tools-open .debug-selected-details > div + div {
+  border-left: 0;
+  padding-left: 0;
+}
+.tools-open .debug-selected-details > div:nth-child(2) h2 {
+  display: none;
 }
 .tools-open .debug-selected-details > div:last-child {
   display: none;
@@ -224,8 +234,14 @@
   grid-row: 3;
 }
 .tools-open .debug-tools-dock {
-  grid-column: 3;
-  grid-row: 1/4;
+  position: absolute;
+  top: 16px;
+  right: 18px;
+  bottom: 12px;
+  width: 430px;
+}
+.debug-workbench.with-tools {
+  padding-right: 460px;
 }
 .debug-data-column {
   display: flex;
@@ -577,7 +593,7 @@
 }
 .debug-tools-dock-body {
   display: grid;
-  grid-template-columns: 114px minmax(0, 1fr);
+  grid-template-columns: 120px minmax(0, 1fr);
   flex: 1;
   min-height: 0;
 }
@@ -592,13 +608,190 @@
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 12px 6px;
+  padding: 13px 8px;
   text-align: left;
   font-size: 13px;
 }
 .debug-tools-dock nav .active {
   color: var(--accent);
   background: var(--accent-soft);
+}
+.debug-tool-heading {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+}
+.debug-tool-heading > button {
+  display: flex;
+}
+.debug-tool-content h3 {
+  font-size: 13px;
+  font-weight: 500;
+  margin: 2px 0 6px;
+}
+.debug-tool-content .debug-segmented {
+  display: flex;
+  gap: 4px;
+}
+.debug-segmented > button {
+  flex: 1;
+  min-width: 0;
+  min-height: 32px;
+  white-space: nowrap;
+}
+.debug-segmented > button[aria-pressed="true"] {
+  color: var(--accent);
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+.debug-tool-content .primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #092b21;
+  min-height: 32px;
+}
+.debug-tool-content .primary:hover:not(:disabled) {
+  background: var(--accent);
+  filter: brightness(1.08);
+}
+:root[data-theme="light"] .debug-tool-content .primary {
+  color: white;
+}
+.debug-tool-content > .primary {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+}
+.debug-tool-content .debug-use-source {
+  align-self: flex-start;
+  color: var(--muted);
+  font-size: 11px;
+}
+.debug-tool-result,
+.debug-quick-tools {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 10px;
+}
+.debug-tool-result dl {
+  margin: 0;
+}
+.debug-tool-result dl > div {
+  display: grid;
+  grid-template-columns: minmax(70px, 0.85fr) minmax(0, 1fr);
+  gap: 8px;
+  padding: 7px 0;
+  font-size: 12px;
+  border-bottom: 1px solid var(--line);
+}
+.debug-tool-result dl > div:last-child {
+  border-bottom: 0;
+}
+.debug-tool-result dt {
+  color: var(--muted);
+}
+.debug-tool-result dd {
+  margin: 0;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 4px;
+}
+.debug-tool-result code {
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+.debug-tool-result dd button {
+  border: 0;
+  padding: 2px;
+  display: flex;
+}
+.debug-tool-result p {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  margin-top: 10px;
+}
+.debug-tool-content .success {
+  color: var(--accent);
+}
+.debug-quick-tools > div {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.debug-quick-tools button {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  white-space: nowrap;
+}
+.debug-tool-content .debug-crc-params {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.debug-tool-content .debug-crc-params label {
+  flex-direction: row;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 11px;
+}
+.debug-tool-content .debug-crc-params :is(input, select) {
+  width: 118px;
+  height: 30px;
+  padding: 4px 8px;
+}
+.debug-tool-content .debug-search-actions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+}
+.debug-search-summary {
+  font-size: 13px;
+}
+.debug-search-summary strong {
+  color: var(--accent);
+  margin: 0 4px;
+}
+.debug-search-summary small {
+  float: right;
+  color: var(--muted);
+}
+.debug-match-scroll {
+  overflow: auto;
+  max-height: 280px;
+  flex-shrink: 0;
+}
+.debug-match-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 11px;
+}
+.debug-match-table :is(th, td) {
+  padding: 7px 4px;
+  border-bottom: 1px solid var(--line);
+  text-align: left;
+}
+.debug-match-table th {
+  color: var(--muted);
+  font-weight: 400;
+}
+.debug-match-table .active {
+  background: var(--accent-soft);
+}
+.debug-match-table td button {
+  border: 0;
+  padding: 0;
+  background: transparent;
+  font: inherit;
+}
+.debug-match-table code {
+  overflow-wrap: anywhere;
 }
 .debug-tool-content {
   min-width: 0;
@@ -650,6 +843,14 @@
 .debug-tool-content .debug-tool-grid {
   grid-template-columns: 1fr 1fr;
   gap: 8px;
+}
+.debug-tool-content .debug-conversion-options {
+  grid-template-columns: 1fr;
+}
+.debug-tool-content .debug-conversion-input {
+  min-height: 36px;
+  height: 36px;
+  resize: none;
 }
 .debug-tool-content .debug-tool-actions {
   gap: 6px;
@@ -754,8 +955,14 @@
   color: white;
 }
 @media (max-width: 1400px) {
+  .with-tools .debug-workbench-toolbar {
+    flex-wrap: wrap;
+  }
+  .debug-home .with-tools .debug-input-panel {
+    flex-basis: 100%;
+  }
   .debug-workbench-body.tools-open {
-    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) 380px;
+    grid-template-columns: minmax(0, 0.9fr) minmax(0, 1.3fr);
   }
   .debug-selected-details {
     grid-template-columns: 1fr 1fr;
@@ -780,7 +987,29 @@
     grid-template-columns: minmax(0, 1.35fr) minmax(280px, 1fr);
   }
   .debug-workbench-body.tools-open {
-    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) 340px;
+    grid-template-columns: minmax(0, 1fr);
+    overflow: auto;
+    grid-template-rows: 180px auto auto auto;
+  }
+  .debug-workbench.with-tools {
+    padding-right: 378px;
+  }
+  .tools-open .debug-tools-dock {
+    width: 350px;
+  }
+  .tools-open
+    :is(.debug-hex-panel, .debug-selected-details, .debug-decoded-panel, .debug-annotations-panel) {
+    grid-column: 1;
+  }
+  .tools-open .debug-decoded-panel {
+    grid-row: 3;
+    min-height: 250px;
+  }
+  .tools-open .debug-selected-details {
+    min-height: 330px;
+  }
+  .tools-open .debug-annotations-panel {
+    grid-row: 4;
   }
   .debug-selected-details {
     padding: 12px;
@@ -800,7 +1029,10 @@
     min-height: 155px;
   }
   .debug-tools-dock-body {
-    grid-template-columns: 98px minmax(0, 1fr);
+    grid-template-columns: 110px minmax(0, 1fr);
+  }
+  .debug-tools-dock nav button {
+    font-size: 12px;
   }
 }
 @media (max-height: 700px) {

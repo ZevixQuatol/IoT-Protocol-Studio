@@ -155,3 +155,16 @@ Source and implementation dimensions: 1586×992 pixels; CSS viewport 1586×992; 
 ## Follow-up polish
 
 P3: background texture and minor icon / font differences from the raster reference. Existing application branding and explicit disabled sample state are intentional product constraints.
+
+---
+
+# P06 debug tools design QA — 2026-10-03
+
+final result: passed
+
+- Full scope, reference paths, comparison dimensions, corrections, and validation boundaries are recorded in [P06 UI verification](docs/P06-UI验证.md).
+- Reused P05 and existing Core bridges. The right dock contains tool navigation and conversion, search/replace, and CRC views. Opening the dock places HEX above selection details and decoded fields. Existing branding, navigation, and real Core data remain authoritative.
+- Inspected final conversion/search/CRC at 1586×992, light mode at 1280×720, and Chinese/English narrow mode at 1000×720. Final screenshots are in `C:/Users/MaoEr/.codex/visualizations/2026/10/03/01a10243-a6a2-7f50-b2d2-f4331f46c86b/`.
+- Corrected toolbar overlap, detail clipping, CRC parameter density, selection/field synchronization, primary-button hover contrast, and stale conversion output during tool switching. No unresolved P0/P1/P2 visual defect; existing titlebar, accent, icons, and flat background are retained P3 differences.
+- TypeScript, targeted formatting, Windows Release build, P05 byte-view tests, and P06 browser regression passed. Seven focused Release CTests passed, including WebView2 smoke and real Core tool/checksum/codec tests. Fresh browser error/warning logs were empty.
+- Browser fixtures verify presentation and bridge interaction. Manual native picker/clipboard and desktop end-to-end acceptance remain separate checks.
