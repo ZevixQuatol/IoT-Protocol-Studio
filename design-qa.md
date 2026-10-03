@@ -1,3 +1,25 @@
+# P05 HEX debug workbench design QA — 2026-10-03
+
+final result: passed
+
+## Reference and visual evidence
+
+- Primary reference: `C:/Users/MaoEr/AppData/Local/Temp/codex-clipboard-b7332e2e-906d-4181-bfac-e5b72d0268c2.png`. Its top 1586×573 application frame was cropped from the composite board. Secondary boards show the related conversion/search/CRC dock.
+- Evidence: `C:/Users/MaoEr/.codex/visualizations/2026/10/02/01a0fb0f-028a-7c92-befb-91290b10cfcf/`. `p05-comparison.png` compares reference and implementation at 1:1 density using the same supplied HEX input; `p05-detail-comparison.png` compares identical 1017×416 HEX/detail regions. Both combined inputs were visually inspected. Additional captures: `p05-dark.png`, `p05-light.png`, `p05-annotation-dialog.png`, `p05-decode-error.png`, `p05-tools-crc.png`, `p05-english-narrow.png`.
+- Composition: compact input / paste / format / clear / protocol / message / parse toolbar; 16-column HEX grid with offsets and ASCII; concrete field table; selected field / raw-byte interpretation / annotation note. Opening the tool dock places HEX above selected details and field results, with tool navigation at right. Annotation editing uses a native modal with name, indexed color, byte range, note, cancel, save and delete.
+- Retained explicit choices: existing titlebar and chip branding; rounded selected navigation without stripes; outline / filled icon pair; Bug debug and Radio communications; text-only parse button; no green focus outline on the HEX textarea. Dark/light tokens and the ten indexed annotation colors adapt automatically.
+- Data differences are intentional: the supplied input contains **17 bytes**, although the reference labels 16 and its field offsets overlap. Production renders actual bytes, Core field spans and checksum status. The existing SensorLink verification schema has a 14-byte reply and float32 temperature, so valid protocol decoding was checked separately with that real schema. No mock physical scale, unit, threshold or invented partial decoded fields is inserted.
+
+## Corrections and checks
+
+- Fixed the low-contrast parse hover state, stale field details after import, inherited 10px HEX headers, and clipping in short windows. HEX rows and controls now use 13–14px text. Local scrolling keeps annotations, dense fields and tools reachable in narrow/short windows. The existing format-button class is retained for native navigation smoke checks.
+- Browser verified via CUA: raw and protocol parsing, field-to-byte linking, native-order byte interpretation, forward/reverse annotation selection, ten colors, empty-name/out-of-bounds rejection, edit/cancel/delete, note export/import, formatting and reparse preserving annotations, changed input clearing stale results, checksum failure clearing fields, error-offset jump, illegal/odd HEX disabling parse, tool navigation and desktop-required feedback.
+- Dark/light Chinese UI and 1000×720 English UI inspected; document width stays equal to viewport width. Browser warning/error log was empty. No remaining P0/P1/P2 visual defect. Retained branding, compact app typography, indexed palette and real-data differences are accepted deviations from the illustrations.
+- Frontend TypeScript/Vite, focused Prettier and clang-format checks passed. Windows Release build passed. Focused CTest `desktop_ui_smoke|debug_unit|hex_unit|checksum_unit|codec|schema_loader` passed **7/7**; native bridge smoke also verifies field byte order and checksum absence. `node test/web/debug-view.test.mjs` checks signed/unsigned/endian/float interpretation and old/new annotation files. Existing browser contract scripts were updated for the new controls and syntax checked.
+- `/test/project-preview.html?debug=1` is development-only and outside the production entry. Its fixed-schema decoder/file bridge verifies presentation and UI state, not native file persistence. Real decode/conversion/checksum algorithms remain in Core. Windows picker save/cancel/overwrite still needs manual desktop acceptance; the new optional annotation note retains version-1 compatibility.
+
+---
+
 # P04 message workbench design QA — 2026-10-03
 
 final result: passed

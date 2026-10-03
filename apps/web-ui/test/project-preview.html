@@ -98,7 +98,10 @@
     </script>
     <script type="module">
       // Dev-only bridge fixture; no real project files are modified.
-      if (new URLSearchParams(location.search).has("protocol")) {
+      if (
+        new URLSearchParams(location.search).has("protocol") ||
+        new URLSearchParams(location.search).has("debug")
+      ) {
         const response = await fetch("/test/protocol-preview.yaml");
         const content = await response.text();
         project.protocols[0].content = content;
@@ -150,7 +153,10 @@
           return { ok: true, cancelled: false, content: "" };
         };
       }
-      if (new URLSearchParams(location.search).has("message")) {
+      if (
+        new URLSearchParams(location.search).has("message") ||
+        new URLSearchParams(location.search).has("debug")
+      ) {
         const field = (name, type, offset, length) => ({
           name,
           displayName: name,
@@ -298,6 +304,63 @@
         window.iotpsHexFile = async (action, content) => {
           window.projectUICalls.push(["hex-export", action, content]);
           return { ok: true, cancelled: false, content: "" };
+        };
+      }
+      if (new URLSearchParams(location.search).has("debug")) {
+        // Dev-only fixed-schema decode; Core integration is checked by desktop smoke tests.
+        window.iotpsDebugDecode = async (path, message, hex) => {
+          const bytes = Uint8Array.from(hex.split(" ").map((byte) => parseInt(byte, 16)));
+          const definition = project.protocols
+            .find((p) => p.path === path)
+            ?.schema.messages.find((m) => m.name === message);
+          const fail = (code, text, offset = 0) => ({
+            ok: false,
+            error: { code, message: text, path: message, offset },
+          });
+          if (!definition) return fail("message_not_found", "Message not found");
+          const size = message === "StatusReply" ? 14 : 8;
+          if (bytes.length !== size) return fail("message_size_mismatch", `Expected ${size} bytes`);
+          const view = new DataView(bytes.buffer);
+          let crc = 0xffff;
+          for (const byte of bytes.slice(0, -2)) {
+            crc ^= byte;
+            for (let i = 0; i < 8; i++) crc = crc & 1 ? (crc >> 1) ^ 0xa001 : crc >> 1;
+          }
+          if (view.getUint16(size - 2, true) !== crc)
+            return fail("checksum_mismatch", "CRC16/MODBUS checksum mismatch", size - 2);
+          return {
+            ok: true,
+            checksum: "pass",
+            fields: definition.fields.map((field) => {
+              const offset = Number(field.offset),
+                length = Number(field.length);
+              const value =
+                field.type === "float32"
+                  ? view.getFloat32(offset, true)
+                  : field.type === "uint32"
+                    ? view.getUint32(offset, true)
+                    : view.getUint16(offset, true);
+              return {
+                name: field.name,
+                displayName: field.name,
+                type: field.type,
+                value: String(value),
+                offset,
+                length,
+                byteOrder: "little",
+              };
+            }),
+          };
+        };
+        let saved = JSON.stringify({
+          kind: "iotps-debug",
+          version: 1,
+          hex: "AA 41 42 43 FF",
+          annotations: [{ start: 0, end: 2, label: "Legacy", color: 2 }],
+        });
+        window.iotpsDebugFile = async (action, content) => {
+          if (action === "save") saved = content;
+          return { ok: true, cancelled: false, content: action === "open" ? saved : "" };
         };
       }
       await import("/src/main.tsx");

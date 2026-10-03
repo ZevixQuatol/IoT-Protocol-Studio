@@ -41,6 +41,8 @@ import {
   UnorderedListIcon,
 } from "./feather-icons";
 import DebugTools, { type DebugAnnotation, type DebugRange } from "./DebugTools";
+import DebugHexView from "./DebugHexView";
+import { ClipboardPaste } from "lucide-react";
 import SchemaEditor, { type SchemaEditTarget } from "./SchemaEditor";
 import MessageTemplates, { MessageOutput } from "./MessageTemplates";
 import Environments from "./Environments";
@@ -123,39 +125,6 @@ type TreeNode = {
   protocol?: WorkspaceProtocol;
 };
 
-type DebugAnnotationSegment = {
-  annotation: DebugAnnotation;
-  start: number;
-  end: number;
-};
-
-const ANNOTATION_COLORS = {
-  light: [
-    "#C15DD5",
-    "#9075FC",
-    "#1EC0D7",
-    "#79C93A",
-    "#D5D71A",
-    "#FFCB45",
-    "#FF813A",
-    "#FB5E49",
-    "#F92A5E",
-    "#F16BA3",
-  ],
-  dark: [
-    "#C981D7",
-    "#A18CF0",
-    "#66BECA",
-    "#9CC673",
-    "#D0D16A",
-    "#EDCB74",
-    "#E99463",
-    "#F27A6A",
-    "#EC6486",
-    "#E991B5",
-  ],
-};
-
 const SIDEBAR_MIN_WIDTH = 210;
 
 function getSidebarMaxWidth() {
@@ -211,42 +180,6 @@ function collectExpandedKeys(nodes: TreeNode[], keys: Set<string>) {
       collectExpandedKeys(node.children ?? [], keys);
     }
   }
-}
-
-function buildDebugAnnotationSegments(
-  annotations: DebugAnnotation[],
-  byteCount: number,
-): DebugAnnotationSegment[] {
-  const annotationAtOffset: Array<DebugAnnotation | undefined> = Array(byteCount).fill(undefined);
-  for (const annotation of annotations) {
-    for (
-      let offset = annotation.start;
-      offset <= annotation.end && offset < byteCount;
-      offset += 1
-    ) {
-      if (offset >= 0) {
-        annotationAtOffset[offset] = annotation;
-      }
-    }
-  }
-
-  const segments: DebugAnnotationSegment[] = [];
-  let offset = 0;
-  while (offset < byteCount) {
-    const annotation = annotationAtOffset[offset];
-    if (!annotation) {
-      offset += 1;
-      continue;
-    }
-
-    let end = offset;
-    while (end + 1 < byteCount && annotationAtOffset[end + 1]?.id === annotation.id) {
-      end += 1;
-    }
-    segments.push({ annotation, start: offset, end });
-    offset = end + 1;
-  }
-  return segments;
 }
 
 function defaultMessageFieldValue(
@@ -510,16 +443,6 @@ export default function App() {
   const [debugToolRange, setDebugToolRange] = useState<DebugRange>(null);
   const [debugByteOffset, setDebugByteOffset] = useState<{ offset: number } | null>(null);
   const [debugHandoff, setDebugHandoff] = useState<{ seq: number; record: TcpRecord } | null>(null);
-  const [indexMode, setIndexMode] = useState<"byte" | "offset">("byte");
-  const [annotationSelection, setAnnotationSelection] = useState<{
-    anchor: number;
-    end: number;
-    editing: boolean;
-  } | null>(null);
-  const annotationDialogRef = useRef<HTMLDialogElement>(null);
-  const [annotationLabel, setAnnotationLabel] = useState("");
-  const [annotationColor, setAnnotationColor] = useState(0);
-  const [annotationError, setAnnotationError] = useState(false);
   const [structureSelection, setStructureSelection] = useState<{
     messageName: string;
     fieldName?: string;
@@ -709,33 +632,6 @@ export default function App() {
   const debugByteCount = Math.floor(debugCharacterCount / 2);
   const debugInvalidPosition = compactDebugInput.search(/[^0-9a-f]/i);
   const debugHasOddLength = debugCharacterCount > 0 && debugCharacterCount % 2 !== 0;
-  const debugAnnotationSegments = debugResult?.ok
-    ? buildDebugAnnotationSegments(debugAnnotations, debugResult.bytes.length)
-    : [];
-  const debugAnnotationSegmentByStart = new Map(
-    debugAnnotationSegments.map((segment) => [segment.start, segment]),
-  );
-  const annotationPalette = ANNOTATION_COLORS[theme];
-  const selectionStart = annotationSelection
-    ? Math.min(annotationSelection.anchor, annotationSelection.end)
-    : -1;
-  const selectionEnd = annotationSelection
-    ? Math.max(annotationSelection.anchor, annotationSelection.end)
-    : -1;
-
-  useEffect(() => {
-    setAnnotationSelection(null);
-  }, [debugResult, page]);
-
-  useEffect(() => {
-    const dialog = annotationDialogRef.current;
-    if (annotationSelection?.editing && page === "debug" && debugResult?.ok) {
-      if (dialog && !dialog.open) dialog.showModal();
-    } else {
-      dialog?.close();
-    }
-  }, [annotationSelection?.editing, page, debugResult]);
-
   const structureProperties = selectedStructureField
     ? [
         [translation.structure.name, selectedStructureField.name],
@@ -1281,9 +1177,7 @@ export default function App() {
     }
   };
 
-  const inspectDebugHex = async (event: FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
-
+  const inspectDebugHex = async () => {
     if (debugCharacterCount === 0 || debugInvalidPosition >= 0 || debugHasOddLength) {
       return;
     }
@@ -1295,10 +1189,7 @@ export default function App() {
       const result = await inspectHex(debugInput);
       if (debugContentRef.current !== content) return;
       setDebugResult(result);
-      setDebugAnnotations([]);
-      setAnnotationSelection(null);
-      setAnnotationLabel("");
-      setAnnotationError(false);
+      return result;
     } catch (error) {
       if (debugContentRef.current !== content) return;
       setDebugResult({
@@ -1313,57 +1204,6 @@ export default function App() {
     } finally {
       setDebugBusy(false);
     }
-  };
-
-  const selectAnnotationCell = (index: number) => {
-    if (annotationSelection?.editing) return;
-    setAnnotationError(false);
-    setAnnotationLabel("");
-    setAnnotationSelection((current) =>
-      current
-        ? { ...current, end: index, editing: true }
-        : { anchor: index, end: index, editing: false },
-    );
-  };
-
-  const previewAnnotationCell = (index: number) => {
-    setAnnotationSelection((current) =>
-      current && !current.editing ? { ...current, end: index } : current,
-    );
-  };
-
-  const addDebugAnnotation = (event: FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
-    if (!debugResult?.ok || !annotationSelection?.editing) return;
-    const start = selectionStart;
-    const end = selectionEnd;
-    const label = annotationLabel.trim();
-    if (
-      !Number.isInteger(start) ||
-      !Number.isInteger(end) ||
-      start < 0 ||
-      end < start ||
-      end >= debugResult.byteCount ||
-      !label ||
-      !Number.isInteger(annotationColor) ||
-      !annotationPalette[annotationColor] ||
-      label.length > 160 ||
-      debugAnnotations.length >= 1000
-    ) {
-      setAnnotationError(true);
-      return;
-    }
-    setDebugAnnotations((current) => [
-      ...current,
-      { id: Date.now(), start, end, label, color: annotationColor },
-    ]);
-    setAnnotationSelection(null);
-    setAnnotationLabel("");
-    setAnnotationError(false);
-  };
-
-  const removeDebugAnnotation = (id: number) => {
-    setDebugAnnotations((current) => current.filter((annotation) => annotation.id !== id));
   };
 
   const toggleDebugFormat = () => {
@@ -1382,9 +1222,8 @@ export default function App() {
     debugContentRef.current = content;
     setDebugResult(undefined);
     setDebugAnnotations([]);
-    setAnnotationSelection(null);
-    setAnnotationLabel("");
-    setAnnotationError(false);
+    setDebugByteOffset(null);
+    setDebugToolRange(null);
   };
 
   const selectMessage = (nextName: string) => {
@@ -1517,7 +1356,7 @@ export default function App() {
 
   return (
     <div
-      className={`app-shell ${isStartPage || hasProjectExplorer ? "startup-home" : ""} ${hasProjectExplorer ? "project-home" : ""} ${isProtocolCode ? `protocol-home ${protocolProblemsOpen ? "protocol-errors-open" : ""}` : ""} ${isMessageStudio ? "message-home" : ""}`}
+      className={`app-shell ${isStartPage || hasProjectExplorer || page === "debug" ? "startup-home" : ""} ${hasProjectExplorer ? "project-home" : ""} ${isProtocolCode ? `protocol-home ${protocolProblemsOpen ? "protocol-errors-open" : ""}` : ""} ${isMessageStudio ? "message-home" : ""} ${page === "debug" ? "debug-home" : ""}`}
     >
       <header className="titlebar" onPointerDown={startWindowDrag}>
         <div className="titlebar-brand">
@@ -2133,318 +1972,138 @@ export default function App() {
                 </div>
               </>
             ) : page === "debug" ? (
-              <div className="debug-body">
-                <form className="debug-input-panel" onSubmit={inspectDebugHex}>
-                  <div className="debug-panel-heading">
-                    <div>
-                      <label htmlFor="debug-hex-input">{translation.debug.inputLabel}</label>
+              <DebugTools
+                locale={locale}
+                input={debugInput}
+                result={debugResult}
+                annotations={debugAnnotations}
+                project={project}
+                dirty={isDirty}
+                byteOffset={debugByteOffset}
+                handoff={debugHandoff}
+                range={debugToolRange}
+                onRange={setDebugToolRange}
+                onInput={updateDebugInput}
+                onInspect={inspectDebugHex}
+                onIssue={(context, message) =>
+                  addDiagnostic(
+                    "debug",
+                    context || "debug",
+                    message,
+                    true,
+                    undefined,
+                    selectedProtocolPath,
+                  )
+                }
+                onImport={(result, annotations) => {
+                  debugContentRef.current = result.normalizedHex.replace(/\s/g, "");
+                  setDebugInput(result.normalizedHex);
+                  setDebugFormatted(true);
+                  setDebugResult(result);
+                  setDebugAnnotations(annotations);
+                  setDebugToolRange(null);
+                  setDebugByteOffset(null);
+                }}
+                renderBytes={(fields) => (
+                  <DebugHexView
+                    result={debugResult}
+                    fields={fields}
+                    range={debugToolRange}
+                    annotations={debugAnnotations}
+                    locale={locale}
+                    theme={theme}
+                    onByte={(offset) => setDebugByteOffset({ offset })}
+                    onAnnotations={setDebugAnnotations}
+                  />
+                )}
+                toolbar={
+                  <form
+                    className="debug-input-panel"
+                    onSubmit={(event) => {
+                      event.preventDefault();
+                      document
+                        .querySelector<HTMLButtonElement>(
+                          ".debug-workbench-toolbar > .debug-parse-button",
+                        )
+                        ?.click();
+                    }}
+                  >
+                    <div className="debug-input-wrap">
+                      <textarea
+                        aria-label={translation.debug.inputLabel}
+                        aria-invalid={debugInvalidPosition >= 0 || debugHasOddLength}
+                        aria-describedby="debug-hex-hint"
+                        id="debug-hex-input"
+                        onChange={(event) => updateDebugInput(event.target.value)}
+                        onKeyDown={(event) => {
+                          if ((event.ctrlKey || event.metaKey) && event.key === "Enter") {
+                            event.preventDefault();
+                            event.currentTarget.form?.requestSubmit();
+                          }
+                        }}
+                        placeholder={translation.debug.inputPlaceholder}
+                        spellCheck={false}
+                        value={debugInput}
+                      />
+                      <button
+                        type="button"
+                        disabled={debugBusy || !debugInput}
+                        aria-label={locale === "zh-CN" ? "清除输入" : "Clear input"}
+                        onClick={() => updateDebugInput("")}
+                      >
+                        <X size={15} />
+                      </button>
                     </div>
                     <button
+                      type="button"
+                      disabled={debugBusy}
+                      onClick={() =>
+                        void navigator.clipboard
+                          .readText()
+                          .then(updateDebugInput)
+                          .catch((error) =>
+                            addDiagnostic("debug", "clipboard", String(error), true),
+                          )
+                      }
+                    >
+                      <ClipboardPaste size={17} />
+                      {locale === "zh-CN" ? "粘贴" : "Paste"}
+                    </button>
+                    <button
+                      type="button"
+                      className={`debug-format-button ${debugFormatted ? "active" : ""}`}
                       aria-label={
                         debugFormatted ? translation.debug.unformat : translation.debug.format
                       }
                       aria-pressed={debugFormatted}
-                      className={`debug-format-button ${debugFormatted ? "active" : ""}`}
-                      onClick={toggleDebugFormat}
                       disabled={debugCharacterCount === 0}
-                      title={debugFormatted ? translation.debug.unformat : translation.debug.format}
-                      type="button"
+                      onClick={toggleDebugFormat}
                     >
-                      <UnorderedListIcon size={15} />
-                      <span>
-                        {debugFormatted ? translation.debug.unformat : translation.debug.format}
-                      </span>
+                      <UnorderedListIcon size={17} />
+                      {debugFormatted ? translation.debug.unformat : translation.debug.format}
                     </button>
-                  </div>
-                  <textarea
-                    aria-invalid={debugInvalidPosition >= 0 || debugHasOddLength}
-                    aria-describedby="debug-hex-hint"
-                    id="debug-hex-input"
-                    onChange={(event) => updateDebugInput(event.target.value)}
-                    onKeyDown={(event) => {
-                      if ((event.ctrlKey || event.metaKey) && event.key === "Enter") {
-                        event.preventDefault();
-                        event.currentTarget.form?.requestSubmit();
-                      }
-                    }}
-                    placeholder={translation.debug.inputPlaceholder}
-                    spellCheck={false}
-                    value={debugInput}
-                  />
-                  <p
-                    className={`debug-input-hint ${
-                      debugInvalidPosition >= 0 || debugHasOddLength ? "error" : ""
-                    }`}
-                    id="debug-hex-hint"
-                  >
-                    {debugInvalidPosition >= 0
-                      ? translation.debug.invalidCharacterHint
-                      : debugHasOddLength
-                        ? translation.debug.oddLengthHint
-                        : translation.debug.shortcutHint}
-                  </p>
-                  <footer>
-                    <span
-                      aria-live="polite"
-                      className={`debug-input-count ${
-                        debugInvalidPosition >= 0 || debugHasOddLength ? "error" : ""
-                      }`}
-                    >
-                      {debugCharacterCount} {translation.debug.characters}
-                      {" · "}
-                      {debugByteCount} {translation.debug.byteCount}
-                    </span>
                     <button
-                      className="primary debug-parse-button"
-                      disabled={
-                        debugBusy ||
-                        debugCharacterCount === 0 ||
-                        debugInvalidPosition >= 0 ||
-                        debugHasOddLength
-                      }
-                      type="submit"
+                      type="button"
+                      disabled={debugBusy || !debugInput}
+                      onClick={() => updateDebugInput("")}
                     >
-                      {debugBusy ? translation.debug.parsing : translation.debug.parse}
+                      <Trash2 size={17} />
+                      {locale === "zh-CN" ? "清空" : "Clear"}
                     </button>
-                  </footer>
-                  <DebugTools
-                    locale={locale}
-                    input={debugInput}
-                    result={debugResult}
-                    annotations={debugAnnotations}
-                    project={project}
-                    dirty={isDirty}
-                    byteOffset={debugByteOffset}
-                    handoff={debugHandoff}
-                    onRange={setDebugToolRange}
-                    onInput={updateDebugInput}
-                    onIssue={(context, message) =>
-                      addDiagnostic(
-                        "debug",
-                        context || "debug",
-                        message,
-                        true,
-                        undefined,
-                        selectedProtocolPath,
-                      )
-                    }
-                    onImport={(result, annotations) => {
-                      debugContentRef.current = result.normalizedHex.replace(/\s/g, "");
-                      setDebugInput(result.normalizedHex);
-                      setDebugFormatted(true);
-                      setDebugResult(result);
-                      setDebugAnnotations(annotations);
-                      setAnnotationSelection(null);
-                      setAnnotationError(false);
-                      setDebugToolRange(null);
-                      setDebugByteOffset(null);
-                    }}
-                  />
-                </form>
-
-                <section aria-live="polite" className="debug-result-panel">
-                  <header className="debug-panel-heading">
-                    <div>
-                      <span>{translation.debug.result}</span>
-                    </div>
-                  </header>
-                  {!debugResult ? (
-                    <div aria-hidden="true" className="debug-result-empty" />
-                  ) : debugResult.ok ? (
-                    <div className="debug-result-content">
-                      <dialog
-                        ref={annotationDialogRef}
-                        className="debug-annotation-dialog"
-                        aria-labelledby="debug-annotation-title"
-                        onClose={() => setAnnotationSelection(null)}
-                      >
-                        <form className="debug-annotation-form" onSubmit={addDebugAnnotation}>
-                          <strong id="debug-annotation-title">
-                            {translation.debug.annotation} ·{" "}
-                            {indexMode === "byte"
-                              ? translation.debug.byte
-                              : translation.debug.byteOffset}{" "}
-                            {selectionStart + (indexMode === "byte" ? 1 : 0)}–
-                            {selectionEnd + (indexMode === "byte" ? 1 : 0)}
-                          </strong>
-                          <label className="debug-annotation-label">
-                            <span>{translation.debug.description}</span>
-                            <input
-                              autoFocus
-                              required
-                              aria-invalid={annotationError}
-                              value={annotationLabel}
-                              maxLength={160}
-                              onChange={(event) => {
-                                setAnnotationLabel(event.target.value);
-                                setAnnotationError(false);
-                              }}
-                              placeholder={translation.debug.annotationLabelPlaceholder}
-                            />
-                          </label>
-                          <fieldset className="debug-color-presets">
-                            <legend>{translation.debug.annotationColor}</legend>
-                            {annotationPalette.map((color, index) => (
-                              <button
-                                key={index}
-                                type="button"
-                                className="debug-color-swatch"
-                                aria-label={`${translation.debug.annotationColor} ${index + 1}`}
-                                aria-pressed={annotationColor === index}
-                                title={color}
-                                style={{ backgroundColor: color }}
-                                onClick={() => setAnnotationColor(index)}
-                              >
-                                {annotationColor === index ? "✓" : ""}
-                              </button>
-                            ))}
-                          </fieldset>
-                          {annotationError && (
-                            <p className="debug-annotation-error" role="alert">
-                              {translation.debug.annotationError}
-                            </p>
-                          )}
-                          <footer>
-                            <button type="button" onClick={() => setAnnotationSelection(null)}>
-                              {translation.create.cancel}
-                            </button>
-                            <button type="submit">{translation.editor.save}</button>
-                          </footer>
-                        </form>
-                      </dialog>
-                      <div
-                        className="debug-table-wrap"
-                        onKeyDown={(event) => {
-                          if (event.key === "Escape") setAnnotationSelection(null);
-                        }}
-                      >
-                        <table className="debug-byte-table">
-                          <colgroup>
-                            <col style={{ width: "20%" }} />
-                            <col style={{ width: "15%" }} />
-                            <col style={{ width: "15%" }} />
-                            <col style={{ width: "15%" }} />
-                            <col style={{ width: "35%" }} />
-                          </colgroup>
-                          <thead>
-                            <tr>
-                              <th scope="col">
-                                <span className="debug-index-toggle">
-                                  <button
-                                    type="button"
-                                    title={
-                                      indexMode === "byte"
-                                        ? translation.debug.byteOffset
-                                        : translation.debug.byte
-                                    }
-                                    onClick={() =>
-                                      setIndexMode(indexMode === "byte" ? "offset" : "byte")
-                                    }
-                                  >
-                                    {indexMode === "byte"
-                                      ? translation.debug.byte
-                                      : translation.debug.byteOffset}
-                                  </button>
-                                </span>
-                              </th>
-                              <th scope="col">HEX</th>
-                              <th scope="col">ASCII</th>
-                              <th scope="col">{translation.debug.decimal}</th>
-                              <th scope="col">{translation.debug.description}</th>
-                            </tr>
-                          </thead>
-                          <tbody>
-                            {debugResult.bytes.map((byte, index) => {
-                              const rowAnnotations = debugAnnotations.filter(
-                                (item) => index >= item.start && index <= item.end,
-                              );
-                              const annotation = rowAnnotations[rowAnnotations.length - 1];
-                              const segment = debugAnnotationSegmentByStart.get(index);
-                              const selected = index >= selectionStart && index <= selectionEnd;
-                              const color = annotation && annotationPalette[annotation.color];
-                              return (
-                                <tr
-                                  key={index}
-                                  id={`debug-byte-${index}`}
-                                  className={
-                                    debugToolRange &&
-                                    index >= debugToolRange.start &&
-                                    index <= debugToolRange.end
-                                      ? "debug-tool-highlight"
-                                      : ""
-                                  }
-                                  style={color ? { backgroundColor: `${color}22` } : undefined}
-                                >
-                                  <td className={`debug-byte-index ${selected ? "selected" : ""}`}>
-                                    <button
-                                      type="button"
-                                      aria-pressed={selected}
-                                      aria-label={`${indexMode === "byte" ? translation.debug.byte : translation.debug.byteOffset} ${index + (indexMode === "byte" ? 1 : 0)}`}
-                                      onClick={() => selectAnnotationCell(index)}
-                                      onPointerEnter={() => previewAnnotationCell(index)}
-                                      onFocus={() => previewAnnotationCell(index)}
-                                    >
-                                      {index + (indexMode === "byte" ? 1 : 0)}
-                                    </button>
-                                  </td>
-                                  <td>
-                                    <button
-                                      type="button"
-                                      className="debug-hex-select"
-                                      aria-label={`${locale === "zh-CN" ? "定位字节" : "Locate byte"} ${index}`}
-                                      onClick={() => setDebugByteOffset({ offset: index })}
-                                    >
-                                      <code>
-                                        {byte.toString(16).padStart(2, "0").toUpperCase()}
-                                      </code>
-                                    </button>
-                                  </td>
-                                  <td>
-                                    <code>{debugResult.ascii[index] || "·"}</code>
-                                  </td>
-                                  <td>{byte}</td>
-                                  {segment ? (
-                                    <td
-                                      className="debug-description"
-                                      rowSpan={segment.end - segment.start + 1}
-                                      style={{ borderLeft: `3px solid ${color}` }}
-                                    >
-                                      <span>{segment.annotation.label}</span>
-                                      <button
-                                        className="debug-annotation-remove"
-                                        type="button"
-                                        aria-label={`${translation.debug.removeAnnotation}: ${segment.annotation.label}`}
-                                        onClick={() => removeDebugAnnotation(segment.annotation.id)}
-                                      >
-                                        <X size={11} />
-                                      </button>
-                                    </td>
-                                  ) : !annotation ? (
-                                    <td className="debug-description" />
-                                  ) : null}
-                                </tr>
-                              );
-                            })}
-                          </tbody>
-                        </table>
-                      </div>
-                    </div>
-                  ) : (
-                    <div className="debug-result-error" role="alert">
-                      <CircleAlert size={20} />
-                      <div>
-                        <strong>
-                          [{debugResult.error.code}] {translation.debug.parseError}
-                        </strong>
-                        <p>{redact(debugResult.error.message)}</p>
-                        <small>
-                          {translation.debug.position}: {debugResult.error.position + 1}
-                        </small>
-                      </div>
-                    </div>
-                  )}
-                </section>
-              </div>
+                    <p
+                      id="debug-hex-hint"
+                      className="debug-input-hint"
+                      role={debugInvalidPosition >= 0 || debugHasOddLength ? "alert" : undefined}
+                    >
+                      {debugInvalidPosition >= 0
+                        ? translation.debug.invalidCharacterHint
+                        : debugHasOddLength
+                          ? translation.debug.oddLengthHint
+                          : ""}
+                    </p>
+                  </form>
+                }
+              />
             ) : !project ? (
               <StartPage
                 locale={locale}

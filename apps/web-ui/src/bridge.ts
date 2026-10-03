@@ -474,6 +474,7 @@ type DebugFailure = {
   error: { code: string; message: string; path?: string; offset?: number };
 };
 export type DebugField = {
+  byteOrder?: "big" | "little";
   redacted?: boolean;
   truncated?: boolean;
   name: string;
@@ -496,7 +497,12 @@ export type DebugField = {
 export type DebugToolResult =
   { ok: true; text: string; hex: string; matches: number[] } | DebugFailure;
 export type DebugDecodeResult =
-  | { ok: true; fields: DebugField[]; ranges?: { path: string; offset: number; length: number }[] }
+  | {
+      ok: true;
+      fields: DebugField[];
+      checksum?: "pass" | "none";
+      ranges?: { path: string; offset: number; length: number }[];
+    }
   | DebugFailure;
 export type DebugFileResult = { ok: true; cancelled: boolean; content: string } | DebugFailure;
 const debugNativeRequired: DebugFailure = {

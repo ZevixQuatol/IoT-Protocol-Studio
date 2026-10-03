@@ -882,7 +882,8 @@ decode_debug_message(const std::string& request,
     const auto message = std::ranges::find_if(
         protocol->schema.messages, [&](const auto& item) { return item.name == (*args)[1]; });
     std::ostringstream json;
-    json << "{\"ok\":true,\"fields\":[";
+    json << "{\"ok\":true,\"checksum\":" << json_string(message->checksum ? "pass" : "none")
+         << ",\"fields\":[";
     const auto& data = decoded.value();
     for (std::size_t i = 0; i < data.message.fields.size(); ++i) {
         if (i)
@@ -902,7 +903,12 @@ decode_debug_message(const std::string& request,
              << ",\"displayName\":" << json_string(definition->display_name)
              << ",\"type\":" << json_string(iotps::core::schema::to_string(definition->type))
              << ",\"value\":" << json_string(value) << ",\"offset\":" << range->offset
-             << ",\"length\":" << range->length;
+             << ",\"length\":" << range->length << ",\"byteOrder\":"
+             << json_string(
+                    definition->byte_order.value_or(protocol->schema.protocol.default_byte_order) ==
+                            iotps::core::schema::ByteOrder::little_endian
+                        ? "little"
+                        : "big");
         if (!definition->enum_values.empty())
             json << ",\"enumName\":"
                  << json_string(std::string{
@@ -1399,6 +1405,7 @@ window.addEventListener("DOMContentLoaded", () => {
           const encodedUnknown = await window.iotpsEncodeProtocolMessage(path, "packet", "reading", "4660", "flag", "9");
           if (enumerated.schema.messages[0].fields[1].enumValues?.[1]?.name !== "On" ||
               enumerated.schema.messages[0].fields[1].bits?.[1]?.displayName !== "Mode" ||
+              known.checksum !== "none" || known.fields?.[0]?.byteOrder !== "little" ||
               known.fields?.[1]?.enumName !== "On" || known.fields[1].value !== "1" ||
               known.fields[1].bits?.[0]?.value !== "1" || known.fields[1].bits[0].offset !== 2 ||
               unknown.fields?.[1]?.enumName !== "" || unknown.fields[1].value !== "9" ||
