@@ -11,6 +11,7 @@ import {
   type WorkspaceProject,
 } from "./bridge";
 import type { Locale } from "./i18n";
+import type { DiagnosticDetail } from "./diagnostics";
 
 type Props = {
   locale: Locale;
@@ -28,7 +29,7 @@ type Props = {
   onInspect: () => Promise<InspectionResult | undefined>;
   onInput: (value: string) => void;
   onImport: (result: InspectionResult & { ok: true }, annotations: DebugAnnotation[]) => void;
-  onIssue: (context: string, message: string) => void;
+  onIssue: (context: string, message: string, detail?: DiagnosticDetail) => void;
 };
 
 export default function DebugTools(props: Props) {
@@ -183,7 +184,15 @@ export default function DebugTools(props: Props) {
       } else {
         setDecodeState("fail");
         setDecodeError(decoded.error);
-        props.onIssue(protocolPath, decoded.error.message);
+        const hexOffset = Math.floor(Math.max(0, decoded.error.offset ?? 0) / 16) * 16;
+        props.onIssue(protocolPath, decoded.error.message, {
+          ...decoded.error,
+          hex: raw.normalizedHex
+            .split(" ")
+            .slice(hexOffset, hexOffset + 32)
+            .join(" "),
+          hexOffset,
+        });
       }
     });
   const selection =

@@ -4,7 +4,6 @@ import {
   ChevronDown,
   ChevronRight,
   CircleAlert,
-  Cpu,
   FileCode2,
   Folder,
   FolderOpen,
@@ -14,16 +13,12 @@ import {
   Trash2,
   Import,
   HardDrive,
-  Languages,
   ListTree,
   LoaderCircle,
-  Moon,
   Minus,
-  Palette,
   Send,
   Save,
   Square,
-  Sun,
   X,
 } from "./feather-icons";
 import {
@@ -46,6 +41,16 @@ import { ClipboardPaste } from "lucide-react";
 import SchemaEditor, { type SchemaEditTarget } from "./SchemaEditor";
 import MessageTemplates, { MessageOutput } from "./MessageTemplates";
 import Environments from "./Environments";
+import SettingsWorkspace from "./SettingsWorkspace";
+import {
+  applyDisplay,
+  readDisplay,
+  readThemeMode,
+  resolveTheme,
+  storeThemeMode,
+  type ThemeMode,
+} from "./displayPreferences";
+import type { Diagnostic, DiagnosticDetail, DiagnosticPage } from "./diagnostics";
 import TcpWorkspace from "./TcpWorkspace";
 import StartPage from "./StartPage";
 import { Plus, Search, Settings } from "lucide-react";
@@ -93,7 +98,6 @@ import {
 import { readRecentProjects, rememberProject, storeRecentProjects } from "./recentProjects";
 import {
   detectInitialLocale,
-  detectInitialTheme,
   messages,
   storeLocale,
   storeTheme,
@@ -103,17 +107,7 @@ import {
   type TranslationMessages,
 } from "./i18n";
 
-type Page = "schema" | "debug" | "tcp" | "environments" | "settings";
-type Diagnostic = {
-  id: number;
-  time: number;
-  page: Page;
-  context: string;
-  message: string;
-  problem: boolean;
-  session?: string;
-  protocol?: string;
-};
+type Page = DiagnosticPage;
 type DesignerView = "code" | "visual" | "message";
 
 type TreeNode = {
@@ -408,7 +402,9 @@ function TreeItems(props: TreeItemsProps) {
 
 export default function App() {
   const [locale, setLocale] = useState<Locale>(detectInitialLocale);
-  const [theme, setTheme] = useState<Theme>(detectInitialTheme);
+  const [themeMode, setThemeMode] = useState<ThemeMode>(readThemeMode);
+  const [theme, setTheme] = useState<Theme>(() => resolveTheme(themeMode));
+  const [display, setDisplay] = useState(readDisplay);
   const [navigation, setNavigation] = useState<{ entries: Page[]; index: number }>({
     entries: ["schema"],
     index: 0,
@@ -454,7 +450,6 @@ export default function App() {
   const knownSensitiveValues = useRef(new Set<string>());
   const sortedSensitiveValues = useRef<string[]>([]);
   const [focusSession, setFocusSession] = useState<{ id: string; seq: number }>();
-  const [logError, setLogError] = useState("");
   const nextDiagnostic = useRef(0);
   const [projectMenuOpen, setProjectMenuOpen] = useState(false);
   const [recentProjects, setRecentProjects] = useState(readRecentProjects);
@@ -560,6 +555,7 @@ export default function App() {
     problem: boolean,
     session?: string,
     protocol?: string,
+    detail?: DiagnosticDetail,
   ) => {
     const item: Diagnostic = {
       id: ++nextDiagnostic.current,
@@ -570,6 +566,7 @@ export default function App() {
       problem,
       session,
       protocol,
+      ...detail,
     };
     setDiagnostics((current) => [...current.slice(-499), item]);
   };
@@ -593,6 +590,7 @@ export default function App() {
         true,
         undefined,
         selectedProtocolPath,
+        debugResult.error,
       );
   }, [debugResult]);
   useEffect(() => {
@@ -604,8 +602,21 @@ export default function App() {
         true,
         undefined,
         selectedProtocolPath,
+        messageEncodeResult.error,
       );
   }, [messageEncodeResult]);
+  useEffect(() => {
+    if (protocolCheck && !protocolCheck.result.ok)
+      addDiagnostic(
+        "schema",
+        protocolCheck.path,
+        protocolCheck.result.error.message,
+        true,
+        undefined,
+        protocolCheck.path,
+        protocolCheck.result.error,
+      );
+  }, [protocolCheck]);
   const selectedMessage = selectedProtocol?.schema.messages.find(
     (message) => message.name === messageName,
   );
@@ -755,6 +766,18 @@ export default function App() {
     document.documentElement.dataset.theme = theme;
     storeTheme(theme);
   }, [theme]);
+
+  useLayoutEffect(() => applyDisplay(display), [display]);
+
+  useEffect(() => {
+    storeThemeMode(themeMode);
+    const media = matchMedia("(prefers-color-scheme: dark)");
+    const update = () => setTheme(resolveTheme(themeMode));
+    update();
+    if (themeMode !== "system") return;
+    media.addEventListener("change", update);
+    return () => media.removeEventListener("change", update);
+  }, [themeMode]);
 
   useEffect(() => {
     if (!projectMenuOpen) {
@@ -1356,7 +1379,7 @@ export default function App() {
 
   return (
     <div
-      className={`app-shell ${isStartPage || hasProjectExplorer || page === "debug" ? "startup-home" : ""} ${hasProjectExplorer ? "project-home" : ""} ${isProtocolCode ? `protocol-home ${protocolProblemsOpen ? "protocol-errors-open" : ""}` : ""} ${isMessageStudio ? "message-home" : ""} ${page === "debug" ? "debug-home" : ""}`}
+      className={`app-shell ${isStartPage || hasProjectExplorer || page === "debug" ? "startup-home" : ""} ${hasProjectExplorer ? "project-home" : ""} ${isProtocolCode ? `protocol-home ${protocolProblemsOpen ? "protocol-errors-open" : ""}` : ""} ${isMessageStudio ? "message-home" : ""} ${page === "debug" ? "debug-home" : ""} ${page === "settings" ? "settings-home" : ""}`}
     >
       <header className="titlebar" onPointerDown={startWindowDrag}>
         <div className="titlebar-brand">
@@ -1443,6 +1466,11 @@ export default function App() {
               selected={page === "schema"}
               size={isStartPage || hasProjectExplorer ? 27 : 17}
             />
+            {page === "settings" && (
+              <span className="p14-nav-label">
+                {locale === "zh-CN" ? "协议工作区" : "Workspace"}
+              </span>
+            )}
           </button>
           <button
             aria-current={page === "debug" ? "page" : undefined}
@@ -1457,6 +1485,9 @@ export default function App() {
               selected={page === "debug"}
               size={isStartPage || hasProjectExplorer ? 26 : 17}
             />
+            {page === "settings" && (
+              <span className="p14-nav-label">{translation.navigation.debug}</span>
+            )}
           </button>
           <button
             aria-current={page === "tcp" ? "page" : undefined}
@@ -1471,6 +1502,9 @@ export default function App() {
               selected={page === "tcp"}
               size={isStartPage || hasProjectExplorer ? 26 : 17}
             />
+            {page === "settings" && (
+              <span className="p14-nav-label">{locale === "zh-CN" ? "通信" : "Transport"}</span>
+            )}
           </button>
           <button
             aria-current={page === "environments" ? "page" : undefined}
@@ -1485,6 +1519,11 @@ export default function App() {
               selected={page === "environments"}
               size={isStartPage || hasProjectExplorer ? 26 : 17}
             />
+            {page === "settings" && (
+              <span className="p14-nav-label">
+                {locale === "zh-CN" ? "环境与变量" : "Variables"}
+              </span>
+            )}
           </button>
           <button
             aria-current={page === "settings" ? "page" : undefined}
@@ -1499,6 +1538,9 @@ export default function App() {
               selected={page === "settings"}
               size={isStartPage || hasProjectExplorer ? 26 : 17}
             />
+            {page === "settings" && (
+              <span className="p14-nav-label">{translation.navigation.settings}</span>
+            )}
           </button>
         </aside>
 
@@ -1753,224 +1795,80 @@ export default function App() {
                 onSensitiveValues={rememberSensitiveValues}
               />
             ) : page === "settings" ? (
-              <>
-                <header className="content-header">
-                  <div className="content-heading-icon">
-                    <DotsHorizontalIcon size={20} />
-                  </div>
-                  <div>
-                    <span className="content-eyebrow">{translation.navigation.settings}</span>
-                    <h1>{translation.settings.title}</h1>
-                    <p>{translation.settings.description}</p>
-                  </div>
-                </header>
-                <div className="settings-body">
-                  <section className="settings-section" aria-labelledby="settings-theme-title">
-                    <div className="settings-section-heading">
-                      <div className="settings-section-icon">
-                        <Palette size={17} />
-                      </div>
-                      <div>
-                        <h2 id="settings-theme-title">{translation.settings.theme}</h2>
-                        <p>{translation.settings.themeHint}</p>
-                      </div>
-                    </div>
-                    <div
-                      aria-label={translation.settings.theme}
-                      className="settings-choice-row"
-                      role="group"
-                    >
-                      <button
-                        aria-pressed={theme === "dark"}
-                        className={`settings-choice theme-choice dark-choice ${theme === "dark" ? "active" : ""}`}
-                        onClick={() => setTheme("dark")}
-                        type="button"
-                      >
-                        <Moon size={16} />
-                        <span>{translation.settings.darkTheme}</span>
-                      </button>
-                      <button
-                        aria-pressed={theme === "light"}
-                        className={`settings-choice theme-choice light-choice ${theme === "light" ? "active" : ""}`}
-                        onClick={() => setTheme("light")}
-                        type="button"
-                      >
-                        <Sun size={16} />
-                        <span>{translation.settings.lightTheme}</span>
-                      </button>
-                    </div>
-                  </section>
-
-                  <section className="settings-section" aria-labelledby="settings-language-title">
-                    <div className="settings-section-heading">
-                      <div className="settings-section-icon">
-                        <Languages size={17} />
-                      </div>
-                      <div>
-                        <h2 id="settings-language-title">{translation.settings.language}</h2>
-                        <p>{translation.settings.languageHint}</p>
-                      </div>
-                    </div>
-                    <div
-                      aria-label={translation.settings.language}
-                      className="settings-choice-row"
-                      role="group"
-                    >
-                      <button
-                        aria-pressed={locale === "zh-CN"}
-                        className={`settings-choice language-choice ${locale === "zh-CN" ? "active" : ""}`}
-                        onClick={() => setLocale("zh-CN")}
-                        type="button"
-                      >
-                        <span>中文</span>
-                      </button>
-                      <button
-                        aria-pressed={locale === "en-US"}
-                        className={`settings-choice language-choice ${locale === "en-US" ? "active" : ""}`}
-                        onClick={() => setLocale("en-US")}
-                        type="button"
-                      >
-                        <span>English</span>
-                      </button>
-                    </div>
-                  </section>
-
-                  <section className="settings-section" aria-labelledby="settings-problems-title">
-                    <div className="settings-section-heading">
-                      <div className="settings-section-icon">
-                        <CircleAlert size={17} />
-                      </div>
-                      <div>
-                        <h2 id="settings-problems-title">
-                          {locale === "zh-CN" ? "问题列表" : "Problems"} (
-                          {diagnostics.filter((item) => item.problem).length})
-                        </h2>
-                        <p>
-                          {locale === "zh-CN"
-                            ? "协议、连接、编解码与文件错误；点击跳转到相关页面。"
-                            : "Protocol, connection, codec and file errors. Select one to open its page."}
-                        </p>
-                      </div>
-                    </div>
-                    <div className="diagnostic-list">
-                      {diagnostics
-                        .filter((item) => item.problem)
-                        .slice(-100)
-                        .reverse()
-                        .map((item) => (
-                          <button
-                            type="button"
-                            key={item.id}
-                            onClick={() => {
-                              if (item.protocol) setSelectedProtocolPath(item.protocol);
-                              if (item.session) setFocusSession({ id: item.session, seq: item.id });
-                              navigate(item.page);
-                            }}
-                          >
-                            <time>{new Date(item.time).toLocaleString(locale)}</time>
-                            <strong>{redact(item.context)}</strong> {redact(item.message)}
-                          </button>
-                        ))}
-                      {!diagnostics.some((item) => item.problem) && (
-                        <p>{locale === "zh-CN" ? "暂无问题" : "No problems"}</p>
-                      )}
-                    </div>
-                  </section>
-                  <section className="settings-section" aria-labelledby="settings-log-title">
-                    <div className="settings-section-heading">
-                      <div className="settings-section-icon">
-                        <ListTree size={17} />
-                      </div>
-                      <div>
-                        <h2 id="settings-log-title">
-                          {locale === "zh-CN" ? "诊断日志" : "Diagnostic log"}
-                        </h2>
-                        <p>
-                          {locale === "zh-CN"
-                            ? "仅本次运行，最多 500 条；与 TCP 收发记录分开。"
-                            : "Current run only, up to 500 entries; separate from traffic."}
-                        </p>
-                      </div>
-                    </div>
-                    <button
-                      type="button"
-                      disabled={!diagnostics.length}
-                      onClick={() => {
-                        setLogError("");
-                        void logFile(
-                          JSON.stringify(
-                            {
-                              format: "iotps-log-v1",
-                              exportedAt: new Date().toISOString(),
-                              entries: diagnostics.map((item) => ({
-                                ...item,
-                                context: redact(item.context),
-                                message: redact(item.message),
-                                session: item.session ? redact(item.session) : undefined,
-                                protocol: item.protocol ? redact(item.protocol) : undefined,
-                              })),
-                            },
-                            null,
-                            2,
-                          ),
-                        )
-                          .then((result) => {
-                            if (!result.ok) {
-                              setLogError(result.error.message);
-                              addDiagnostic(
-                                "settings",
-                                "diagnostic export",
-                                result.error.message,
-                                true,
-                              );
-                            }
-                          })
-                          .catch((error) => {
-                            setLogError(String(error));
-                            addDiagnostic("settings", "diagnostic export", String(error), true);
-                          });
-                      }}
-                    >
-                      {locale === "zh-CN" ? "导出诊断日志" : "Export diagnostic log"}
-                    </button>
-                    {logError && (
-                      <p role="alert" className="tcp-error">
-                        {redact(logError)}
-                      </p>
-                    )}
-                    <div className="diagnostic-list">
-                      {diagnostics
-                        .slice(-100)
-                        .reverse()
-                        .map((item) => (
-                          <p key={item.id}>
-                            <time>{new Date(item.time).toLocaleString(locale)}</time> ·{" "}
-                            {redact(item.context)} · {redact(item.message)}
-                          </p>
-                        ))}
-                    </div>
-                  </section>
-                  <section className="settings-section" aria-labelledby="settings-core-title">
-                    <div className="settings-section-heading">
-                      <div className="settings-section-icon">
-                        <Cpu size={17} />
-                      </div>
-                      <div>
-                        <h2 id="settings-core-title">{translation.settings.coreVersion}</h2>
-                        <p>{translation.settings.coreSource}</p>
-                      </div>
-                    </div>
-                    <div className="settings-core-value">
-                      <strong>Core {coreInfo?.version ?? "..."}</strong>
-                      <span>
-                        {coreInfo?.source === "native-core"
-                          ? translation.settings.nativeCore
-                          : translation.settings.browserPreview}
-                      </span>
-                    </div>
-                  </section>
-                </div>
-              </>
+              <SettingsWorkspace
+                locale={locale}
+                theme={theme}
+                themeMode={themeMode}
+                display={display}
+                coreInfo={coreInfo}
+                diagnostics={diagnostics.map((item) => ({
+                  ...item,
+                  context: redact(item.context),
+                  message: redact(item.message),
+                  code: item.code ? redact(item.code) : undefined,
+                  path: item.path ? redact(item.path) : undefined,
+                  session: item.session ? redact(item.session) : undefined,
+                  protocol: item.protocol ? redact(item.protocol) : undefined,
+                }))}
+                onTheme={setThemeMode}
+                onLocale={setLocale}
+                onDisplay={setDisplay}
+                onClear={() => setDiagnostics([])}
+                onLocate={(item) => {
+                  const original = diagnostics.find((entry) => entry.id === item.id);
+                  if (!original) return;
+                  if (original.protocol) {
+                    setSelectedProtocolPath(original.protocol);
+                    setDesignerView("code");
+                  }
+                  if (original.session) setFocusSession({ id: original.session, seq: original.id });
+                  if (
+                    original.page === "debug" &&
+                    original.offset !== undefined &&
+                    original.hex &&
+                    debugInput
+                      .replace(/\s/g, "")
+                      .toUpperCase()
+                      .slice(
+                        (original.hexOffset ?? 0) * 2,
+                        (original.hexOffset ?? 0) * 2 + original.hex.replace(/\s/g, "").length,
+                      ) === original.hex.replace(/\s/g, "")
+                  )
+                    setDebugByteOffset({ offset: original.offset });
+                  navigate(original.page);
+                  if (original.page === "schema" && original.line)
+                    requestAnimationFrame(() =>
+                      requestAnimationFrame(() =>
+                        jumpToProtocolLine(
+                          protocolEditorRef.current,
+                          original.line,
+                          original.column,
+                        ),
+                      ),
+                    );
+                }}
+                onExport={async (entries) => {
+                  try {
+                    const result = await logFile(
+                      JSON.stringify(
+                        {
+                          format: "iotps-log-v1",
+                          exportedAt: new Date().toISOString(),
+                          entries,
+                        },
+                        null,
+                        2,
+                      ),
+                    );
+                    if (!result.ok) throw new Error(result.error.message);
+                    return result.cancelled ? "cancelled" : "saved";
+                  } catch (error) {
+                    const message = redact(String(error instanceof Error ? error.message : error));
+                    addDiagnostic("settings", "diagnostic export", message, true);
+                    throw new Error(message);
+                  }
+                }}
+              />
             ) : page === "debug" ? (
               <DebugTools
                 locale={locale}
@@ -1985,14 +1883,15 @@ export default function App() {
                 onRange={setDebugToolRange}
                 onInput={updateDebugInput}
                 onInspect={inspectDebugHex}
-                onIssue={(context, message) =>
+                onIssue={(context, message, detail) =>
                   addDiagnostic(
                     "debug",
                     context || "debug",
                     message,
                     true,
                     undefined,
-                    selectedProtocolPath,
+                    context || selectedProtocolPath,
+                    detail,
                   )
                 }
                 onImport={(result, annotations) => {

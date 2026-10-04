@@ -168,3 +168,16 @@ final result: passed
 - Corrected toolbar overlap, detail clipping, CRC parameter density, selection/field synchronization, primary-button hover contrast, and stale conversion output during tool switching. No unresolved P0/P1/P2 visual defect; existing titlebar, accent, icons, and flat background are retained P3 differences.
 - TypeScript, targeted formatting, Windows Release build, P05 byte-view tests, and P06 browser regression passed. Seven focused Release CTests passed, including WebView2 smoke and real Core tool/checksum/codec tests. Fresh browser error/warning logs were empty.
 - Browser fixtures verify presentation and bridge interaction. Manual native picker/clipboard and desktop end-to-end acceptance remain separate checks.
+
+
+---
+
+# P14 外观与语言 / 问题 / 诊断日志 — 2026-10-04
+
+final result: passed
+
+- 完整参考、截图对比、修正和验证边界见 [P14 design QA](docs/P14-design-qa.md)。
+- 现有设置入口实现三页；主题 / 语言 / 显示偏好自动保存，问题与日志支持组合筛选、分页、详情、实际 HEX 片段和上下文定位。
+- 1586 × 510 外观同尺寸对比；1366 × 768、760 × 600、浅色英文及导出取消 / 失败分支已核对。关键操作可访问，表格和详情区域内部滚动；无剩余 P0 / P1 / P2 布局缺陷。
+- TypeScript、P14 格式 / 单元检查、Vite 与 Windows Debug / Release 构建通过；Debug CTest 27/27，最终 Release 原生 UI / TCP 冒烟 2/2 通过。最终静态 fixture 控制台 error / warning 为空。
+- 使用真实组件与独立样例回调验证浏览器行为；生产仍使用实际运行诊断。系统保存选择器、真实设备及多屏 DPI 完整人工验收没有执行。共享工作区其他修改保留。
