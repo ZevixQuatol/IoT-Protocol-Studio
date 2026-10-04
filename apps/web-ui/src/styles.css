@@ -1,8 +1,7 @@
 :root {
-  color: #e6edf3;
-  background: #0c1218;
+  color: var(--text);
+  background: var(--chrome);
   font-family:
-    Inter,
     "Segoe UI",
     "Microsoft YaHei UI",
     "PingFang SC",
@@ -12,15 +11,18 @@
     sans-serif;
   font-synthesis: none;
   text-rendering: optimizeLegibility;
-  --chrome: #101820;
-  --surface: #151e27;
-  --surface-deep: #0d141b;
-  --line: #25313c;
-  --border: #25313c;
-  --muted: #8291a1;
-  --text: #e6edf3;
-  --accent: #58c99e;
-  --accent-soft: #1c352f;
+  --chrome: #0b0e0d;
+  --surface: #151a17;
+  --surface-deep: #101512;
+  --line: #2c3830;
+  --border: var(--line);
+  --muted: #a6b2a9;
+  --text: #e8ece9;
+  --accent: #4dbf5c;
+  --accent-contrast: #0b0e0d;
+  --accent-soft: #193523;
+  --warning: #e2b76b;
+  --danger: #ed8b84;
   color-scheme: dark;
 }
 
@@ -2389,9 +2391,9 @@ button {
   gap: 14px;
   padding: 20px;
   overflow: auto;
-  border: 1px solid #354553;
+  border: 1px solid var(--line);
   border-radius: 10px;
-  background: #121c25;
+  background: var(--surface);
   box-shadow: 0 24px 80px rgb(0 0 0 / 42%);
 }
 
@@ -2430,7 +2432,7 @@ button {
   flex: 1;
   flex-direction: column;
   gap: 6px;
-  color: #aebac5;
+  color: var(--muted);
   font-size: 11px;
 }
 
@@ -2439,10 +2441,10 @@ button {
 .protocol-dialog textarea {
   width: 100%;
   padding: 8px 10px;
-  border: 1px solid #35434f;
+  border: 1px solid var(--line);
   border-radius: 5px;
   outline: 0;
-  background: #0d151c;
+  background: var(--surface-deep);
   color: var(--text);
   font: inherit;
 }
@@ -2629,17 +2631,17 @@ button {
 }
 
 :root[data-theme="light"] {
-  color: #17242d;
-  background: #edf2f5;
-  --chrome: #e8eef2;
-  --surface: #f7f9fb;
+  --chrome: #edf2ee;
+  --surface: #f7faf7;
   --surface-deep: #ffffff;
-  --line: #d2dce3;
-  --border: #d2dce3;
-  --muted: #60717f;
-  --text: #17242d;
-  --accent: #137a58;
-  --accent-soft: #dcefe7;
+  --line: #d2ded5;
+  --muted: #566b5e;
+  --text: #1b2a21;
+  --accent: #167d40;
+  --accent-contrast: #fff;
+  --accent-soft: #e0f2e5;
+  --warning: #815b17;
+  --danger: #b1342b;
   color-scheme: light;
 }
 

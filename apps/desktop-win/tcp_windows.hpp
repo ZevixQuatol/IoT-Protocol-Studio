@@ -6,6 +6,7 @@
 #include <functional>
 #include <memory>
 #include <stdexcept>
+#include <string>
 #include <string_view>
 #include <vector>
 #include <windows.h>
@@ -64,6 +65,38 @@ class TcpWindows {
         }
         if (popup) {
             switch (message) {
+            case WM_NCCALCSIZE:
+                return 0;
+            case WM_NCHITTEST: {
+                if (IsZoomed(hwnd))
+                    break;
+                RECT rect{};
+                GetWindowRect(hwnd, &rect);
+                const POINT point{static_cast<short>(LOWORD(lparam)),
+                                  static_cast<short>(HIWORD(lparam))};
+                const int border = MulDiv(7, GetDpiForWindow(hwnd), 96);
+                const bool left = point.x < rect.left + border,
+                           right = point.x >= rect.right - border;
+                const bool top = point.y < rect.top + border,
+                           bottom = point.y >= rect.bottom - border;
+                if (top && left)
+                    return HTTOPLEFT;
+                if (top && right)
+                    return HTTOPRIGHT;
+                if (bottom && left)
+                    return HTBOTTOMLEFT;
+                if (bottom && right)
+                    return HTBOTTOMRIGHT;
+                if (left)
+                    return HTLEFT;
+                if (right)
+                    return HTRIGHT;
+                if (top)
+                    return HTTOP;
+                if (bottom)
+                    return HTBOTTOM;
+                break;
+            }
             case WM_CLOSE:
                 if (popup->browser)
                     popup->browser->ExecuteScript(
@@ -95,6 +128,13 @@ class TcpWindows {
             case WM_GETMINMAXINFO: {
                 auto* limits = reinterpret_cast<MINMAXINFO*>(lparam);
                 limits->ptMinTrackSize = {800, 600};
+                MONITORINFO monitor{sizeof(MONITORINFO)};
+                if (GetMonitorInfoW(MonitorFromWindow(hwnd, MONITOR_DEFAULTTONEAREST), &monitor)) {
+                    limits->ptMaxPosition = {monitor.rcWork.left - monitor.rcMonitor.left,
+                                             monitor.rcWork.top - monitor.rcMonitor.top};
+                    limits->ptMaxSize = {monitor.rcWork.right - monitor.rcWork.left,
+                                         monitor.rcWork.bottom - monitor.rcWork.top};
+                }
                 return 0;
             }
             case WM_NCDESTROY:
@@ -155,8 +195,9 @@ class TcpWindows {
                         return S_OK;
                     auto popup = std::make_shared<Popup>();
                     CreateWindowExW(0, L"IoTProtocolStudioTcpWindow", L"TCP · IoT Protocol Studio",
-                                    WS_OVERLAPPEDWINDOW, CW_USEDEFAULT, CW_USEDEFAULT, 1060, 800,
-                                    nullptr, nullptr, GetModuleHandleW(nullptr), popup.get());
+                                    WS_OVERLAPPEDWINDOW & ~WS_CAPTION, CW_USEDEFAULT, CW_USEDEFAULT,
+                                    1060, 800, nullptr, nullptr, GetModuleHandleW(nullptr),
+                                    popup.get());
                     if (!popup->hwnd) {
                         deferral->Complete();
                         return S_OK;
@@ -184,6 +225,34 @@ class TcpWindows {
                                 }
                                 std::weak_ptr<Popup> weak = popup;
                                 EventRegistrationToken ignored{};
+                                popup->browser->add_WebMessageReceived(
+                                    Microsoft::WRL::Callback<
+                                        ICoreWebView2WebMessageReceivedEventHandler>(
+                                        [weak](ICoreWebView2*,
+                                               ICoreWebView2WebMessageReceivedEventArgs* event)
+                                            -> HRESULT {
+                                            LPWSTR value = nullptr;
+                                            if (FAILED(event->TryGetWebMessageAsString(&value)))
+                                                return S_OK;
+                                            const std::wstring message = value ? value : L"";
+                                            CoTaskMemFree(value);
+                                            if (auto item = weak.lock(); item && item->hwnd) {
+                                                if (message == L"iotps-popup:drag") {
+                                                    ReleaseCapture();
+                                                    PostMessageW(item->hwnd, WM_NCLBUTTONDOWN,
+                                                                 HTCAPTION, 0);
+                                                } else if (message == L"iotps-popup:minimize") {
+                                                    ShowWindow(item->hwnd, SW_MINIMIZE);
+                                                } else if (message == L"iotps-popup:maximize") {
+                                                    ShowWindow(item->hwnd, IsZoomed(item->hwnd)
+                                                                               ? SW_RESTORE
+                                                                               : SW_MAXIMIZE);
+                                                }
+                                            }
+                                            return S_OK;
+                                        })
+                                        .Get(),
+                                    &ignored);
                                 popup->browser->add_WindowCloseRequested(
                                     Microsoft::WRL::Callback<
                                         ICoreWebView2WindowCloseRequestedEventHandler>(

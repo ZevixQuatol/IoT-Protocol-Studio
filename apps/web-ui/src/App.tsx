@@ -480,8 +480,10 @@ export default function App() {
   const isStartPage = page === "schema" && !project;
   const isProjectOverview = page === "schema" && !!project && !selectedProtocolPath;
   const isProtocolCode = page === "schema" && !!selectedProtocolPath && designerView === "code";
+  const isProtocolStructure =
+    page === "schema" && !!selectedProtocolPath && designerView === "visual";
   const isMessageStudio = page === "schema" && !!selectedProtocolPath && designerView === "message";
-  const hasProjectExplorer = isProjectOverview || isProtocolCode || isMessageStudio;
+  const hasProjectExplorer = page === "schema" && !!project;
   const currentProtocolCheck =
     protocolCheck &&
     protocolCheck.path === selectedProtocolPath &&
@@ -1379,7 +1381,7 @@ export default function App() {
 
   return (
     <div
-      className={`app-shell ${isStartPage || hasProjectExplorer || page === "debug" ? "startup-home" : ""} ${hasProjectExplorer ? "project-home" : ""} ${isProtocolCode ? `protocol-home ${protocolProblemsOpen ? "protocol-errors-open" : ""}` : ""} ${isMessageStudio ? "message-home" : ""} ${page === "debug" ? "debug-home" : ""} ${page === "settings" ? "settings-home" : ""}`}
+      className={`app-shell ${isStartPage || hasProjectExplorer || page === "debug" ? "startup-home" : ""} ${hasProjectExplorer ? "project-home" : ""} ${isProtocolCode ? `protocol-home ${protocolProblemsOpen ? "protocol-errors-open" : ""}` : ""} ${isProtocolStructure ? "structure-home" : ""} ${isMessageStudio ? "message-home" : ""} ${page === "debug" ? "debug-home" : ""} ${page === "settings" ? "settings-home" : ""}`}
     >
       <header className="titlebar" onPointerDown={startWindowDrag}>
         <div className="titlebar-brand">
@@ -1466,11 +1468,6 @@ export default function App() {
               selected={page === "schema"}
               size={isStartPage || hasProjectExplorer ? 27 : 17}
             />
-            {page === "settings" && (
-              <span className="p14-nav-label">
-                {locale === "zh-CN" ? "协议工作区" : "Workspace"}
-              </span>
-            )}
           </button>
           <button
             aria-current={page === "debug" ? "page" : undefined}
@@ -1485,9 +1482,6 @@ export default function App() {
               selected={page === "debug"}
               size={isStartPage || hasProjectExplorer ? 26 : 17}
             />
-            {page === "settings" && (
-              <span className="p14-nav-label">{translation.navigation.debug}</span>
-            )}
           </button>
           <button
             aria-current={page === "tcp" ? "page" : undefined}
@@ -1502,9 +1496,6 @@ export default function App() {
               selected={page === "tcp"}
               size={isStartPage || hasProjectExplorer ? 26 : 17}
             />
-            {page === "settings" && (
-              <span className="p14-nav-label">{locale === "zh-CN" ? "通信" : "Transport"}</span>
-            )}
           </button>
           <button
             aria-current={page === "environments" ? "page" : undefined}
@@ -1519,11 +1510,6 @@ export default function App() {
               selected={page === "environments"}
               size={isStartPage || hasProjectExplorer ? 26 : 17}
             />
-            {page === "settings" && (
-              <span className="p14-nav-label">
-                {locale === "zh-CN" ? "环境与变量" : "Variables"}
-              </span>
-            )}
           </button>
           <button
             aria-current={page === "settings" ? "page" : undefined}
@@ -1538,9 +1524,6 @@ export default function App() {
               selected={page === "settings"}
               size={isStartPage || hasProjectExplorer ? 26 : 17}
             />
-            {page === "settings" && (
-              <span className="p14-nav-label">{translation.navigation.settings}</span>
-            )}
           </button>
         </aside>
 
@@ -1791,8 +1774,13 @@ export default function App() {
               <Environments
                 key={project?.rootPath ?? ""}
                 rootPath={project?.rootPath}
+                projectName={project?.name}
                 locale={locale}
                 onSensitiveValues={rememberSensitiveValues}
+                onOpen={() => {
+                  void run(() => openProject());
+                }}
+                onCreate={() => openTreeDialog("project")}
               />
             ) : page === "settings" ? (
               <SettingsWorkspace

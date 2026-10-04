@@ -53,6 +53,8 @@ async function checkSchemaEditor(page) {
         let offset = 0;
         for (const value of item.fields) {
           // These are bridge-shaped values, not a second schema parser.
+          value.bits = [];
+          value.enumValues = [];
           if (value === field || (action === "addField" && value === item.fields.at(-1))) {
             value.declaredOffset = properties.offset || null;
             value.declaredLength = properties.length || null;
@@ -69,6 +71,7 @@ async function checkSchemaEditor(page) {
     };
   });
   await page.reload();
+  await page.getByRole("button", { name: "打开 Designer", exact: true }).click();
   await page.getByRole("tab", { name: "结构", exact: true }).click();
   const button = (name) => page.getByRole("button", { name, exact: true });
   const dialog = page.locator(".schema-edit-dialog");
@@ -171,13 +174,13 @@ async function checkSchemaEditor(page) {
     (await page.locator(".message-node.selected code").textContent()) === "renamed",
     "Message rename selection retained",
   );
-  await page.getByRole("tab", { name: "Message", exact: true }).click();
+  await page.getByRole("tab", { name: /报文|Message/, exact: true }).click();
   check(
     (await page.locator(".message-studio").textContent()).includes("value"),
     "Message Studio uses updated fields",
   );
   await page.getByRole("tab", { name: "代码", exact: true }).click();
-  const code = page.locator(".protocol-source textarea");
+  const code = page.locator(".yaml-code-editor textarea");
   const saved = await code.inputValue();
   check(saved.includes("renamed") && !saved.includes("body"), "Code view refreshes after edits");
   await code.fill(saved + "\n# unsaved");

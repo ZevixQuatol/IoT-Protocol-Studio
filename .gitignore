@@ -1,4 +1,6 @@
 /out/
+/output/
+/.playwright-cli/
 /build/
 /.vs/
 /.idea/

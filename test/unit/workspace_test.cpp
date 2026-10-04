@@ -775,8 +775,28 @@ messages:
     CHECK(save_environments(managed, environments).has_value());
     CHECK(load_environments(managed).value().environments[0].variables[1].default_value.empty());
     environments.environments[0].variables[1].default_value = "8000";
+    environments.environments[0].description = "开发环境: \"中文\"\n用于日常调试";
+    environments.environments[0].variables[3].description = "访问令牌（仅界面隐藏）";
     CHECK(save_environments(managed, environments).has_value());
+    const auto metadata_roundtrip = load_environments(managed).value();
+    CHECK(metadata_roundtrip.environments[0].description ==
+          environments.environments[0].description);
+    CHECK(metadata_roundtrip.environments[0].variables[3].description ==
+          environments.environments[0].variables[3].description);
+    CHECK(metadata_roundtrip.environments[0].variables[3].sensitive);
     const auto saved_environments = read_file(environments_path);
+    environments.environments[0].description = std::string(1001, 'x');
+    const auto long_description = save_environments(managed, environments);
+    CHECK(!long_description.has_value());
+    if (const auto* error = long_description.error_if())
+        CHECK(error->path == "environments[0].description");
+    CHECK(read_file(environments_path) == saved_environments);
+    environments.environments[0].description = metadata_roundtrip.environments[0].description;
+    environments.environments[0].variables[3].description = std::string(1001, 'x');
+    CHECK(!save_environments(managed, environments).has_value());
+    CHECK(read_file(environments_path) == saved_environments);
+    environments.environments[0].variables[3].description =
+        metadata_roundtrip.environments[0].variables[3].description;
     environments.environments[0].variables[1].default_value = "invalid";
     CHECK(!save_environments(managed, environments).has_value());
     CHECK(read_file(environments_path) == saved_environments);
@@ -799,6 +819,8 @@ environments:
 )yaml");
     CHECK(!load_environments(managed).value().environments[0].variables[0].required);
     CHECK(!load_environments(managed).value().environments[0].variables[0].sensitive);
+    CHECK(load_environments(managed).value().environments[0].description.empty());
+    CHECK(load_environments(managed).value().environments[0].variables[0].description.empty());
     write_file(environments_path, R"yaml(version: "1"
 active: "legacy"
 environments:

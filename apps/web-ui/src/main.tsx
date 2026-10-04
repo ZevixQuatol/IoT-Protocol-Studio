@@ -7,6 +7,8 @@ import "./project-page.css";
 import "./protocol-code.css";
 import "./message-workbench.css";
 import "./debug-workbench.css";
+import "./communication-workbench.css";
+import "./ui-consistency.css";
 
 createRoot(document.getElementById("root")!).render(
   <StrictMode>

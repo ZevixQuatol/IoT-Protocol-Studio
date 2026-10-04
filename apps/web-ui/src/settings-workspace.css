@@ -1,12 +1,4 @@
 .settings-home {
-  --chrome: #0b1413;
-  --surface: #101c1a;
-  --surface-deep: #0a1412;
-  --line: #263a34;
-  --muted: #94a8a0;
-  --text: #e9f0ec;
-  --accent: #36dc7a;
-  --accent-soft: #113b27;
   background: var(--chrome);
 }
 .settings-home .titlebar,
@@ -59,16 +51,6 @@
   color: var(--text);
   background: var(--chrome);
   font-size: var(--ui-font-size, 13px);
-}
-:root[data-theme="light"] .settings-home {
-  --chrome: #f3f7f5;
-  --surface: #ffffff;
-  --surface-deep: #f7faf8;
-  --line: #d3e0d9;
-  --muted: #61736a;
-  --text: #1c3025;
-  --accent: #008650;
-  --accent-soft: #e0f3e7;
 }
 .p14-workspace {
   display: flex;

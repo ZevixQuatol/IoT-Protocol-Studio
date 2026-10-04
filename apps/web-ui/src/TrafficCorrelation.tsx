@@ -1,4 +1,5 @@
 import { useEffect, useId, useRef, useState } from "react";
+import { Edit2, Search, X } from "react-feather";
 import {
   correlateTraffic,
   type CorrelationRow,
@@ -6,7 +7,11 @@ import {
   type TcpRecord,
   type WorkspaceProtocol,
 } from "./bridge";
+import CorrelationDetail from "./CorrelationDetail";
+import TrafficTimeline from "./TrafficTimeline";
+import { CorrelationState, deviceValue, recordField, rowKey, timeLabel } from "./correlationView";
 import type { Locale } from "./i18n";
+import "./traffic-analysis.css";
 
 const defaults: CorrelationRule = {
   protocol: "",
@@ -28,6 +33,7 @@ export default function TrafficCorrelation({
   savedAt,
   dropped,
   redact,
+  view = "correlation",
 }: {
   records: TcpRecord[];
   protocols: WorkspaceProtocol[];
@@ -38,6 +44,7 @@ export default function TrafficCorrelation({
   savedAt?: string;
   dropped: number;
   redact: (text: string) => string;
+  view?: "timeline" | "correlation";
 }) {
   const t = (cn: string, en: string) => (locale === "zh-CN" ? cn : en);
   const optionId = useId();
@@ -45,6 +52,13 @@ export default function TrafficCorrelation({
   const [rows, setRows] = useState<CorrelationRow[]>([]);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
+  const [selected, setSelected] = useState("");
+  const [search, setSearch] = useState("");
+  const [state, setState] = useState("");
+  const [connection, setConnection] = useState("");
+  const [start, setStart] = useState("");
+  const [end, setEnd] = useState("");
+  const editor = useRef<HTMLDialogElement>(null);
   const applied = useRef(0);
   useEffect(() => {
     ++applied.current;
@@ -91,11 +105,10 @@ export default function TrafficCorrelation({
       ...(draft.protocol ? [draft.protocol] : []),
     ]),
   ];
+  const schema = protocols.find((item) => item.path === draft.protocol)?.schema;
   const names = [
     ...new Set([
-      ...(protocols
-        .find((item) => item.path === draft.protocol)
-        ?.schema?.messages.map((item) => item.name) ?? []),
+      ...(schema?.messages.map((item) => item.name) ?? []),
       ...records.flatMap((item) =>
         item.parsed?.protocolPath === draft.protocol && item.parsed.messageName
           ? [item.parsed.messageName]
@@ -105,9 +118,7 @@ export default function TrafficCorrelation({
   ];
   const fields = [
     ...new Set([
-      ...(protocols
-        .find((item) => item.path === draft.protocol)
-        ?.schema?.messages.flatMap((item) => item.fields.map((field) => field.name)) ?? []),
+      ...(schema?.messages.flatMap((item) => item.fields.map((field) => field.name)) ?? []),
       ...records.flatMap((item) =>
         item.parsed?.protocolPath === draft.protocol
           ? item.parsed.fields.map((field) => field.name)
@@ -117,13 +128,13 @@ export default function TrafficCorrelation({
   ];
   const labels: Record<CorrelationRow["state"], string> = {
     pending: t("等待响应", "Pending"),
-    matched: t("正常响应", "Matched"),
+    matched: t("正常匹配", "Matched"),
     timeout: t("超时", "Timeout"),
     duplicate: t("重复响应", "Duplicate"),
-    unmatched: t("无匹配响应", "Unmatched"),
-    late: t("迟到响应", "Late"),
-    ambiguous: t("关联歧义", "Ambiguous"),
-    skipped: t("无法关联", "Skipped"),
+    unmatched: t("无匹配", "Unmatched"),
+    late: t("迟到", "Late"),
+    ambiguous: t("歧义", "Ambiguous"),
+    skipped: t("无法分析", "Skipped"),
   };
   const reasons: Record<string, string> = {
     "Waiting for response": "等待响应",
@@ -136,66 +147,417 @@ export default function TrafficCorrelation({
     "Frame is invalid or correlation field is missing/truncated":
       "帧无效，或关联字段缺失、截断、脱敏",
   };
-  const jump = (id: number, title: string) => {
-    const record = records.find((item) => item.id === id);
-    return record ? (
-      <button type="button" onClick={() => onSelect(record)} aria-label={`${title} #${id}`}>
-        #{id}
-      </button>
-    ) : (
-      "—"
+  const reason = (row: CorrelationRow) =>
+    redact(locale === "zh-CN" ? (reasons[row.reason] ?? row.reason) : row.reason);
+  const byId = new Map(records.map((record) => [record.id, record]));
+  const filtered = rows.filter((row) => {
+    const request = byId.get(row.request),
+      response = byId.get(row.response),
+      record = request ?? response;
+    const key = rule ? recordField(record, request ? rule.requestField : rule.responseField) : "";
+    return (
+      (!state || row.state === state) &&
+      (!connection || `${record?.address} #${record?.peer}` === connection) &&
+      (!start || (record?.time ?? 0) >= new Date(start).getTime()) &&
+      (!end || (record?.time ?? 0) <= new Date(end).getTime()) &&
+      (!search ||
+        redact(
+          [
+            key,
+            deviceValue(record),
+            record?.address,
+            request?.parsed?.messageName,
+            response?.parsed?.messageName,
+            reason(row),
+            record?.hex,
+          ].join(" "),
+        )
+          .toLowerCase()
+          .includes(search.toLowerCase()))
     );
-  };
-  const events = records.map((record) => {
-    const related = rows.filter((row) => row.request === record.id || row.response === record.id);
-    const response = related.find((row) => row.response === record.id);
-    const request = related.find((row) => row.request === record.id);
-    const role = response
-      ? t("响应", "Response")
-      : request
-        ? t("请求", "Request")
-        : record.direction;
-    return {
-      time: record.time,
-      record,
-      title: `${role} ${record.parsed?.messageName ?? ""}`,
-      detail:
-        related
-          .map(
-            (row) =>
-              `${labels[row.state]}${row.request && row.response ? ` · ${row.elapsed} ms` : ""}`,
-          )
-          .join("; ") ||
-        record.parsed?.error ||
-        record.detail,
-      exception:
-        (record.direction === "SYS" &&
-          /error|fail|timeout|gap|truncat|conflict|unsupported|discard|reset|missing|invalid/i.test(
-            record.detail,
-          )) ||
-        Boolean(record.parsed && record.parsed.status !== "ok") ||
-        related.some((row) => !["matched", "pending"].includes(row.state)),
-      response,
-    };
   });
-  if (rule)
-    for (const row of rows.filter((row) => row.state === "timeout")) {
-      const record = records.find((item) => item.id === row.request);
-      if (record)
-        events.push({
-          time: record.time + rule.timeout,
-          record,
-          title: t("请求超时", "Request timeout"),
-          detail: `${rule.timeout} ms · ${redact(row.reason)}`,
-          exception: true,
-          response: undefined,
-        });
-    }
-  events.sort((a, b) => a.time - b.time || a.record.id - b.record.id);
+  const current = filtered.find((row) => rowKey(row) === selected) ?? filtered[0];
+  const currentIndex = current ? filtered.indexOf(current) : -1;
+  const timelineRecords = rule
+    ? records
+    : records.filter(
+        (record) =>
+          !state &&
+          (!connection || `${record.address} #${record.peer}` === connection) &&
+          (!start || record.time >= new Date(start).getTime()) &&
+          (!end || record.time <= new Date(end).getTime()) &&
+          (!search ||
+            redact(
+              [
+                deviceValue(record),
+                record.address,
+                record.parsed?.messageName,
+                record.hex,
+                record.detail,
+              ].join(" "),
+            )
+              .toLowerCase()
+              .includes(search.toLowerCase())),
+      );
+  const connections = [
+    ...new Set(
+      rows.flatMap((row) => {
+        const record = byId.get(row.request) ?? byId.get(row.response);
+        return record ? [`${record.address} #${record.peer}`] : [];
+      }),
+    ),
+  ];
+  const editRule = () => {
+    setDraft(rule ?? defaults);
+    setError("");
+    editor.current?.showModal();
+  };
+  const cancelEdit = () => {
+    ++applied.current;
+    setBusy(false);
+    editor.current?.close();
+  };
+  const selectRow = (row: CorrelationRow) => setSelected(rowKey(row));
+  const counts = Object.keys(labels).map((key) => ({
+    state: key as CorrelationRow["state"],
+    count: rows.filter((row) => row.state === key).length,
+  }));
   return (
-    <>
-      <details className="traffic-filters traffic-correlation">
-        <summary>{t("请求 / 响应关联", "Request / response correlation")}</summary>
+    <div className="p11-workbench" data-view={view}>
+      <div className="p11-main">
+        {view === "correlation" && (
+          <section className="p11-rule-summary" aria-label={t("关联规则", "Correlation rule")}>
+            <header>
+              <strong>{t("关联规则", "Correlation rule")}</strong>
+              <span className="p11-rule-name">
+                {redact(
+                  protocols.find((item) => item.path === rule?.protocol)?.name ??
+                    rule?.protocol ??
+                    "",
+                )}
+              </span>
+              <span className="p11-enabled" data-enabled={!!rule}>
+                <i />
+                {rule ? t("已启用", "Enabled") : t("未配置", "Not configured")}
+              </span>
+              <button type="button" onClick={editRule}>
+                <Edit2 size={13} />
+                {t("编辑规则", "Edit rule")}
+              </button>
+            </header>
+            <div className="p11-rule-values">
+              <div>
+                <small>{t("请求消息", "Request message")}</small>
+                <strong>{redact(rule?.requestMessage ?? "—")}</strong>
+              </div>
+              <span className="p11-rule-arrow">→</span>
+              <div>
+                <small>{t("响应消息", "Response message")}</small>
+                <strong>{redact(rule?.responseMessage ?? "—")}</strong>
+              </div>
+              <div>
+                <small>{t("关联字段", "Matching fields")}</small>
+                <span className="p11-key">
+                  <code>{redact(rule?.requestField || "—")}</code>
+                  <span>→</span>
+                  <code>{redact(rule?.responseField || "—")}</code>
+                </span>
+              </div>
+              <div>
+                <small>{t("匹配方向", "Direction")}</small>
+                <strong>
+                  {rule?.requestFlow ?? "TX"} → {rule?.requestFlow === "RX" ? "TX" : "RX"}
+                </strong>
+              </div>
+              <div>
+                <small>{t("匹配范围", "Scope")}</small>
+                <strong>
+                  {rule?.scope === "session"
+                    ? t("整个会话", "Entire session")
+                    : t("同一连接", "Same connection")}
+                </strong>
+              </div>
+              <div>
+                <small>{t("响应超时", "Timeout")}</small>
+                <strong>{rule ? `${rule.timeout.toLocaleString()} ms` : "—"}</strong>
+              </div>
+            </div>
+          </section>
+        )}
+        {error && (
+          <p className="p11-error" role="alert">
+            {redact(error)}
+          </p>
+        )}
+        <div className="p11-filters">
+          <select
+            aria-label={t("关联状态筛选", "Correlation state filter")}
+            value={state}
+            onChange={(event) => setState(event.target.value)}
+          >
+            <option value="">{t("全部状态", "All states")}</option>
+            {Object.entries(labels).map(([key, label]) => (
+              <option key={key} value={key}>
+                {label}
+              </option>
+            ))}
+          </select>
+          <select
+            aria-label={t("关联连接筛选", "Correlation connection filter")}
+            value={connection}
+            onChange={(event) => setConnection(event.target.value)}
+          >
+            <option value="">{t("全部连接", "All connections")}</option>
+            {connections.map((value) => (
+              <option key={value} value={value}>
+                {redact(value)}
+              </option>
+            ))}
+          </select>
+          <label className="p11-search">
+            <Search size={14} />
+            <input
+              aria-label={t("搜索关联记录", "Search correlations")}
+              placeholder={t("搜索序号、设备 ID、消息…", "Sequence, device ID, message…")}
+              value={search}
+              onChange={(event) => setSearch(event.target.value)}
+            />
+          </label>
+          <button
+            type="button"
+            onClick={() => {
+              setState("");
+              setConnection("");
+              setSearch("");
+              setStart("");
+              setEnd("");
+            }}
+          >
+            {t("重置", "Reset")}
+          </button>
+          {view === "timeline" && (
+            <button type="button" onClick={editRule}>
+              <Edit2 size={13} />
+              {t("编辑规则", "Edit rule")}
+            </button>
+          )}
+        </div>
+        <div className="p11-range">
+          <span>{t("时间范围", "Time range")}</span>
+          <input
+            type="datetime-local"
+            step="0.001"
+            aria-label={t("关联开始时间", "Correlation start time")}
+            value={start}
+            onChange={(event) => setStart(event.target.value)}
+          />
+          <span>→</span>
+          <input
+            type="datetime-local"
+            step="0.001"
+            aria-label={t("关联结束时间", "Correlation end time")}
+            value={end}
+            onChange={(event) => setEnd(event.target.value)}
+          />
+          <span className="p11-analysis-time">
+            {savedAt ? t("历史分析", "History") : t("实时分析", "Live analysis")} ·{" "}
+            {filtered.length} / {rows.length}
+          </span>
+        </div>
+        {!rule && view !== "timeline" ? (
+          <div className="p11-empty">
+            <strong>{t("配置请求与响应关联", "Configure request / response correlation")}</strong>
+            <p>
+              {t(
+                "选择协议、消息和匹配字段，查看关联结果与消息时间线。",
+                "Choose a protocol, messages and matching fields to inspect correlations and the timeline.",
+              )}
+            </p>
+            <button type="button" onClick={editRule}>
+              {t("配置关联规则", "Configure rule")}
+            </button>
+          </div>
+        ) : (
+          <>
+            <div className="p11-counts" aria-label={t("关联统计", "Correlation statistics")}>
+              <button type="button" onClick={() => setState("")} aria-pressed={!state}>
+                {t("全部", "All")}
+                <b>{rows.length}</b>
+              </button>
+              {counts
+                .filter((item) => item.count)
+                .map((item) => (
+                  <button
+                    type="button"
+                    key={item.state}
+                    data-state={item.state}
+                    aria-pressed={state === item.state}
+                    onClick={() => setState(state === item.state ? "" : item.state)}
+                  >
+                    {labels[item.state]}
+                    <b>{item.count}</b>
+                  </button>
+                ))}
+            </div>
+            {view === "timeline" ? (
+              <TrafficTimeline
+                records={timelineRecords}
+                rows={filtered}
+                rule={rule}
+                selected={current}
+                onSelect={selectRow}
+                onRecord={onSelect}
+                locale={locale}
+                labels={labels}
+                redact={redact}
+                filtering={Boolean(state || connection || search || start || end)}
+              />
+            ) : (
+              <section
+                className="p11-results traffic-correlation"
+                aria-label={t("关联结果", "Correlation results")}
+              >
+                <header>
+                  <strong>{t("关联结果", "Correlation results")}</strong>
+                  <span>
+                    {t("共", "Total")} {filtered.length} {t("条", "rows")}
+                  </span>
+                </header>
+                <div className="p11-table-scroll">
+                  <table>
+                    <thead>
+                      <tr>
+                        {[
+                          "#",
+                          t("请求时间", "Request time"),
+                          t("响应时间", "Response time"),
+                          t("耗时 (ms)", "Elapsed (ms)"),
+                          rule?.requestField ?? "—",
+                          t("设备 ID", "Device ID"),
+                          t("请求消息", "Request message"),
+                          t("响应消息", "Response message"),
+                          t("状态", "State"),
+                          t("请求长度", "Request bytes"),
+                          t("响应长度", "Response bytes"),
+                          t("操作", "Action"),
+                        ].map((label, index) => (
+                          <th key={index}>{redact(label)}</th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {filtered.map((row) => {
+                        const request = byId.get(row.request),
+                          response = byId.get(row.response),
+                          index = rows.indexOf(row);
+                        return (
+                          <tr
+                            key={rowKey(row)}
+                            data-correlation-state={row.state}
+                            aria-selected={current === row}
+                            onClick={() => selectRow(row)}
+                          >
+                            <td>{index + 1}</td>
+                            <td>{timeLabel(request?.time)}</td>
+                            <td>{timeLabel(response?.time)}</td>
+                            <td>{row.request && row.response ? row.elapsed : "—"}</td>
+                            <td>
+                              {redact(
+                                recordField(
+                                  request ?? response,
+                                  request
+                                    ? (rule?.requestField ?? "")
+                                    : (rule?.responseField ?? ""),
+                                ) || "—",
+                              )}
+                            </td>
+                            <td>{redact(deviceValue(request ?? response) || "—")}</td>
+                            <td className="p11-message">
+                              {redact(request?.parsed?.messageName ?? "—")}
+                            </td>
+                            <td className="p11-message">
+                              {redact(response?.parsed?.messageName ?? "—")}
+                            </td>
+                            <td title={reason(row)}>
+                              <CorrelationState state={row.state} label={labels[row.state]} />
+                            </td>
+                            <td>{request?.size ?? "—"}</td>
+                            <td>{response?.size ?? "—"}</td>
+                            <td>
+                              <button
+                                type="button"
+                                aria-label={`${t("查看关联", "View correlation")} #${index + 1}`}
+                                onClick={() => selectRow(row)}
+                              >
+                                {t("查看", "View")}
+                              </button>
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                  {filtered.length === 0 && (
+                    <div className="p11-empty">
+                      <strong>
+                        {rows.length
+                          ? t("没有符合筛选条件的记录", "No correlations match the filters")
+                          : t("暂无关联结果", "No correlations yet")}
+                      </strong>
+                      <p>
+                        {t(
+                          "关联依据已保留的完整帧及已解析字段。",
+                          "Correlation uses retained complete frames and decoded fields.",
+                        )}
+                      </p>
+                    </div>
+                  )}
+                </div>
+              </section>
+            )}
+          </>
+        )}
+        <footer className="p11-footnote">
+          {t(
+            "分析全部保留帧；筛选仅改变显示。",
+            "Analyzes all retained frames; filters change only the display.",
+          )}
+          {dropped > 0 && ` ${t("已淘汰", "Evicted")}: ${dropped}`}
+        </footer>
+      </div>
+      <CorrelationDetail
+        row={current}
+        records={records}
+        rule={rule}
+        locale={locale}
+        index={currentIndex}
+        total={filtered.length}
+        labels={labels}
+        reason={current ? reason(current) : ""}
+        onStep={(step) => {
+          const row = filtered[currentIndex + step];
+          if (row) selectRow(row);
+        }}
+        onRecord={onSelect}
+        redact={redact}
+        timeline={view === "timeline"}
+      />
+      <dialog
+        className="p11-rule-editor"
+        ref={editor}
+        aria-labelledby={`${optionId}-title`}
+        onCancel={cancelEdit}
+      >
+        <header>
+          <strong id={`${optionId}-title`}>{t("编辑关联规则", "Edit correlation rule")}</strong>
+          <button
+            type="button"
+            onClick={cancelEdit}
+            aria-label={t("关闭规则编辑", "Close rule editor")}
+          >
+            <X size={16} />
+          </button>
+        </header>
         <form
           onSubmit={(event) => {
             event.preventDefault();
@@ -205,8 +567,10 @@ export default function TrafficCorrelation({
             void correlateTraffic(draft, [], savedAt ? Date.parse(savedAt) : Date.now())
               .then((result) => {
                 if (version !== applied.current) return;
-                if (result.ok) onRule({ ...draft });
-                else setError(result.error.message);
+                if (result.ok) {
+                  onRule({ ...draft });
+                  editor.current?.close();
+                } else setError(result.error.message);
               })
               .catch((failure) => {
                 if (version === applied.current) setError(String(failure));
@@ -216,7 +580,7 @@ export default function TrafficCorrelation({
               });
           }}
         >
-          <label>
+          <label className="p11-editor-protocol">
             {t("关联协议", "Correlation protocol")}
             <select
               aria-label={t("关联协议", "Correlation protocol")}
@@ -227,7 +591,7 @@ export default function TrafficCorrelation({
               <option value="">{t("选择协议", "Select protocol")}</option>
               {paths.map((path) => (
                 <option key={path} value={path}>
-                  {redact(path)}
+                  {redact(protocols.find((item) => item.path === path)?.name ?? path)}
                 </option>
               ))}
             </select>
@@ -303,114 +667,39 @@ export default function TrafficCorrelation({
               onChange={(event) => setDraft({ ...draft, timeout: Number(event.target.value) })}
             />
           </label>
-          <button type="submit" disabled={busy}>
-            {t("应用关联规则", "Apply correlation rule")}
-          </button>
-          <button
-            type="button"
-            onClick={() => {
-              ++applied.current;
-              setBusy(false);
-              onRule(null);
-            }}
-          >
-            {t("关闭关联", "Disable correlation")}
-          </button>
-          <small>
+          <p className="p11-editor-note">
             {t(
-              "分析完整 FRAME，响应方向与请求相反；字段类型和值须一致。TCP / 串口先配置分帧并绑定协议，不同消息使用自动识别。缺失、截断或已脱敏的字段不猜测。分析全部保留记录，不受筛选影响；此操作不会发包。",
-              "Uses complete FRAME records in opposite directions and equal field types/values. Configure stream framing and protocol binding; use auto detection for different messages. Missing, truncated or redacted keys are skipped. Analyzes all retained records, regardless of filters; sends no packets.",
+              "一组请求字段与响应字段按类型和值匹配。仅分析完整 FRAME；字段缺失、截断或脱敏时不猜测。重连按连接编号隔离，同值请求保留歧义。",
+              "One request / response field pair matches by type and value. Uses complete FRAME records; missing, truncated or redacted keys are skipped. Reconnects are isolated; reused keys remain ambiguous.",
             )}
-          </small>
-        </form>
-        {error && <p role="alert">{redact(error)}</p>}
-        {rule && (
-          <>
-            <p role="status">
-              {savedAt
-                ? t("历史分析时刻", "History analysis time") +
-                  ": " +
-                  new Date(savedAt).toLocaleString()
-                : t("实时分析", "Live analysis")}{" "}
-              · {t("关联条目", "Correlation rows")}: {rows.length}
+          </p>
+          {error && (
+            <p className="p11-error" role="alert">
+              {redact(error)}
             </p>
-            <p className="tcp-log-hint">
-              {t(
-                "仅依据保留记录；清空或淘汰后不保留匹配记忆。重连按连接编号隔离，广播 / 组播可选择整个会话范围。关联值应在保留窗口内唯一；同值请求标记歧义，避免迟到或重复响应误配。",
-                "Based on retained records only; clearing/eviction resets evidence. Reconnects are isolated by peer ID; broadcast/multicast can use session scope. Keys must be unique within retained requests; reused keys are ambiguous to avoid misassigning late/duplicate responses.",
-              )}
-              {dropped > 0 && ` ${t("已淘汰记录", "Dropped records")}: ${dropped}`}
-            </p>
-            <div className="correlation-table">
-              <table>
-                <thead>
-                  <tr>
-                    <th>{t("状态", "State")}</th>
-                    <th>{t("请求", "Request")}</th>
-                    <th>{t("响应", "Response")}</th>
-                    <th>{t("耗时", "Elapsed")}</th>
-                    <th>{t("说明", "Reason")}</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {rows.map((row, index) => (
-                    <tr key={index} data-correlation-state={row.state}>
-                      <td>{labels[row.state]}</td>
-                      <td>{jump(row.request, t("查看请求", "View request"))}</td>
-                      <td>{jump(row.response, t("查看响应", "View response"))}</td>
-                      <td>{row.response && row.request ? `${row.elapsed} ms` : "—"}</td>
-                      <td>
-                        {locale === "zh-CN"
-                          ? (reasons[row.reason] ?? redact(row.reason))
-                          : redact(row.reason)}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </>
-        )}
-      </details>
-      <details className="traffic-filters traffic-timeline">
-        <summary>{t("消息时间线", "Message timeline")}</summary>
-        <p>
-          {t(
-            "按时间排列全部可见记录；关联规则标记请求、响应、异常与耗时。点击编号查看原始 HEX 和已解析字段。",
-            "All visible records in time order; correlation marks requests, responses, exceptions and elapsed time. Select an ID to inspect original HEX and decoded fields.",
           )}
-        </p>
-        <div className="correlation-table">
-          <table>
-            <thead>
-              <tr>
-                <th>{t("相对时间", "Relative time")}</th>
-                <th>{t("事件", "Event")}</th>
-                <th>{t("记录", "Record")}</th>
-                <th>{t("关联请求", "Related request")}</th>
-                <th>{t("结果 / 耗时", "Result / elapsed")}</th>
-              </tr>
-            </thead>
-            <tbody>
-              {events.map((event, index) => (
-                <tr key={`${event.record.id}-${index}`} data-timeline-exception={event.exception}>
-                  <td title={new Date(event.time).toISOString()}>
-                    +{event.time - (events[0]?.time ?? event.time)} ms
-                  </td>
-                  <td>{redact(event.title)}</td>
-                  <td>{jump(event.record.id, t("查看报文", "View packet"))}</td>
-                  <td>
-                    {event.response?.request
-                      ? jump(event.response.request, t("查看请求", "View request"))
-                      : "—"}
-                  </td>
-                  <td>{redact(event.detail)}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      </details>
-    </>
+          <footer>
+            <button
+              type="button"
+              disabled={!rule}
+              onClick={() => {
+                ++applied.current;
+                setBusy(false);
+                onRule(null);
+                editor.current?.close();
+              }}
+            >
+              {t("关闭关联", "Disable correlation")}
+            </button>
+            <button type="button" onClick={cancelEdit}>
+              {t("取消", "Cancel")}
+            </button>
+            <button type="submit" disabled={busy}>
+              {busy ? t("验证中…", "Validating…") : t("应用关联规则", "Apply correlation rule")}
+            </button>
+          </footer>
+        </form>
+      </dialog>
+    </div>
   );
 }

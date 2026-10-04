@@ -1,26 +1,11 @@
 .startup-home {
-  --chrome: #0d1718;
-  --surface: #0d1718;
-  --line: #29383a;
-  --muted: #9ba7ad;
-  --text: #f1f4f5;
-  --accent: #00dc8b;
-  --accent-soft: #12342b;
-  --start-icon: #c6ccd1;
+  --start-icon: var(--muted);
   --start-danger: #ff4b50;
-  --start-control: #192326;
+  --start-control: var(--surface);
   color: var(--text);
 }
 
 :root[data-theme="light"] .startup-home {
-  --chrome: #f4f8f7;
-  --surface: #f4f8f7;
-  --line: #d2ddda;
-  --muted: #65756f;
-  --text: #192b26;
-  --accent: #008557;
-  --accent-soft: #e0f2e9;
-  --start-icon: #62736c;
   --start-danger: #cb3038;
   --start-control: #ffffff;
 }

@@ -283,8 +283,8 @@ async function checkVariableSend(page) {
   const beforeMessageCount = await page.evaluate(
     () => window.tcpCalls.filter((call) => call[0] === "send").length,
   );
-  await page.getByRole("button", { name: "Schema", exact: true }).click();
-  await page.getByRole("tab", { name: "Message", exact: true }).click();
+  await page.getByRole("button", { name: /协议工作区|Schema/, exact: true }).click();
+  await page.getByRole("tab", { name: /报文|Message/, exact: true }).click();
   await page.getByRole("textbox", { name: "Field value: value", exact: true }).fill("{{sequence}}");
   await page.getByRole("button", { name: "Encode message" }).click();
   await page.locator(".message-preview-hex").waitFor();

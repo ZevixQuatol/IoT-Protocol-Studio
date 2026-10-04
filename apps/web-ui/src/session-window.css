@@ -1,0 +1,577 @@
+/* P15 owns detached-session presentation; the portal and transport stay in the opener. */
+.tcp-session-container > .tcp-popup-toolbar {
+  justify-content: flex-start;
+  gap: 13px;
+  height: 52px;
+  padding: 0 18px;
+  font-size: 16px;
+  color: var(--text);
+  background: var(--chrome);
+}
+.tcp-popup-toolbar > img {
+  flex-shrink: 0;
+}
+.tcp-popup-toolbar .tcp-popup-symbol {
+  color: var(--accent);
+}
+.tcp-popup-toolbar .tcp-popup-name {
+  border-left: 1px solid var(--line);
+  padding-left: 18px;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--muted);
+}
+.tcp-popup-toolbar .tcp-popup-dock {
+  margin-left: auto;
+  font-size: 13px;
+  gap: 9px;
+}
+.tcp-popup-toolbar > button {
+  min-height: 34px;
+  border-radius: 6px;
+}
+.tcp-popup-toolbar .tcp-popup-close:hover {
+  color: #fff;
+  background: #cf3f49;
+}
+.tcp-workbench.tcp-popup-workbench {
+  display: grid;
+  grid-template-columns: minmax(0, 1.75fr) minmax(420px, 1fr);
+  grid-template-rows: auto minmax(300px, 1fr) auto 28px;
+  gap: 12px;
+  padding: 14px 18px 0;
+  height: auto;
+  overflow: auto;
+  font-size: 14px;
+}
+.tcp-popup-workbench > .tcp-connect {
+  grid-column: 1;
+  grid-row: 1;
+  flex-wrap: wrap;
+  align-items: center;
+  padding: 16px 20px;
+  min-height: 118px;
+  margin-right: -12px;
+  border-right: 0;
+  border-top-right-radius: 0;
+  border-bottom-right-radius: 0;
+}
+.tcp-popup-workbench > .tcp-configuration {
+  grid-column: 2;
+  grid-row: 1;
+  flex-wrap: wrap;
+  align-content: center;
+  position: relative;
+  padding: 16px;
+  border-left: 0;
+  border-top-left-radius: 0;
+  border-bottom-left-radius: 0;
+}
+.tcp-popup-workbench .tcp-body {
+  display: contents;
+}
+.tcp-popup-workbench .tcp-traffic-panel {
+  grid-column: 1;
+  grid-row: 2;
+}
+.tcp-popup-workbench .tcp-detail-panel {
+  grid-column: 2;
+  grid-row: 2;
+  min-height: 0;
+}
+.tcp-popup-workbench .tcp-send {
+  grid-column: 1 / -1;
+  grid-row: 3;
+  padding: 0 12px 12px;
+}
+.tcp-popup-workbench .tcp-statusbar {
+  grid-column: 1 / -1;
+  grid-row: 4;
+}
+.tcp-popup-workbench > .tcp-error {
+  grid-column: 1 / -1;
+}
+.tcp-popup-workbench .tcp-connect,
+.tcp-popup-workbench .tcp-configuration,
+.tcp-popup-workbench .tcp-traffic-panel,
+.tcp-popup-workbench .tcp-send,
+.tcp-popup-workbench .tcp-detail-panel {
+  border-radius: 10px;
+}
+.tcp-popup-workbench > .tcp-connect {
+  border-radius: 10px 0 0 10px;
+}
+.tcp-popup-workbench > .tcp-configuration {
+  border-radius: 0 10px 10px 0;
+}
+.tcp-popup-workbench .tcp-connect label:first-child {
+  width: 145px;
+}
+.tcp-popup-workbench .tcp-connect label:nth-child(2) {
+  flex: 1 1 175px;
+  width: 175px;
+}
+.tcp-popup-workbench .tcp-connect label {
+  font-size: 13px;
+}
+.tcp-popup-workbench .tcp-connect input,
+.tcp-popup-workbench .tcp-connect select {
+  height: 42px;
+}
+.tcp-popup-workbench .tcp-connect .tcp-connect-action {
+  order: 2;
+  background: var(--surface-raised);
+  color: var(--text);
+}
+.tcp-popup-workbench .tcp-connect .tcp-connection-state {
+  order: 1;
+  margin-right: auto;
+}
+.tcp-popup-workbench .tcp-reconnect-toggle {
+  margin-left: 0;
+  order: 3;
+}
+.tcp-popup-workbench .tcp-effective-address {
+  order: 4;
+}
+.tcp-popup-workbench .tcp-connect:has(.tcp-connection-state.open) .tcp-effective-address {
+  display: none;
+}
+.tcp-popup-workbench .tcp-connect-action {
+  height: 42px;
+  border-color: var(--line);
+}
+.tcp-popup-workbench .tcp-connection-state strong {
+  font-size: 15px;
+}
+.tcp-popup-workbench .tcp-connection-state small {
+  font-size: 11px;
+}
+.tcp-popup-workbench .tcp-config-note {
+  display: none;
+}
+.tcp-popup-workbench .tcp-configuration .tcp-bind-config,
+.tcp-popup-workbench .tcp-configuration .tcp-frame-config {
+  border-right: 0;
+  padding-right: 0;
+  flex: 1 1 100%;
+  max-width: none;
+}
+.tcp-popup-workbench .tcp-configuration .tcp-frame-config {
+  padding-right: 130px;
+}
+.tcp-popup-workbench .tcp-configuration label {
+  flex: 1;
+}
+.tcp-popup-workbench .tcp-config-more {
+  position: absolute;
+  bottom: 16px;
+  right: 16px;
+}
+.tcp-popup-workbench button,
+.tcp-popup-workbench input,
+.tcp-popup-workbench select,
+.tcp-popup-workbench textarea {
+  font-size: 14px;
+}
+.tcp-popup-workbench .tcp-log-toolbar {
+  gap: 12px;
+  padding: 12px;
+}
+.tcp-popup-workbench .tcp-log-toolbar .tcp-search {
+  order: -1;
+  min-width: 200px;
+}
+.tcp-popup-workbench .tcp-log-toolbar .tcp-archive-action {
+  display: none;
+}
+.tcp-popup-workbench .tcp-log-toolbar > label:not(.tcp-search) {
+  display: none;
+}
+.tcp-popup-workbench .tcp-log-toolbar select {
+  width: 106px;
+}
+.tcp-popup-workbench .tcp-log table {
+  min-width: 730px;
+}
+.tcp-popup-workbench .tcp-log th,
+.tcp-popup-workbench .tcp-log td {
+  font-size: 14px;
+  padding: 9px 12px;
+  font-family: "Cascadia Code", Consolas, "Microsoft YaHei UI", monospace;
+}
+.tcp-popup-workbench .tcp-log th:nth-child(2) {
+  width: 82px;
+}
+.tcp-popup-workbench .tcp-log th:first-child {
+  width: 136px;
+}
+.tcp-popup-workbench .tcp-log th:nth-child(5) {
+  width: 58px;
+}
+.tcp-popup-workbench .tcp-log th:nth-child(3) {
+  width: 74px;
+}
+.tcp-popup-workbench .tcp-log th:nth-child(4) {
+  width: 145px;
+}
+.tcp-popup-workbench .tcp-log th:nth-child(7) {
+  width: 112px;
+}
+.tcp-popup-workbench .tcp-section-tabs button {
+  padding: 11px 24px;
+  font-size: 14px;
+}
+.tcp-popup-workbench .tcp-dir-TX {
+  color: var(--accent);
+}
+.tcp-popup-workbench .tcp-dir-RX {
+  color: #59b6e8;
+}
+.tcp-popup-workbench .tcp-log tr.selected td {
+  border-top: 1px solid var(--accent);
+  border-bottom: 1px solid var(--accent);
+}
+.tcp-popup-workbench .tcp-detail-rail {
+  grid-column: 2;
+  grid-row: 2;
+  justify-self: end;
+  width: 38px;
+  writing-mode: vertical-rl;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  color: var(--muted);
+}
+.tcp-popup-workbench.details-collapsed .tcp-traffic-panel {
+  grid-column: 1 / -1;
+  margin-right: 50px;
+}
+.tcp-popup-detail .tcp-panel-heading {
+  padding: 12px;
+  gap: 7px;
+  flex-wrap: wrap;
+}
+.tcp-popup-detail .tcp-panel-heading strong {
+  margin-right: auto;
+}
+.tcp-popup-detail .tcp-locate-record {
+  font-size: 12px;
+}
+.tcp-popup-message {
+  padding: 0 12px 12px;
+}
+.tcp-popup-message h2 {
+  margin: 0 0 8px;
+  display: flex;
+  gap: 14px;
+  align-items: center;
+  font-size: 19px;
+}
+.tcp-popup-message h2 small {
+  font-size: 12px;
+  font-weight: 400;
+  color: var(--accent);
+  border-radius: 15px;
+  padding: 3px 8px;
+  background: var(--accent-soft);
+}
+.tcp-popup-message p {
+  margin: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 14px;
+  font-size: 12px;
+  color: var(--muted);
+}
+.tcp-popup-detail .tcp-detail-scroll {
+  display: flex;
+  flex-direction: column;
+  padding: 12px;
+  overflow: hidden;
+}
+.tcp-popup-detail .tcp-detail-raw {
+  order: 0;
+  flex-shrink: 0;
+}
+.tcp-popup-detail .tcp-detail-fields {
+  order: 1;
+  min-height: 0;
+  overflow: auto;
+}
+.tcp-popup-detail .tcp-detail-checksum {
+  order: 2;
+  flex-shrink: 0;
+  display: flex;
+  gap: 15px;
+  align-items: center;
+  min-height: 34px;
+  margin: 0;
+}
+.tcp-popup-detail .tcp-detail-checksum h3 {
+  margin: 8px 0;
+}
+.tcp-popup-detail .tcp-detail-fields h3 {
+  margin: 8px 0;
+}
+.tcp-popup-detail .tcp-raw-scroll td,
+.tcp-popup-detail .tcp-raw-scroll th {
+  font-size: 13px;
+}
+.tcp-popup-detail .tcp-open-debug {
+  order: 3;
+  flex-shrink: 0;
+}
+.tcp-popup-detail .tcp-detail-raw h3 {
+  margin-top: 0;
+}
+.tcp-popup-detail .tcp-raw-scroll {
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  padding: 9px 3px;
+}
+.tcp-popup-detail .tcp-field-scroll th,
+.tcp-popup-detail .tcp-field-scroll td {
+  font-size: 12px;
+  padding: 3px 6px;
+}
+.tcp-popup-detail .tcp-detail-raw pre,
+.tcp-popup-detail .tcp-hex-row,
+.tcp-popup-detail .tcp-hex-row button {
+  font-size: 12px;
+}
+.tcp-popup-field-hex {
+  font-family: "Cascadia Code", Consolas, monospace;
+}
+.tcp-popup-workbench .tcp-send-content {
+  display: grid;
+  grid-template-columns: 175px minmax(0, 1fr) auto;
+  gap: 8px 14px;
+  align-items: center;
+}
+.tcp-popup-workbench .tcp-send-heading {
+  grid-column: 1;
+  grid-row: 2;
+  flex-direction: column;
+  align-items: flex-start;
+}
+.tcp-popup-workbench .tcp-send-content > textarea {
+  grid-column: 2;
+  grid-row: 2;
+  padding-right: 85px;
+}
+.tcp-popup-workbench .tcp-send-content > .serial-byte-count {
+  grid-column: 2;
+  grid-row: 2;
+  justify-self: end;
+  align-self: start;
+  z-index: 1;
+  margin: 6px 10px 0 0;
+  pointer-events: none;
+}
+.tcp-popup-workbench .tcp-send-content > small:not(.serial-byte-count) {
+  grid-column: 2;
+  grid-row: 1;
+  margin-left: 180px;
+}
+.tcp-popup-workbench .tcp-clear-after-send {
+  grid-column: 3;
+  grid-row: 1;
+  justify-self: end;
+}
+.tcp-popup-workbench .tcp-send-schedule,
+.tcp-popup-workbench .tcp-variable-tools,
+.tcp-popup-workbench .tcp-send-preview {
+  grid-column: 1 / -1;
+}
+.tcp-popup-workbench .udp-template {
+  grid-column: 1 / 3;
+  grid-row: 1;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.tcp-popup-workbench .udp-template select {
+  width: min(300px, 50%);
+  height: 36px;
+  padding: 5px 9px;
+}
+.tcp-popup-workbench .tcp-send-heading select[aria-label="发送目标"],
+.tcp-popup-workbench .tcp-send-heading select[aria-label="Send target"] {
+  display: none;
+}
+.tcp-popup-workbench .tcp-send textarea {
+  height: 58px;
+  min-height: 58px;
+}
+.tcp-popup-workbench .tcp-send-footer {
+  display: grid;
+  grid-template-columns: auto auto;
+  align-items: center;
+  grid-column: 3;
+  grid-row: 2;
+  margin: 0;
+}
+.tcp-popup-workbench .tcp-send-footer small {
+  grid-column: 1 / -1;
+}
+.tcp-popup-workbench .tcp-send-footer [data-action="send"] {
+  min-width: 155px;
+  min-height: 48px;
+}
+.tcp-popup-workbench .tcp-send-content > small {
+  font-size: 12px;
+  color: var(--muted);
+}
+.session-close-dialog:not([open]) {
+  display: none;
+}
+.session-close-dialog {
+  width: min(470px, calc(100vw - 40px));
+  margin: auto;
+  padding: 28px 30px;
+  gap: 0;
+  border: 1px solid var(--line);
+  border-radius: 13px;
+  background: var(--surface);
+  color: var(--text);
+}
+.session-close-dialog::backdrop {
+  background: rgb(0 0 0 / 55%);
+}
+.session-close-dialog > header {
+  display: flex;
+  justify-content: flex-start;
+  align-items: center;
+  gap: 20px;
+  padding-bottom: 18px;
+  border-bottom: 1px solid var(--line);
+}
+.session-close-dialog > header > svg {
+  color: #eba442;
+  flex-shrink: 0;
+}
+.session-close-dialog h2 {
+  font-size: 21px;
+  margin: 0 0 6px;
+}
+.session-close-dialog header p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 14px;
+}
+.session-close-copy {
+  padding: 12px 0;
+  font-size: 14px;
+  line-height: 1.7;
+}
+.session-close-copy p {
+  margin: 6px 0;
+}
+.session-close-dialog footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 14px;
+  padding-top: 12px;
+}
+.session-close-dialog footer button {
+  min-height: 43px;
+  min-width: 108px;
+  border-radius: 8px;
+  font-size: 14px;
+  border: 1px solid var(--line);
+  background: var(--surface-raised);
+  color: var(--text);
+}
+.session-close-dialog footer .session-close-confirm {
+  background: #ed404b;
+  color: white;
+  border-color: #ed404b;
+}
+@media (max-width: 1100px) {
+  .tcp-workbench.tcp-popup-workbench {
+    grid-template-columns: minmax(0, 1fr) 350px;
+    grid-template-rows: max-content max-content 400px max-content 25px;
+  }
+  .tcp-popup-workbench > .tcp-connect {
+    grid-column: 1 / -1;
+  }
+  .tcp-popup-workbench > .tcp-connect {
+    margin-right: 0;
+    border-right: 1px solid var(--line);
+    border-radius: 10px;
+  }
+  .tcp-popup-workbench > .tcp-configuration {
+    grid-column: 1 / -1;
+    grid-row: 2;
+    border-left: 1px solid var(--line);
+    border-radius: 10px;
+  }
+  .tcp-popup-workbench .tcp-traffic-panel,
+  .tcp-popup-workbench .tcp-detail-panel,
+  .tcp-popup-workbench .tcp-detail-rail {
+    grid-row: 3;
+  }
+  .tcp-popup-workbench .tcp-send {
+    grid-row: 4;
+  }
+  .tcp-popup-workbench .tcp-statusbar {
+    grid-row: 5;
+  }
+  .tcp-popup-workbench .tcp-send-content {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .tcp-popup-workbench .tcp-send-content > *,
+  .tcp-popup-workbench .tcp-send-content > textarea,
+  .tcp-popup-workbench .tcp-send-content > small:not(.serial-byte-count),
+  .tcp-popup-workbench .tcp-send-content > .serial-byte-count,
+  .tcp-popup-workbench .tcp-send-footer,
+  .tcp-popup-workbench .tcp-send-heading {
+    grid-column: 1;
+    grid-row: auto;
+  }
+  .tcp-popup-workbench .tcp-send-content > small:not(.serial-byte-count),
+  .tcp-popup-workbench .tcp-send-content > .serial-byte-count {
+    margin: 0;
+    justify-self: start;
+  }
+  .tcp-popup-toolbar .tcp-popup-symbol {
+    display: none;
+  }
+}
+@media (max-width: 850px) {
+  .tcp-workbench.tcp-popup-workbench {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: max-content max-content 360px 420px max-content 25px;
+  }
+  .tcp-popup-workbench .tcp-detail-panel {
+    grid-column: 1;
+    grid-row: 4;
+  }
+  .tcp-popup-workbench .tcp-send {
+    grid-row: 5;
+  }
+  .tcp-popup-workbench .tcp-statusbar {
+    grid-row: 6;
+  }
+  .tcp-workbench.tcp-popup-workbench.details-collapsed {
+    grid-template-rows: max-content max-content 360px max-content 25px;
+  }
+  .tcp-popup-workbench.details-collapsed .tcp-detail-rail {
+    grid-column: 1;
+  }
+  .tcp-popup-workbench.details-collapsed .tcp-send {
+    grid-row: 4;
+  }
+  .tcp-popup-workbench.details-collapsed .tcp-statusbar {
+    grid-row: 5;
+  }
+  .tcp-popup-toolbar strong {
+    font-size: 13px;
+  }
+  .tcp-popup-toolbar .tcp-popup-name {
+    max-width: 120px;
+    font-size: 13px;
+  }
+}

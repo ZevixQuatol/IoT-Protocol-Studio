@@ -2,7 +2,7 @@ cmake_minimum_required(VERSION 3.24)
 
 project(
   IoTProtocolStudio
-  VERSION 0.1.0
+  VERSION 1.0.0
   DESCRIPTION "Binary device protocol development and testing workbench"
   LANGUAGES CXX)
 

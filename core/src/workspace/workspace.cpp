@@ -466,6 +466,9 @@ std::optional<WorkspaceDiagnostic> validate_environments(const EnvironmentConfig
         if (environment.variables.size() > 200)
             return invalid(environment_path + ".variables",
                            "an environment supports up to 200 variables");
+        if (environment.description.size() > 1000)
+            return invalid(environment_path + ".description",
+                           "environment description is too long");
         std::set<std::string> variable_names;
         for (std::size_t variable_index = 0; variable_index < environment.variables.size();
              ++variable_index) {
@@ -488,6 +491,8 @@ std::optional<WorkspaceDiagnostic> validate_environments(const EnvironmentConfig
                 return invalid(variable_path + ".name", "variable name is reserved");
             if (variable.default_value.size() > 65536)
                 return invalid(variable_path + ".default", "variable default is too long");
+            if (variable.description.size() > 1000)
+                return invalid(variable_path + ".description", "variable description is too long");
             if (variable.required &&
                 (variable.default_value.empty() ||
                  std::ranges::all_of(variable.default_value,
@@ -1779,15 +1784,20 @@ EnvironmentResult load_environments(const std::filesystem::path& project_directo
         EnvironmentConfig config;
         config.active = text(root, "active");
         for (const auto node : root["environments"].children()) {
-            if (!node.is_map() || node.num_children() != 2 || !node.has_child("variables") ||
-                !node["variables"].is_seq())
+            if (!node.is_map() ||
+                node.num_children() !=
+                    2 + static_cast<std::size_t>(node.has_child("description")) ||
+                !node.has_child("variables") || !node["variables"].is_seq())
                 throw std::runtime_error("invalid environment entry");
             Environment environment{text(node, "name"), {}};
+            if (node.has_child("description"))
+                environment.description = text(node, "description");
             for (const auto value : node["variables"].children()) {
-                if (!value.is_map() || value.num_children() < 3 || value.num_children() > 5 ||
+                if (!value.is_map() || value.num_children() < 3 || value.num_children() > 6 ||
                     value.num_children() !=
                         3 + static_cast<std::size_t>(value.has_child("required")) +
-                            static_cast<std::size_t>(value.has_child("sensitive")))
+                            static_cast<std::size_t>(value.has_child("sensitive")) +
+                            static_cast<std::size_t>(value.has_child("description")))
                     throw std::runtime_error("invalid environment variable");
                 bool required = false;
                 if (value.has_child("required")) {
@@ -1803,8 +1813,9 @@ EnvironmentResult load_environments(const std::filesystem::path& project_directo
                         throw std::runtime_error("invalid variable sensitive setting");
                     sensitive = setting == "true";
                 }
-                environment.variables.push_back({text(value, "name"), text(value, "type"),
-                                                 text(value, "default"), required, sensitive});
+                environment.variables.push_back(
+                    {text(value, "name"), text(value, "type"), text(value, "default"), required,
+                     sensitive, value.has_child("description") ? text(value, "description") : ""});
             }
             config.environments.push_back(std::move(environment));
         }
@@ -1847,6 +1858,8 @@ EnvironmentResult save_environments(const std::filesystem::path& project_directo
             auto node = root["environments"].append_child();
             node.set_map();
             put(node, "name", environment.name);
+            if (!environment.description.empty())
+                put(node, "description", environment.description);
             node["variables"].set_seq();
             for (const auto& variable : environment.variables) {
                 auto value = node["variables"].append_child();
@@ -1856,6 +1869,8 @@ EnvironmentResult save_environments(const std::filesystem::path& project_directo
                 put(value, "default", variable.default_value);
                 put(value, "required", variable.required ? "true" : "false");
                 put(value, "sensitive", variable.sensitive ? "true" : "false");
+                if (!variable.description.empty())
+                    put(value, "description", variable.description);
             }
         }
         std::string output;

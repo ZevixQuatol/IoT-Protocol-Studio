@@ -1,0 +1,375 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Project UI verification</title>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script>
+      const protocol = (name, path, description, messages) => ({
+        name,
+        path,
+        description,
+        content: `protocol:\n  name: ${name}\n  version: 1.0\nmessages: {}\n`,
+        schema: {
+          version: "0.1",
+          protocolVersion: "1.0",
+          defaultByteOrder: "big",
+          messageTypeField: "",
+          messages,
+        },
+      });
+      let project = {
+        name: "Smart Sensor Demo",
+        description: "Sensor protocol project",
+        rootPath: "D:\\Projects\\SmartSensorDemo",
+        folders: ["protocols/SensorLink", "protocols/Modbus"],
+        protocols: [
+          protocol("SensorLink", "protocols/SensorLink/sensorlink.yaml", "传感器链路示例协议", [
+            { name: "report", fields: [] },
+          ]),
+          protocol("Modbus", "protocols/Modbus/modbus.yaml", "基础寄存器协议集合", []),
+        ],
+      };
+      const result = () => ({ ok: true, source: "native-workspace", cancelled: false, project });
+      window.projectUICalls = [];
+      window.iotpsWorkspaceCurrent = async () => result();
+      window.iotpsWorkspaceOpen = async () => result();
+      window.iotpsWorkspaceReveal = async (path) => {
+        window.projectUICalls.push(["reveal", path]);
+        return { ok: true };
+      };
+      window.iotpsWorkspaceChooseDirectory = async () => ({
+        ok: true,
+        cancelled: false,
+        path: "D:\\Projects",
+      });
+      window.iotpsWorkspaceCreate = async (name, parent) => {
+        if (!/^[A-Za-z]:[\\/]/.test(parent))
+          return {
+            ok: false,
+            source: "native-workspace",
+            error: {
+              code: "invalid_project_directory",
+              message: "Invalid parent directory",
+              path: parent,
+            },
+          };
+        window.projectUICalls.push(["create", name, parent]);
+        project = {
+          name,
+          rootPath: parent + "\\" + name,
+          description: "",
+          folders: [],
+          protocols: [],
+        };
+        return result();
+      };
+      window.iotpsWorkspaceCreateProtocol = async (
+        path,
+        name,
+        displayName,
+        version,
+        description,
+      ) => {
+        window.projectUICalls.push(["protocol", path, name]);
+        project.protocols.push(protocol(displayName || name, "protocols/" + path, description, []));
+        return result();
+      };
+      window.iotpsWorkspaceClose = async () => {
+        project = null;
+        return result();
+      };
+      window.iotpsWorkspaceProtocols = async (action, path) => {
+        window.projectUICalls.push([action, path]);
+        if (action === "delete")
+          project.protocols = project.protocols.filter((item) => item.path !== path);
+        return result();
+      };
+      window.iotpsCoreInfo = async () => ({
+        product: "IoT Protocol Studio",
+        version: "0.1.0",
+        platform: "Windows",
+        architecture: "x86_64",
+        source: "browser-preview",
+      });
+    </script>
+    <script type="module">
+      // Dev-only bridge fixture; no real project files are modified.
+      if (
+        new URLSearchParams(location.search).has("protocol") ||
+        new URLSearchParams(location.search).has("debug")
+      ) {
+        const response = await fetch("/test/protocol-preview.yaml");
+        const content = await response.text();
+        project.protocols[0].content = content;
+        project.protocols[0].description = "智能传感器设备通信协议";
+        project.protocols[0].schema.protocolVersion = "1.0.0";
+        project.protocols[0].schema.defaultByteOrder = "little";
+        project.protocols[0].schema.messages = ["StatusRequest", "StatusReply"].map((name) => ({
+          name,
+          displayName: name,
+          typeId: "1",
+          checksumTarget: null,
+          fields: [
+            {
+              name: "temperature",
+              displayName: "temperature",
+              type: "float32",
+              offset: "0",
+              length: "4",
+              byteOrder: "little",
+              byteOrderInherited: true,
+            },
+          ],
+        }));
+        window.iotpsValidateProtocol = async (path, draft) => {
+          const line = draft.split("\n").findIndex((text) => text.includes("float128"));
+          window.projectUICalls.push(["validate", path]);
+          return line < 0
+            ? { ok: true }
+            : {
+                ok: false,
+                error: {
+                  code: "yaml_unknown_field_type",
+                  message: "unknown field type 'float128'",
+                  path: "messages.StatusReply.fields.temperature.type",
+                  line: line + 1,
+                  column: 9,
+                },
+              };
+        };
+        window.iotpsWorkspaceSaveProtocol = async (path, draft) => {
+          const checked = await window.iotpsValidateProtocol(path, draft);
+          if (!checked.ok) return { ...checked, source: "native-workspace" };
+          project.protocols.find((item) => item.path === path).content = draft;
+          window.projectUICalls.push(["save", path]);
+          return result();
+        };
+        window.iotpsProtocolFile = async (action, draft) => {
+          window.projectUICalls.push(["protocol-export", action, draft]);
+          return { ok: true, cancelled: false, content: "" };
+        };
+      }
+      if (
+        new URLSearchParams(location.search).has("message") ||
+        new URLSearchParams(location.search).has("debug")
+      ) {
+        const field = (name, type, offset, length) => ({
+          name,
+          displayName: name,
+          type,
+          offset: String(offset),
+          length: String(length),
+          declaredOffset: null,
+          declaredLength: null,
+          byteOrder: "little",
+          byteOrderInherited: true,
+          lengthOf: null,
+          elementType: null,
+          count: null,
+        });
+        project.protocols[0].schema.messages = [
+          {
+            name: "StatusRequest",
+            displayName: "读取设备状态",
+            typeId: "1",
+            checksumTarget: "checksum",
+            fields: [
+              field("sequence", "uint16", 0, 2),
+              field("deviceId", "uint32", 2, 4),
+              field("checksum", "uint16", 6, 2),
+            ],
+          },
+          {
+            name: "StatusReply",
+            displayName: "设备状态响应",
+            typeId: "129",
+            checksumTarget: "checksum",
+            fields: [
+              field("sequence", "uint16", 0, 2),
+              field("deviceId", "uint32", 2, 4),
+              field("temperature", "float32", 6, 4),
+              field("humidity", "uint16", 10, 2),
+              field("checksum", "uint16", 12, 2),
+            ],
+          },
+        ];
+        const defaults = ["sequence", "deviceId", "temperature", "humidity"].map((name, index) => ({
+          name,
+          value: ["1", "287454020", "21.5", "55"][index],
+        }));
+        const templates = new Map([
+          [
+            "StatusReply",
+            [
+              { name: "Lab 默认应答", compatible: true, fields: defaults },
+              { name: "旧版模板", compatible: false, fields: [] },
+            ],
+          ],
+          ["StatusRequest", []],
+        ]);
+        window.iotpsMessageTemplates = async (action, path, message, name, ...values) => {
+          window.projectUICalls.push(["templates", action, message, name]);
+          const items = templates.get(message) ?? [];
+          const existing = items.find((item) => item.name === name);
+          const failure = (code) => ({
+            ok: false,
+            error: {
+              code,
+              message: "Preview template operation failed",
+              path: "message-templates.yaml",
+            },
+          });
+          if (action === "list") return { ok: true, templates: items };
+          if (action === "load")
+            return existing?.compatible
+              ? { ok: true, templates: [existing] }
+              : failure("message_template_incompatible");
+          if (action === "save" && existing) return failure("message_template_conflict");
+          if ((action === "replace" || action === "delete") && !existing)
+            return failure("message_template_not_found");
+          if (name === "失败模板") return failure("message_template_invalid");
+          if (action === "delete")
+            templates.set(
+              message,
+              items.filter((item) => item.name !== name),
+            );
+          else {
+            const fields = Array.from({ length: values.length / 2 }, (_, index) => ({
+              name: values[index * 2],
+              value: values[index * 2 + 1],
+            }));
+            templates.set(message, [
+              ...items.filter((item) => item.name !== name),
+              { name, compatible: true, fields },
+            ]);
+          }
+          return { ok: true, templates: templates.get(message) };
+        };
+        // Preview-only codec for these fixed fields; production always calls Core.
+        window.iotpsEncodeProtocolMessage = async (path, message, ...values) => {
+          const fields = Object.fromEntries(
+            Array.from({ length: values.length / 2 }, (_, i) => [
+              values[i * 2],
+              Number(values[i * 2 + 1]),
+            ]),
+          );
+          if (
+            Object.values(fields).some((value) => !Number.isFinite(value)) ||
+            fields.sequence < 0 ||
+            fields.sequence > 65535 ||
+            fields.deviceId < 0 ||
+            fields.deviceId > 4294967295 ||
+            fields.humidity < 0 ||
+            fields.humidity > 65535
+          )
+            return {
+              ok: false,
+              source: "browser-preview",
+              error: {
+                code: "field_value_out_of_range",
+                message: "Field value is out of range",
+                path: message,
+              },
+            };
+          const bytes = new Uint8Array(message === "StatusReply" ? 14 : 8),
+            view = new DataView(bytes.buffer);
+          view.setUint16(0, fields.sequence ?? 0, true);
+          view.setUint32(2, fields.deviceId ?? 0, true);
+          if (message === "StatusReply") {
+            view.setFloat32(6, fields.temperature ?? 0, true);
+            view.setUint16(10, fields.humidity ?? 0, true);
+          }
+          let crc = 0xffff;
+          for (const byte of bytes.slice(0, -2)) {
+            crc ^= byte;
+            for (let i = 0; i < 8; i++) crc = crc & 1 ? (crc >> 1) ^ 0xa001 : crc >> 1;
+          }
+          view.setUint16(bytes.length - 2, crc, true);
+          return {
+            ok: true,
+            source: "browser-preview",
+            normalizedHex: Array.from(bytes, (byte) =>
+              byte.toString(16).toUpperCase().padStart(2, "0"),
+            ).join(" "),
+            ascii: Array.from(bytes, (byte) =>
+              byte >= 32 && byte < 127 ? String.fromCharCode(byte) : ".",
+            ).join(""),
+            byteCount: bytes.length,
+          };
+        };
+        window.iotpsHexFile = async (action, content) => {
+          window.projectUICalls.push(["hex-export", action, content]);
+          return { ok: true, cancelled: false, content: "" };
+        };
+      }
+      if (new URLSearchParams(location.search).has("debug")) {
+        // Dev-only fixed-schema decode; Core integration is checked by desktop smoke tests.
+        window.iotpsDebugDecode = async (path, message, hex) => {
+          const bytes = Uint8Array.from(hex.split(" ").map((byte) => parseInt(byte, 16)));
+          const definition = project.protocols
+            .find((p) => p.path === path)
+            ?.schema.messages.find((m) => m.name === message);
+          const fail = (code, text, offset = 0) => ({
+            ok: false,
+            error: { code, message: text, path: message, offset },
+          });
+          if (!definition) return fail("message_not_found", "Message not found");
+          const size = message === "StatusReply" ? 14 : 8;
+          if (bytes.length !== size) return fail("message_size_mismatch", `Expected ${size} bytes`);
+          const view = new DataView(bytes.buffer);
+          let crc = 0xffff;
+          for (const byte of bytes.slice(0, -2)) {
+            crc ^= byte;
+            for (let i = 0; i < 8; i++) crc = crc & 1 ? (crc >> 1) ^ 0xa001 : crc >> 1;
+          }
+          if (view.getUint16(size - 2, true) !== crc)
+            return fail("checksum_mismatch", "CRC16/MODBUS checksum mismatch", size - 2);
+          return {
+            ok: true,
+            checksum: "pass",
+            fields: definition.fields.map((field) => {
+              const offset = Number(field.offset),
+                length = Number(field.length);
+              const value =
+                field.type === "float32"
+                  ? view.getFloat32(offset, true)
+                  : field.type === "uint32"
+                    ? view.getUint32(offset, true)
+                    : view.getUint16(offset, true);
+              return {
+                name: field.name,
+                displayName: field.name,
+                type: field.type,
+                value: String(value),
+                offset,
+                length,
+                byteOrder: "little",
+              };
+            }),
+          };
+        };
+        let saved = JSON.stringify({
+          kind: "iotps-debug",
+          version: 1,
+          hex: "AA 41 42 43 FF",
+          annotations: [{ start: 0, end: 2, label: "Legacy", color: 2 }],
+        });
+        window.iotpsDebugFile = async (action, content) => {
+          if (action === "save") saved = content;
+          return { ok: true, cancelled: false, content: action === "open" ? saved : "" };
+        };
+      }
+      if (new URLSearchParams(location.search).has("debug")) {
+        await import("/test/debug-tool-fixture.js");
+        await import("/test/debug-preview.tsx");
+      } else {
+        await import("/test/server-fixture.js");
+        await import("/src/main.tsx");
+      }
+    </script>
+  </body>
+</html>

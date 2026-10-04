@@ -1,0 +1,342 @@
+/* Shared desktop chrome stays stable when switching workspaces. */
+.app-shell .titlebar {
+  flex-basis: 52px;
+  height: 52px;
+  border-bottom: 1px solid var(--line);
+}
+.app-shell .titlebar-brand {
+  gap: 12px;
+  padding: 0 20px;
+  font-size: 20px;
+  font-weight: 600;
+}
+.app-shell .titlebar-brand img {
+  width: 28px;
+  height: 28px;
+}
+.app-shell .titlebar-nav {
+  height: 32px;
+  padding: 0;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+}
+.app-shell .titlebar-nav .nav-button {
+  width: 38px;
+  height: 30px;
+  color: var(--muted);
+}
+.app-shell .titlebar-nav svg {
+  width: 17px;
+  height: 17px;
+}
+.app-shell .history-forward {
+  border-left: 1px solid var(--line);
+}
+.app-shell .titlebar-project {
+  min-width: 0;
+  margin-left: 20px;
+  font-size: 13px;
+}
+.app-shell .titlebar .window-controls {
+  align-items: stretch;
+  flex-shrink: 0;
+}
+.app-shell .titlebar .window-control {
+  width: 44px;
+  height: 51px;
+  margin: 0;
+  color: var(--muted);
+}
+.app-shell .titlebar .window-control:hover:not(.close) {
+  color: var(--text);
+  background: var(--surface);
+}
+.app-shell .titlebar .window-control.close:hover {
+  color: #fff;
+  background: #c83e49;
+}
+:root .app-shell .workspace-layout > .navigation-rail {
+  flex: 0 0 64px;
+  width: 64px;
+  align-items: center;
+  gap: 6px;
+  padding: 12px 0;
+  border-right: 1px solid var(--line);
+}
+:root .app-shell .workspace-layout > .navigation-rail .nav-button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 48px;
+  height: 48px;
+  margin: 0;
+  padding: 0;
+  border-radius: 10px;
+  color: var(--muted);
+}
+:root .app-shell .workspace-layout > .navigation-rail .nav-button.active {
+  color: var(--accent);
+  background: var(--accent-soft);
+  box-shadow: none;
+}
+:root .app-shell .workspace-layout > .navigation-rail .nav-button:hover:not(:disabled) {
+  color: var(--text);
+  background: var(--surface);
+}
+:root .app-shell .workspace-layout > .navigation-rail .nav-button.active:hover {
+  color: var(--accent);
+  background: var(--accent-soft);
+}
+:root .app-shell .workspace-layout > .navigation-rail .nav-button svg {
+  width: 26px;
+  height: 26px;
+}
+.app-shell.project-home .workspace-layout {
+  grid-template-columns: 64px auto 5px minmax(0, 1fr);
+}
+.app-shell.debug-home .workspace-layout {
+  grid-template-columns: 64px minmax(0, 1fr);
+}
+.app-shell.structure-home .workspace-layout {
+  grid-template-rows: minmax(0, 1fr);
+}
+.app-shell.structure-home .content-stage {
+  padding: 0;
+}
+.app-shell.project-home .sidebar-header > span {
+  min-width: 0;
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.app-shell.project-home .project-tree-tools {
+  flex-shrink: 0;
+}
+.app-shell .schema-edit-dialog {
+  max-height: calc(100dvh - 24px);
+  border-color: var(--line);
+  background: var(--surface);
+}
+.app-shell .schema-edit-dialog :is(input, select, textarea) {
+  border-color: var(--line);
+  background: var(--surface-deep);
+  color: var(--text);
+}
+.app-shell .schema-edit-dialog label {
+  color: var(--muted);
+  font-size: 13px;
+}
+:root .tcp-workbench .tcp-connect-action,
+:root .tcp-workbench [data-action="send"] {
+  border-color: var(--accent);
+  background: var(--accent);
+  color: var(--accent-contrast);
+}
+:root .tcp-workbench .tcp-connect-action:hover:not(:disabled),
+:root .tcp-workbench [data-action="send"]:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--accent) 88%, var(--text));
+  color: var(--accent-contrast);
+}
+:root .structure-home :is(.source-toolbar, .designer-tabs) {
+  border-color: var(--line);
+  background: var(--chrome);
+}
+:root .structure-home .designer-tabs button.active {
+  color: var(--accent);
+  background: var(--accent-soft);
+}
+:root .structure-home :is(.structure-summary > span, .message-tree > li, .property-inspector) {
+  border-color: var(--line);
+  background: var(--surface);
+}
+:root .structure-home :is(.message-node.selected, .field-node.selected) {
+  background: var(--accent-soft);
+}
+.structure-home .content-header {
+  min-height: 76px;
+  padding: 12px 18px;
+}
+.structure-home .content-header h1 {
+  color: var(--text);
+  font-size: 22px;
+}
+.structure-home .content-header p,
+.structure-home .cache-location {
+  color: var(--muted);
+  font-size: 12px;
+}
+.structure-home .content-body {
+  padding: 0;
+}
+.structure-home .protocol-source {
+  border: 0;
+  border-radius: 0;
+  background: var(--surface-deep);
+}
+.structure-home .source-toolbar {
+  min-height: 48px;
+  padding: 8px 16px;
+  background: var(--chrome);
+  color: var(--muted);
+}
+.structure-home .source-identity,
+.structure-home .designer-tabs button {
+  font-size: 13px;
+}
+.structure-home .protocol-structure {
+  grid-template-columns: minmax(0, 1fr) 280px;
+}
+.structure-home .structure-main {
+  padding: 16px;
+}
+.structure-home .structure-summary {
+  grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
+}
+.structure-home .structure-summary > span,
+.structure-home .message-tree > li {
+  border-color: var(--line);
+  border-radius: 8px;
+  background: var(--surface);
+}
+.structure-home .structure-summary small,
+.structure-home .message-node code,
+.structure-home .field-name code,
+.structure-home .field-index,
+.structure-home .property-inspector-title small,
+.structure-home .property-list dt,
+.structure-home .field-property-editor label {
+  color: var(--muted);
+  font-size: 12px;
+}
+.structure-home .structure-summary strong,
+.structure-home .message-node strong,
+.structure-home .field-name strong,
+.structure-home .property-inspector-title strong,
+.structure-home .property-list dd {
+  color: var(--text);
+  font-size: 13px;
+}
+.structure-home .structure-summary strong,
+.structure-home .field-index,
+.structure-home .field-metadata {
+  font-variant-numeric: tabular-nums;
+}
+.structure-home .message-node {
+  min-height: 48px;
+  border-color: var(--line);
+}
+.structure-home .message-node > span,
+.structure-home .field-metadata span {
+  border-color: var(--line);
+  background: var(--chrome);
+  color: var(--muted);
+  font-size: 11px;
+}
+.structure-home .field-node {
+  grid-template-columns: 24px minmax(90px, 1fr) minmax(65px, 0.6fr) auto;
+  gap: 8px;
+  padding: 8px 12px;
+  border-color: var(--line);
+}
+.structure-home .field-type {
+  color: var(--accent);
+  font-size: 12px;
+}
+.structure-home .message-node.selected,
+.structure-home .field-node.selected {
+  background: var(--accent-soft);
+}
+.structure-home .property-inspector {
+  background: var(--surface);
+}
+.structure-home .property-inspector-empty,
+.structure-home .structure-empty {
+  color: var(--muted);
+  font-size: 13px;
+}
+.structure-home .property-list dd {
+  overflow-wrap: anywhere;
+}
+.structure-home .schema-edit-actions button,
+.structure-home .field-property-editor :is(input, button) {
+  min-height: 32px;
+  border-color: var(--line);
+  border-radius: 6px;
+  background: var(--surface-deep);
+  color: var(--text);
+  font: inherit;
+  font-size: 13px;
+}
+.structure-home .schema-edit-actions button:hover:not(:disabled),
+.structure-home .field-property-editor button:hover:not(:disabled) {
+  background: var(--accent-soft);
+}
+.structure-home .structure-notice {
+  color: var(--warning);
+  background: var(--surface);
+  font-size: 13px;
+}
+.app-shell :is(button, input, select, textarea, [tabindex="0"]):focus-visible,
+.tcp-popup :is(button, input, select, textarea, [tabindex="0"]):focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+.app-shell :is(dialog, .modal-backdrop),
+.tcp-popup dialog {
+  overscroll-behavior: contain;
+}
+@media (max-width: 1100px) {
+  .structure-home .protocol-structure {
+    grid-template-columns: minmax(0, 1fr);
+    overflow: auto;
+  }
+  .structure-home .structure-main,
+  .structure-home .property-inspector {
+    overflow: visible;
+  }
+  .structure-home .property-inspector {
+    border-top: 1px solid var(--line);
+    border-left: 0;
+  }
+  .structure-home .property-inspector-empty {
+    min-height: 120px;
+  }
+  .structure-home .cache-location {
+    display: none;
+  }
+}
+@media (max-width: 900px) {
+  .app-shell .titlebar-brand {
+    gap: 8px;
+    padding: 0 12px;
+    font-size: 16px;
+  }
+  .app-shell .titlebar-project {
+    margin-left: 12px;
+    max-width: 140px;
+  }
+  .app-shell .titlebar .window-control {
+    width: 36px;
+  }
+  .structure-home .source-toolbar {
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+  .structure-home .field-node {
+    grid-template-columns: 20px minmax(0, 1fr) auto;
+  }
+  .structure-home .field-metadata {
+    grid-column: 2 / -1;
+    justify-content: flex-start;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .app-shell *,
+  .app-shell *::before,
+  .app-shell *::after,
+  .tcp-popup * {
+    animation: none !important;
+    transition: none !important;
+    scroll-behavior: auto !important;
+  }
+}

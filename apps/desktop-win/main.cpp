@@ -1099,9 +1099,12 @@ debug_file(HWND owner, const std::string& request, int kind = 0,
             content.resize(static_cast<std::size_t>(stream.gcount()));
             if (content.size() > limit)
                 throw std::runtime_error("File exceeds size limit");
+            const auto source_size = content.size();
             if (transform)
                 content = transform(content);
-            return "{\"ok\":true,\"cancelled\":false,\"content\":" + json_string(content) + "}";
+            return "{\"ok\":true,\"cancelled\":false,\"content\":" + json_string(content) +
+                   ",\"path\":" + json_string(path_utf8(path)) +
+                   ",\"size\":" + std::to_string(source_size) + "}";
         }
         // Write beside the target, then replace atomically; failed saves preserve the old file.
         const auto temp = std::filesystem::path(path.wstring() + L"." +
@@ -1178,7 +1181,10 @@ constexpr auto smoke_test_script = R"js(
 window.addEventListener("DOMContentLoaded", () => {
   let attemptsRemaining = 50;
   const originalTheme = window.localStorage.getItem("iotps.theme");
+  const originalThemeMode = window.localStorage.getItem("iotps.theme-mode");
   const report = (result) => {
+    if (originalThemeMode === null) window.localStorage.removeItem("iotps.theme-mode");
+    else window.localStorage.setItem("iotps.theme-mode", originalThemeMode);
     if (originalTheme === null) {
       window.localStorage.removeItem("iotps.theme");
     } else {
@@ -1362,6 +1368,17 @@ window.addEventListener("DOMContentLoaded", () => {
             report("environment-bridge-failed"); return;
           }
           const path = editable.project.protocols[0].path;
+          const metadataEnvironment = await window.iotpsEnvironments("save_v2", "Lab B", "2", "Lab A", "Daily development", "1", "token", "string", "bridge-secret-4.3", "true", "true", "Access token", "Lab B", "Lab tests", "1", "port", "number", "9000", "true", "false", "TCP port");
+          await window.iotpsWorkspaceClose();
+          await window.iotpsWorkspaceOpen(editable.project.rootPath);
+          const metadataReloaded = await window.iotpsEnvironments("load");
+          const incompleteMetadata = await window.iotpsEnvironments("save_v2", "Lab B", "1", "Lab B", "Lab tests", "1", "port", "number", "9000", "true", "false");
+          if (!metadataEnvironment?.ok || metadataReloaded?.config?.environments[0].description !== "Daily development" ||
+              metadataReloaded?.config?.environments[0].variables[0].description !== "Access token" ||
+              metadataReloaded?.config?.environments[0].variables[0].sensitive !== true ||
+              incompleteMetadata?.error?.code !== "invalid_request") {
+            report("environment-metadata-bridge-failed"); return;
+          }
           const edit = async (action, message, field, ...properties) => {
             const result = await window.iotpsWorkspaceEditSchema(path, action, message, field, ...properties);
             if (!result.ok) throw new Error("schema edit failed: " + action);
@@ -1485,7 +1502,8 @@ window.addEventListener("DOMContentLoaded", () => {
                   report("light-theme-failed");
                   return;
                 }
-                darkTheme.click();
+                // Theme changes can remount the settings controls; resolve the current button.
+                document.querySelector(".dark-choice")?.click();
                 window.setTimeout(() => {
                   if (document.documentElement.dataset.theme !== "dark" ||
                       window.localStorage.getItem("iotps.theme") !== "dark") {
@@ -1517,8 +1535,8 @@ window.addEventListener("DOMContentLoaded", () => {
                         .catch(() => report("core-bridge-failed"));
                     }, 0);
                   }, 0);
-                }, 0);
-              }, 0);
+                }, 100);
+              }, 100);
             }, 0);
           }, 0);
         })
@@ -2326,12 +2344,14 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR command_line, int) {
         });
         window.bind("iotpsEnvironments", [&current_project](const std::string& request) {
             const auto args = string_arguments(request);
-            if (!args || args->empty() || (args->front() != "load" && args->front() != "save"))
+            if (!args || args->empty() ||
+                (args->front() != "load" && args->front() != "save" && args->front() != "save_v2"))
                 return workspace_error_response("invalid_request", "invalid environment action");
             if (!current_project)
                 return workspace_error_response("project_not_open", "Open a project first");
             iotps::core::workspace::EnvironmentConfig config;
-            if (args->front() == "save") {
+            if (args->front() == "save" || args->front() == "save_v2") {
+                const bool metadata = args->front() == "save_v2";
                 if (args->size() < 3)
                     return workspace_error_response("invalid_request", "missing environment data");
                 const auto count = [](const std::string& value,
@@ -2350,13 +2370,15 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR command_line, int) {
                 config.active = (*args)[1];
                 std::size_t index = 3;
                 for (std::size_t i = 0; i < *environments; ++i) {
-                    if (index + 2 > args->size())
+                    if (index + (metadata ? 3 : 2) > args->size())
                         return workspace_error_response("invalid_request",
                                                         "incomplete environment");
                     iotps::core::workspace::Environment environment;
                     environment.name = (*args)[index++];
+                    if (metadata)
+                        environment.description = (*args)[index++];
                     const auto variables = count((*args)[index++], 200);
-                    if (!variables || *variables > (args->size() - index) / 5)
+                    if (!variables || *variables > (args->size() - index) / (metadata ? 6 : 5))
                         return workspace_error_response("invalid_request",
                                                         "invalid variable count");
                     for (std::size_t j = 0; j < *variables; ++j) {
@@ -2371,7 +2393,9 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR command_line, int) {
                         environment.variables.push_back({(*args)[index], (*args)[index + 1],
                                                          (*args)[index + 2], required == "true",
                                                          sensitive == "true"});
-                        index += 5;
+                        if (metadata)
+                            environment.variables.back().description = (*args)[index + 5];
+                        index += metadata ? 6 : 5;
                     }
                     config.environments.push_back(std::move(environment));
                 }
@@ -2396,7 +2420,9 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR command_line, int) {
                 if (!first_environment)
                     json << ',';
                 first_environment = false;
-                json << "{\"name\":" << json_string(environment.name) << ",\"variables\":[";
+                json << "{\"name\":" << json_string(environment.name)
+                     << ",\"description\":" << json_string(environment.description)
+                     << ",\"variables\":[";
                 bool first_variable = true;
                 for (const auto& variable : environment.variables) {
                     if (!first_variable)
@@ -2406,7 +2432,8 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR command_line, int) {
                          << ",\"type\":" << json_string(variable.type)
                          << ",\"defaultValue\":" << json_string(variable.default_value)
                          << ",\"required\":" << (variable.required ? "true" : "false")
-                         << ",\"sensitive\":" << (variable.sensitive ? "true" : "false") << '}';
+                         << ",\"sensitive\":" << (variable.sensitive ? "true" : "false")
+                         << ",\"description\":" << json_string(variable.description) << '}';
                 }
                 json << "]}";
             }

@@ -23,7 +23,31 @@ import {
   type WorkspaceProtocol,
 } from "./bridge";
 import { readTrafficArchive } from "./trafficFile";
+import {
+  AlertTriangle,
+  CheckCircle,
+  Circle,
+  Filter,
+  Inbox,
+  Pause,
+  Play,
+  RefreshCw,
+  Search,
+  Square,
+  XCircle,
+} from "react-feather";
+import TcpRecordDetail from "./TcpRecordDetail";
+import ServerPeers, { clientLabel } from "./ServerPeers";
+import ServerRecordDetail from "./ServerRecordDetail";
+import UdpConnection from "./UdpConnection";
+import UdpRecordDetail from "./UdpRecordDetail";
+import UdpTemplates from "./UdpTemplates";
+import { udpEndpoint, udpEndpoints } from "./udpView";
+import "./server-workbench.css";
+import "./udp-workbench.css";
+import "./serial-workbench.css";
 import TrafficReplay from "./TrafficReplay";
+import TrafficHistory, { type TrafficSource } from "./TrafficHistory";
 import TrafficFilters, { deviceValue, emptyFilters, matchesRecord } from "./TrafficFilters";
 import TrafficCorrelation from "./TrafficCorrelation";
 import { activeVariables, resolveValue, sendValues } from "./sendVariables";
@@ -58,6 +82,8 @@ export default function TcpWorkbench({
   onDebug,
   onDiagnostic,
   redact,
+  onSummary,
+  popup = false,
 }: {
   session: string;
   protocols: WorkspaceProtocol[];
@@ -67,6 +93,8 @@ export default function TcpWorkbench({
   onDebug: (record: TcpRecord) => void;
   onDiagnostic: (session: string, message: string, problem: boolean) => void;
   redact: (value: string) => string;
+  onSummary: (id: string, mode: string, state: string, endpoint: string) => void;
+  popup?: boolean;
 }) {
   const zh = locale === "zh-CN";
   const t = (cn: string, en: string) => (zh ? cn : en);
@@ -83,11 +111,16 @@ export default function TcpWorkbench({
   const [localPort, setLocalPort] = useState("0");
   const [udpMode, setUdpMode] = useState("unicast");
   const [interfaceAddress, setInterfaceAddress] = useState("0.0.0.0");
+  const udpBindings = useRef(new Map<number, string>());
   const [devices, setDevices] = useState<string[]>([]);
   const [interfaces, setInterfaces] = useState<string[]>(["0.0.0.0"]);
   const [status, setStatus] = useState(empty);
   const [records, setRecords] = useState<TcpRecord[]>([]);
+  const [pausedRecords, setPausedRecords] = useState<TcpRecord[] | null>(null);
+  const serialOpened = useRef(false);
   const [history, setHistory] = useState<ReturnType<typeof readTrafficArchive> | null>(null);
+  const [historySource, setHistorySource] = useState<TrafficSource | null>(null);
+  const [captureOpen, setCaptureOpen] = useState(false);
   const [replayTime, setReplayTime] = useState<number | null>(null);
   const [captureIp, setCaptureIp] = useState("");
   const [importingCapture, setImportingCapture] = useState(false);
@@ -132,7 +165,19 @@ export default function TcpWorkbench({
   const [search, setSearch] = useState("");
   const [filters, setFilters] = useState(emptyFilters);
   const [selected, setSelected] = useState<TcpRecord | null>(null);
+  const [detailsCollapsed, setDetailsCollapsed] = useState(false);
+  useEffect(() => setDetailsCollapsed(false), [selected?.id]);
+  const pendingLocation = useRef<TcpRecord | null>(null);
   const [follow, setFollow] = useState(true);
+  const [trafficView, setTrafficView] = useState("records");
+  const [sendView, setSendView] = useState("single");
+  const [parseFilter, setParseFilter] = useState("all");
+  const [udpMessage, setUdpMessage] = useState("");
+  const [clientFilter, setClientFilter] = useState("");
+  const [recordType, setRecordType] = useState("all");
+  const [clearAfterSend, setClearAfterSend] = useState(false);
+  const [configOpen, setConfigOpen] = useState(false);
+  const [filterOpen, setFilterOpen] = useState(false);
   const [peerMenu, setPeerMenu] = useState<{ id: number; address: string } | null>(null);
   const dialog = useRef<HTMLDialogElement>(null);
   const table = useRef<HTMLDivElement>(null);
@@ -144,6 +189,29 @@ export default function TcpWorkbench({
   const sending = useRef(false);
   const connected = status.state === "open";
   const active = connected || status.state === "opening";
+  const serialInterrupted = mode === "serial" && status.state === "faulted" && serialOpened.current;
+  const serialFailure =
+    mode === "serial" && !active && (status.state === "faulted" || Boolean(error));
+  const serialError = redact(error || status.error);
+  const serialOccupied =
+    /(?:serial open failed.*:\s*5\b|access.*denied|port (?:is )?(?:busy|occupied)|端口.*占用|拒绝访问)/i.test(
+      serialError,
+    );
+  useEffect(() => {
+    if (mode === "serial" && connected) serialOpened.current = true;
+  }, [mode, connected]);
+  useEffect(() => {
+    onSummary(
+      session,
+      mode,
+      status.state,
+      redact(
+        mode === "serial"
+          ? `${serialDevice || t("未选择串口", "Select port")} · ${baud}`
+          : `${active ? status.host : host}:${active ? status.port : port}`,
+      ),
+    );
+  }, [mode, status.state, status.host, status.port, host, port, serialDevice, baud, redact]);
   const redactRecord = (item: TcpRecord): TcpRecord => ({
     ...item,
     address: redact(item.address),
@@ -177,15 +245,20 @@ export default function TcpWorkbench({
         : (history?.records ?? records),
     [history?.records, records, replayTime],
   );
-  const shownRecords = visibleRecords.map(redactRecord);
+  const shownRecords = (mode === "serial" && pausedRecords ? pausedRecords : visibleRecords).map(
+    redactRecord,
+  );
   const selectedRecord = selected && redactRecord(selected);
+  useEffect(() => setPausedRecords(null), [history]);
   const bindProtocol = protocols.find((item) => item.path === bindPath);
   useEffect(() => {
-    setSelected(null);
+    setSelected(pendingLocation.current);
+    pendingLocation.current = null;
   }, [filters, direction, search, history]);
   useEffect(() => {
-    if (replayTime !== null && selected && selected.time > replayTime) setSelected(null);
-  }, [replayTime, selected]);
+    if (trafficView !== "replay" && replayTime !== null && selected && selected.time > replayTime)
+      setSelected(null);
+  }, [replayTime, selected, trafficView]);
 
   useEffect(() => {
     setConnectionPreview("");
@@ -235,6 +308,9 @@ export default function TcpWorkbench({
         lastPollError.current = "";
         if (!("state" in result) || generation.current !== version) return;
         cursor.current = result.cursor;
+        if (result.kind === "udp")
+          for (const record of result.records)
+            udpBindings.current.set(record.id, udpEndpoint(result.host, result.port));
         setStatus(result);
         if (result.state !== "open") stopRun();
         setPeer((current) =>
@@ -261,7 +337,11 @@ export default function TcpWorkbench({
               size + combined[start - 1].size <= 4 * 1024 * 1024
             )
               size += combined[--start].size;
-            return combined.slice(start);
+            const retained = combined.slice(start);
+            const ids = new Set(retained.map((record) => record.id));
+            for (const id of udpBindings.current.keys())
+              if (!ids.has(id)) udpBindings.current.delete(id);
+            return retained;
           });
       } catch (failure) {
         if (alive) {
@@ -297,8 +377,9 @@ export default function TcpWorkbench({
     [session],
   );
   useEffect(() => {
-    if (visible && follow && table.current) table.current.scrollTop = table.current.scrollHeight;
-  }, [records, visible, follow]);
+    if (visible && follow && !pausedRecords && table.current)
+      table.current.scrollTop = table.current.scrollHeight;
+  }, [records, visible, follow, pausedRecords]);
 
   const act = async (action: string, ...args: string[]) => {
     if (busy) return false;
@@ -419,6 +500,10 @@ export default function TcpWorkbench({
     setError("");
     try {
       await sendOne(input, encoding, messageDraft, checked);
+      if (clearAfterSend) {
+        setInput((current) => (current === input ? "" : current));
+        setMessageDraft((current) => (current === messageDraft ? null : current));
+      }
       setNotice(
         t(
           "已加入发送队列，实际发送字节见 TX 记录。",
@@ -524,7 +609,8 @@ export default function TcpWorkbench({
     if (run.current || sending.current || replayActive.current) return;
     const interval = Number(intervalMs);
     const repeats = Number(repeatCount);
-    const items = batch.trim()
+    const useBatch = sendView === "batch" && Boolean(batch.trim());
+    const items = useBatch
       ? batch
           .split(/\r?\n/)
           .map((line) => line.trim())
@@ -569,9 +655,7 @@ export default function TcpWorkbench({
           if (snapshot.queued > 256 * 1024)
             throw new Error(t("发送队列过长，已停止发送。", "Send queue too large; send stopped."));
           if (control.stopped) break;
-          if (
-            !(await sendOne(item, encoding, batch.trim() ? null : messageDraft, undefined, control))
-          )
+          if (!(await sendOne(item, encoding, useBatch ? null : messageDraft, undefined, control)))
             break;
           setRunProgress(`${++sent}/${repeats * items.length}`);
           if (sent < repeats * items.length && !control.stopped)
@@ -609,6 +693,7 @@ export default function TcpWorkbench({
     if (history) {
       setHistory(null);
       setSelected(null);
+      setPausedRecords(null);
       return;
     }
     const owner = dialog.current?.ownerDocument.defaultView ?? window;
@@ -618,6 +703,7 @@ export default function TcpWorkbench({
       ++generation.current;
       setRecords([]);
       setSelected(null);
+      setPausedRecords(null);
     }
   };
   const archive = async (action: "open" | "save") => {
@@ -667,7 +753,21 @@ export default function TcpWorkbench({
         const imported = readTrafficArchive(result.content);
         stopRun();
         setHistory(imported);
+        setHistorySource({
+          kind: "archive",
+          name: result.path?.split(/[\\/]/).pop() || imported.session,
+          bytes: result.size ?? new TextEncoder().encode(result.content).length,
+        });
+        setCaptureOpen(false);
+        setReplayTime(null);
+        setTrafficView("records");
         setSelected(null);
+        setFilters(emptyFilters);
+        setDirection("all");
+        setSearch("");
+        setParseFilter("all");
+        setClientFilter("");
+        setNotice("");
       } else setNotice(t("记录已导出", "Traffic exported"));
     } catch (failure) {
       const message = failure instanceof Error ? failure.message : String(failure);
@@ -699,7 +799,21 @@ export default function TcpWorkbench({
       );
       stopRun();
       setHistory(imported);
+      setHistorySource({
+        kind: "pcap",
+        name: result.path?.split(/[\\/]/).pop() || "PCAP",
+        bytes: result.size,
+      });
+      setCaptureOpen(true);
+      setReplayTime(null);
+      setTrafficView("records");
       setSelected(null);
+      setFilters(emptyFilters);
+      setDirection("all");
+      setSearch("");
+      setParseFilter("all");
+      setClientFilter("");
+      setNotice("");
     } catch (failure) {
       if (version === importVersion.current) setError(String(failure));
     } finally {
@@ -723,45 +837,202 @@ export default function TcpWorkbench({
     if (!result.ok) throw new Error(result.error.message);
     return true;
   };
+  const detachedClient = popup && mode === "client";
   const filtered = shownRecords.filter(
     (item) =>
+      (mode !== "server" || !clientFilter || String(item.peer) === clientFilter) &&
+      ((mode !== "server" && !detachedClient) ||
+        recordType === "all" ||
+        (recordType === "SYS"
+          ? item.direction === "SYS"
+          : recordType === "FRAME"
+            ? item.direction === "FRAME"
+            : item.direction !== "SYS" && item.direction !== "FRAME")) &&
+      (mode !== "udp" || !udpMessage || item.parsed?.messageName === udpMessage) &&
+      (parseFilter === "all" || (item.parsed?.status ?? "unparsed") === parseFilter) &&
       matchesRecord(item, filters) &&
-      (direction === "all" || item.direction === direction) &&
+      (direction === "all" ||
+        item.direction === direction ||
+        (item.direction === "FRAME" && (item.flow ?? "RX") === direction)) &&
       `${item.hex} ${item.address} ${item.detail} ${deviceValue(item, filters.deviceField)} ${item.parsed?.messageName ?? ""}`
         .toLowerCase()
         .includes(search.toLowerCase()),
   );
   const stateLabel =
-    status.state === "open"
-      ? status.server
-        ? t("监听中", "Listening")
-        : t("已连接", "Connected")
-      : status.state === "opening"
-        ? status.retries > 0
-          ? `${t("重连中", "Reconnecting")} ${status.retries}/${retryLimit}`
-          : t("连接中", "Opening")
-        : status.state === "faulted"
-          ? t("连接错误", "Faulted")
-          : t("未连接", "Disconnected");
+    mode === "udp"
+      ? connected
+        ? t("已打开", "Open")
+        : status.state === "opening"
+          ? t("打开中", "Opening")
+          : status.state === "faulted"
+            ? t("打开失败", "Open failed")
+            : t("已关闭", "Closed")
+      : mode === "serial"
+        ? connected
+          ? t("串口已打开", "Serial port open")
+          : status.state === "opening"
+            ? t("正在打开", "Opening port")
+            : serialInterrupted
+              ? t("通信中断", "Connection interrupted")
+              : serialFailure
+                ? t("打开失败", "Open failed")
+                : t("串口未打开", "Serial port closed")
+        : status.state === "open"
+          ? status.server
+            ? t("监听中", "Listening")
+            : t("已连接", "Connected")
+          : status.state === "opening"
+            ? status.retries > 0
+              ? `${t("重连中", "Reconnecting")} ${status.retries}/${retryLimit}`
+              : t("连接中", "Opening")
+            : status.state === "faulted"
+              ? t("连接错误", "Faulted")
+              : t("未连接", "Disconnected");
+  const backToLive = () => {
+    ++importVersion.current;
+    setReplayReset((value) => value + 1);
+    setHistory(null);
+    setHistorySource(null);
+    setCaptureOpen(false);
+    setReplayTime(null);
+    setSelected(null);
+    setFilters(emptyFilters);
+    setDirection("all");
+    setSearch("");
+    setParseFilter("all");
+    setTrafficView("records");
+  };
+  const locateCorrelationRecord = (record: TcpRecord) => {
+    pendingLocation.current = record;
+    setFilters({ ...emptyFilters });
+    setDirection("all");
+    setSearch("");
+    setParseFilter("all");
+    setClientFilter("");
+    setTrafficView("records");
+  };
+  const currentHistory = async () => {
+    stopRun();
+    const version = ++importVersion.current;
+    setError("");
+    try {
+      const snapshot = await tcpCommand(session, "export");
+      if (version !== importVersion.current) return;
+      if (!snapshot.ok) throw new Error(snapshot.error.message);
+      if (!("records" in snapshot)) throw new Error("Cannot read traffic records");
+      const current = {
+        format: "iotps-traffic-v1" as const,
+        session,
+        savedAt: new Date().toISOString(),
+        dropped: snapshot.dropped,
+        records: snapshot.records,
+        correlation: correlation ?? undefined,
+      };
+      setHistory(current);
+      setHistorySource({
+        kind: "current",
+        name: t("当前会话记录快照", "Current session snapshot"),
+        bytes: new TextEncoder().encode(JSON.stringify(current)).length,
+      });
+      setSelected(null);
+      setReplayTime(null);
+      setReplayReset((value) => value + 1);
+    } catch (failure) {
+      setError(String(failure));
+    }
+  };
+  if (Boolean(history) || captureOpen || trafficView === "replay") {
+    return (
+      <div className="tcp-workbench p12-workbench" hidden={!visible}>
+        <TrafficHistory
+          archive={history ? { ...history, records: history.records.map(redactRecord) } : null}
+          source={historySource}
+          view={trafficView}
+          captureOpen={captureOpen}
+          captureIp={captureIp}
+          importing={importingCapture}
+          locale={locale}
+          records={filtered.map(redactRecord)}
+          selected={selectedRecord}
+          filters={filters}
+          direction={direction}
+          search={search}
+          parseFilter={parseFilter}
+          error={redact(error)}
+          notice={notice}
+          onView={(view) => {
+            setTrafficView(view);
+            if (view !== "replay") setReplayTime(null);
+          }}
+          onCaptureOpen={setCaptureOpen}
+          onCaptureIp={setCaptureIp}
+          onCapture={() => void importCapture()}
+          onImport={() => void archive("open")}
+          onSave={() => void archive("save")}
+          onLive={backToLive}
+          onCurrent={() => void currentHistory()}
+          onSelect={setSelected}
+          onFilters={setFilters}
+          onDirection={setDirection}
+          onSearch={setSearch}
+          onParseFilter={setParseFilter}
+          onDebug={onDebug}
+          onCopy={(record) => {
+            const owner = window;
+            void owner.navigator.clipboard
+              .writeText(record.hex)
+              .then(() => setNotice(t("HEX 已复制", "HEX copied")))
+              .catch(() => setError(t("复制失败", "Copy failed")));
+          }}
+          replay={
+            history && visible && trafficView === "replay" ? (
+              <TrafficReplay
+                records={history.records}
+                savedAt={history.savedAt}
+                reset={replayReset}
+                peers={status.peers}
+                enabled={connected && !busy && !running && !sending.current}
+                locale={locale}
+                onTime={setReplayTime}
+                onSend={replaySend}
+                onActive={(value) => {
+                  replayActive.current = value;
+                }}
+                redact={redact}
+                onRecord={setSelected}
+                selectedId={selected?.id}
+                sourceName={historySource?.name || history.session}
+                onImport={() => void archive("open")}
+              />
+            ) : null
+          }
+          analysis={
+            <TrafficCorrelation
+              view={trafficView === "timeline" ? "timeline" : "correlation"}
+              records={visibleRecords}
+              protocols={protocols}
+              rule={history ? (history.correlation ?? null) : correlation}
+              onRule={(rule) =>
+                history
+                  ? setHistory({ ...history, correlation: rule ?? undefined })
+                  : setCorrelation(rule)
+              }
+              onSelect={locateCorrelationRecord}
+              locale={locale}
+              savedAt={history?.savedAt}
+              dropped={history?.dropped ?? status.dropped}
+              redact={redact}
+            />
+          }
+        />
+      </div>
+    );
+  }
   return (
-    <div className="tcp-workbench" hidden={!visible}>
-      <header className="content-header">
-        <div className="content-heading-icon">
-          <Network size={20} />
-        </div>
-        <div>
-          <h1>{t("通信连接", "Connections")}</h1>
-          <p>
-            {t(
-              "TCP · 串口 · UDP 单播 / 广播 / 组播",
-              "TCP · Serial · UDP unicast / broadcast / multicast",
-            )}
-          </p>
-        </div>
-        <span className={`tcp-state ${connected ? "connected" : ""}`} role="status">
-          {stateLabel}
-        </span>
-      </header>
+    <div
+      className={`tcp-workbench ${detachedClient ? "tcp-popup-workbench" : ""} ${detachedClient && detailsCollapsed ? "details-collapsed" : ""} ${mode === "server" ? "tcp-server-workbench" : mode === "serial" ? "tcp-serial-workbench" : mode === "udp" ? "udp-workbench" : ""}`}
+      hidden={!visible}
+    >
       <form
         className="tcp-connect"
         onSubmit={async (event) => {
@@ -778,13 +1049,20 @@ export default function TcpWorkbench({
         }}
       >
         <label>
-          {t("模式", "Mode")}
+          {mode === "udp"
+            ? t("UDP 配置", "UDP configuration")
+            : mode === "server"
+              ? t("服务端配置", "Server configuration")
+              : t("连接类型", "Connection type")}
           <select
             aria-label={t("TCP 模式", "TCP mode")}
             value={mode}
             disabled={busy || active}
             onChange={(event) => {
               setMode(event.target.value);
+              serialOpened.current = false;
+              setPausedRecords(null);
+              setError("");
               setHost(event.target.value === "server" ? "0.0.0.0" : "127.0.0.1");
               setConnectionPreview("");
               if (["serial", "udp"].includes(event.target.value)) void refreshDevices();
@@ -796,10 +1074,10 @@ export default function TcpWorkbench({
             <option value="udp">UDP</option>
           </select>
         </label>
-        {mode !== "serial" && (
+        {mode !== "serial" && mode !== "udp" && (
           <>
             <label>
-              {mode === "server" ? t("监听 IP", "Bind IP") : t("目标 IP", "Remote IP")}
+              {mode === "server" ? t("监听地址", "Bind address") : t("目标地址", "Remote address")}
               <input
                 aria-label="IP"
                 value={host}
@@ -830,6 +1108,7 @@ export default function TcpWorkbench({
         )}
         {mode === "serial" && (
           <>
+            <strong className="serial-config-title">{t("串口配置", "Serial configuration")}</strong>
             <label>
               {t("串口设备", "Serial device")}
               <input
@@ -852,12 +1131,20 @@ export default function TcpWorkbench({
               <input
                 aria-label={t("波特率", "Baud rate")}
                 inputMode="numeric"
+                list={`baud-${session}`}
                 value={baud}
                 required
                 disabled={busy || active}
                 onChange={(event) => setBaud(event.target.value)}
               />
             </label>
+            <datalist id={`baud-${session}`}>
+              {[1200, 2400, 4800, 9600, 19200, 38400, 57600, 115200, 230400, 460800, 921600].map(
+                (rate) => (
+                  <option key={rate} value={rate} />
+                ),
+              )}
+            </datalist>
             <label>
               {t("数据位", "Data bits")}
               <select
@@ -913,79 +1200,114 @@ export default function TcpWorkbench({
               </select>
             </label>
             <button type="button" disabled={busy || active} onClick={() => void refreshDevices()}>
-              {t("刷新设备", "Refresh devices")}
+              <RefreshCw size={14} /> {t("刷新端口", "Refresh ports")}
             </button>
           </>
         )}
         {mode === "udp" && (
-          <>
-            <label>
-              {t("本地 IP", "Local IP")}
-              <input
-                aria-label={t("本地 IP", "Local IP")}
-                value={localHost}
-                required
-                maxLength={64}
-                disabled={busy || active}
-                onChange={(event) => setLocalHost(event.target.value)}
-              />
-            </label>
-            <label>
-              {t("本地端口（0 自动）", "Local port (0 auto)")}
-              <input
-                aria-label={t("本地端口", "Local port")}
-                value={localPort}
-                required
-                disabled={busy || active}
-                onChange={(event) => setLocalPort(event.target.value)}
-              />
-            </label>
-            <label>
-              {t("UDP 模式", "UDP mode")}
-              <select
-                aria-label={t("UDP 模式", "UDP mode")}
-                value={udpMode}
-                disabled={busy || active}
-                onChange={(event) => {
-                  setUdpMode(event.target.value);
-                  setHost(
-                    event.target.value === "broadcast"
-                      ? "255.255.255.255"
-                      : event.target.value === "multicast"
-                        ? "239.255.0.1"
-                        : "127.0.0.1",
-                  );
-                }}
-              >
-                <option value="unicast">{t("单播", "Unicast")}</option>
-                <option value="broadcast">{t("广播", "Broadcast")}</option>
-                <option value="multicast">{t("组播", "Multicast")}</option>
-              </select>
-            </label>
-            {udpMode === "multicast" && (
-              <label>
-                {t("组播网卡 IP", "Multicast interface IP")}
-                <select
-                  aria-label={t("组播网卡 IP", "Multicast interface IP")}
-                  value={interfaceAddress}
-                  disabled={busy || active}
-                  onChange={(event) => setInterfaceAddress(event.target.value)}
-                >
-                  {interfaces.map((address) => (
-                    <option key={address} value={address}>
-                      {address === "0.0.0.0" ? t("系统默认", "System default") : address}
-                    </option>
-                  ))}
-                </select>
-              </label>
-            )}
-            <button type="button" disabled={busy || active} onClick={() => void refreshDevices()}>
-              {t("刷新网卡", "Refresh interfaces")}
-            </button>
-          </>
+          <UdpConnection
+            locale={locale}
+            session={session}
+            mode={udpMode}
+            localHost={localHost}
+            localPort={connected ? String(status.port) : localPort}
+            host={host}
+            port={port}
+            adapter={interfaceAddress}
+            interfaces={interfaces}
+            disabled={busy || active}
+            connected={connected}
+            joined={Boolean(status.multicastJoined)}
+            busy={busy}
+            onMode={(value) => {
+              setUdpMode(value);
+              setHost(
+                value === "broadcast"
+                  ? "255.255.255.255"
+                  : value === "multicast"
+                    ? "239.255.0.1"
+                    : "127.0.0.1",
+              );
+            }}
+            onLocalHost={setLocalHost}
+            onLocalPort={setLocalPort}
+            onHost={setHost}
+            onPort={setPort}
+            onAdapter={setInterfaceAddress}
+            onRefresh={() => void refreshDevices()}
+            onMembership={() => void act("membership", status.multicastJoined ? "leave" : "join")}
+          />
         )}
+        {active ? (
+          <button
+            className="tcp-connect-action"
+            type="button"
+            disabled={busy}
+            onClick={(event) => {
+              event.preventDefault();
+              void act("stop");
+            }}
+          >
+            <Square size={14} />
+            {mode === "serial"
+              ? t("关闭串口", "Close port")
+              : status.server
+                ? t("停止监听", "Stop")
+                : mode === "udp"
+                  ? t("关闭 UDP", "Close UDP")
+                  : t("断开", "Disconnect")}
+          </button>
+        ) : (
+          <button className="tcp-connect-action" type="submit" disabled={busy}>
+            <PlugZap size={14} />
+            {mode === "serial"
+              ? serialInterrupted
+                ? t("重新打开", "Reopen port")
+                : serialFailure
+                  ? t("重试", "Retry")
+                  : t("打开串口", "Open port")
+              : mode === "server"
+                ? t("开始监听", "Listen")
+                : mode === "udp"
+                  ? t("打开 UDP", "Open UDP")
+                  : t("连接", "Connect")}
+          </button>
+        )}
+        <div className={`tcp-connection-state ${status.state}`} role="status">
+          {connected ? (
+            <CheckCircle size={19} />
+          ) : serialInterrupted ? (
+            <AlertTriangle size={19} />
+          ) : serialFailure ? (
+            <XCircle size={19} />
+          ) : (
+            <Circle size={17} />
+          )}
+          <span>
+            <strong>
+              {mode === "udp"
+                ? connected
+                  ? t("已打开", "Open")
+                  : status.state === "opening"
+                    ? t("打开中", "Opening")
+                    : status.state === "faulted"
+                      ? t("打开失败", "Faulted")
+                      : t("已关闭", "Closed")
+                : stateLabel}
+            </strong>
+            <small>
+              {mode === "serial"
+                ? redact(`${serialDevice || "—"} · ${baud}, ${dataBits}, ${parity}, ${stopBits}`)
+                : mode === "server" && connected
+                  ? `${t("已连接", "Connected")} ${status.peers.length} ${t("个客户端", "clients")}`
+                  : active
+                    ? `${status.host}:${status.port}`
+                    : t("等待建立连接", "Ready to connect")}
+            </small>
+          </span>
+        </div>
         {mode === "client" && (
-          <label>
+          <label className="tcp-reconnect-toggle">
             <input
               type="checkbox"
               checked={autoRetry}
@@ -1023,55 +1345,63 @@ export default function TcpWorkbench({
             </label>
           </>
         )}
-        {active ? (
-          <button
-            type="button"
-            disabled={busy}
-            onClick={(event) => {
-              event.preventDefault();
-              void act("stop");
-            }}
-          >
-            <X size={14} />
-            {status.server ? t("停止监听", "Stop") : t("断开", "Disconnect")}
-          </button>
-        ) : (
-          <button type="submit" disabled={busy}>
-            <PlugZap size={14} />
-            {mode === "server" ? t("开始监听", "Listen") : t("连接", "Connect")}
-          </button>
-        )}
-        <button type="button" disabled={busy || active} onClick={() => void checkConnection()}>
+        <button
+          className="tcp-effective-address"
+          type="button"
+          disabled={busy || active}
+          onClick={() => void checkConnection()}
+        >
           {t("检查生效参数", "Check effective address")}
         </button>
         {connectionPreview && <small role="status">{connectionPreview}</small>}
       </form>
-      {mode === "udp" && (
-        <p className="tcp-log-hint">
-          {t("本地端口", "Local port")}: {status.kind === "udp" ? status.port : localPort} ·{" "}
-          {t(
-            "目标 IP / 端口用于发送；接收记录显示实际来源。组播请将本地端口设为组播接收端口。",
-            "Remote IP / port is the send target; received records show the actual sender. For multicast, bind the group receive port.",
-          )}
-          {connected && udpMode === "multicast" && (
-            <button
-              type="button"
-              disabled={busy}
-              onClick={() => void act("membership", status.multicastJoined ? "leave" : "join")}
-            >
-              {status.multicastJoined
-                ? t("退出组播", "Leave multicast")
-                : t("加入组播", "Join multicast")}
-            </button>
-          )}
-        </p>
+      {mode === "serial" && (error || status.error) && (
+        <div
+          className={`serial-alert ${serialInterrupted ? "interrupted" : "failed"}`}
+          role="alert"
+        >
+          {serialInterrupted ? <AlertTriangle size={20} /> : <XCircle size={20} />}
+          <div>
+            <strong>
+              {connected
+                ? t("操作失败", "Operation failed")
+                : serialInterrupted
+                  ? t("串口连接已中断", "Serial connection interrupted")
+                  : serialOccupied
+                    ? t(
+                        "无法打开串口：端口占用或访问被拒绝",
+                        "Cannot open port: in use or access denied",
+                      )
+                    : t("无法打开串口", "Cannot open serial port")}
+            </strong>
+            <p>{serialError}</p>
+            {!connected && (
+              <small>
+                {serialInterrupted
+                  ? t(
+                      "已有收发记录已保留，当前无法发送。请检查设备连接后重新打开串口。",
+                      "Traffic records are preserved. Sending is unavailable. Check the device and reopen the port.",
+                    )
+                  : serialOccupied
+                    ? t(
+                        "请关闭使用该端口的串口调试工具、设备管理软件等程序；确认访问权限后重试。",
+                        "Close serial terminals or device tools using this port, check access permissions, and retry.",
+                      )
+                    : t(
+                        "请检查端口是否存在、设备连接及串口参数，然后重试。",
+                        "Check the port, device connection and serial parameters, then retry.",
+                      )}
+              </small>
+            )}
+          </div>
+        </div>
       )}
-      {(error || status.error) && (
+      {mode !== "serial" && (error || status.error) && (
         <p className="tcp-error" role="alert">
           {redact(error || status.error)}
         </p>
       )}
-      <div className="tcp-peers">
+      <div className="tcp-peers" hidden={mode === "server" || status.peers.length < 2}>
         <span>
           {t("连接", "Peers")} ({status.peers.length})
         </span>
@@ -1101,631 +1431,1268 @@ export default function TcpWorkbench({
           </small>
         )}
       </div>
-      <form
-        className="tcp-framing"
-        hidden={mode === "udp"}
-        onChange={() => setFrameStatus("")}
-        onSubmit={(event) => {
-          event.preventDefault();
-          void configureFrames();
-        }}
+      <section
+        className={`tcp-configuration ${configOpen ? "expanded" : ""}`}
+        aria-label={t("协议与分帧配置", "Protocol and framing configuration")}
       >
-        <strong>{t("接收分帧", "Receive framing")}</strong>
-        <label>
-          {t("规则", "Rule")}
-          <select value={frameMode} onChange={(event) => setFrameMode(event.target.value)}>
-            <option value="off">{t("关闭", "Off")}</option>
-            <option value="fixed">{t("固定长度", "Fixed length")}</option>
-            <option value="length">{t("长度字段", "Length field")}</option>
-            <option value="delimiter">{t("分隔符", "Delimiter")}</option>
-          </select>
-        </label>
-        {frameMode === "fixed" && (
+        <form
+          className="tcp-framing tcp-bind-config"
+          onSubmit={(event) => {
+            event.preventDefault();
+            void act("bind", ...(bindPath ? [bindPath, bindMessage] : ["off"])).then((ok) => {
+              if (ok)
+                setBindStatus(
+                  bindPath
+                    ? t("协议与消息绑定已应用", "Protocol and message binding applied")
+                    : t("协议绑定已清除", "Protocol binding cleared"),
+                );
+            });
+          }}
+        >
+          <strong>{t("协议绑定", "Protocol binding")}</strong>
           <label>
-            {t("帧字节数", "Frame bytes")}
-            <input
-              type="number"
-              min="1"
-              max="1048576"
-              required
-              value={frameSize}
-              onChange={(event) => setFrameSize(event.target.value)}
-            />
-          </label>
-        )}
-        {frameMode === "length" && (
-          <>
-            <label>
-              {t("字段偏移", "Field offset")}
-              <input
-                type="number"
-                min="0"
-                max="1048575"
-                required
-                value={lengthOffset}
-                onChange={(event) => setLengthOffset(event.target.value)}
-              />
-            </label>
-            <label>
-              {t("字段宽度", "Field width")}
-              <select value={lengthWidth} onChange={(event) => setLengthWidth(event.target.value)}>
-                <option value="1">1 B</option>
-                <option value="2">2 B</option>
-                <option value="4">4 B</option>
-              </select>
-            </label>
-            <label>
-              {t("附加字节数", "Extra bytes")}
-              <input
-                type="number"
-                min="0"
-                max="1048576"
-                required
-                value={lengthAdjustment}
-                onChange={(event) => setLengthAdjustment(event.target.value)}
-              />
-            </label>
-            <label>
-              {t("字节序", "Byte order")}
-              <select
-                value={lengthEndian}
-                onChange={(event) => setLengthEndian(event.target.value)}
-              >
-                <option value="big">Big</option>
-                <option value="little">Little</option>
-              </select>
-            </label>
-          </>
-        )}
-        {frameMode === "delimiter" && (
-          <label>
-            {t("分隔符 HEX", "Delimiter HEX")}
-            <input
-              value={delimiter}
-              required
-              placeholder="0D 0A"
-              onChange={(event) => setDelimiter(event.target.value)}
-            />
-          </label>
-        )}
-        <button type="submit" disabled={busy}>
-          {t("应用", "Apply")}
-        </button>
-        <small role="status">
-          {frameStatus ||
-            t(
-              "帧长 = 长度字段值 + 附加字节数；上限 1 MiB，残帧空闲 5 秒后丢弃",
-              "Frame size = length value + extra bytes; 1 MiB limit, 5s partial-frame timeout",
-            )}
-        </small>
-      </form>
-      <form
-        className="tcp-framing"
-        onSubmit={(event) => {
-          event.preventDefault();
-          void act("bind", ...(bindPath ? [bindPath, bindMessage] : ["off"])).then((ok) => {
-            if (ok)
-              setBindStatus(
-                bindPath
-                  ? t("协议与消息绑定已应用", "Protocol and message binding applied")
-                  : t("协议绑定已清除", "Protocol binding cleared"),
-              );
-          });
-        }}
-      >
-        <strong>{t("协议 / 消息绑定", "Protocol / message binding")}</strong>
-        <label>
-          {t("协议", "Protocol")}
-          <select
-            aria-label={t("绑定协议", "Bound protocol")}
-            value={bindPath}
-            onChange={(event) => {
-              setBindPath(event.target.value);
-              setBindMessage("");
-              setBindStatus("");
-            }}
-          >
-            <option value="">{t("不绑定", "Unbound")}</option>
-            {protocols.map((item) => (
-              <option key={item.path} value={item.path}>
-                {item.name} ({item.path})
-              </option>
-            ))}
-          </select>
-        </label>
-        {bindProtocol && (
-          <label>
-            {t("消息", "Message")}
+            {t("协议", "Protocol")}
             <select
-              aria-label={t("绑定消息", "Bound message")}
-              value={bindMessage}
+              aria-label={t("绑定协议", "Bound protocol")}
+              value={bindPath}
               onChange={(event) => {
-                setBindMessage(event.target.value);
+                setBindPath(event.target.value);
+                setBindMessage("");
                 setBindStatus("");
               }}
             >
-              <option value="">{t("自动识别", "Auto identify")}</option>
-              {bindProtocol.schema.messages.map((item) => (
-                <option key={item.name} value={item.name}>
-                  {item.displayName || item.name}
+              <option value="">{t("不绑定", "Unbound")}</option>
+              {protocols.map((item) => (
+                <option key={item.path} value={item.path}>
+                  {item.name}
                 </option>
               ))}
             </select>
           </label>
-        )}
-        <button type="submit" disabled={busy}>
-          {t("应用", "Apply")}
-        </button>
-        <small role="status">
-          {bindStatus ||
-            (status.protocolPath
-              ? `${t("当前", "Current")}: ${status.protocolPath} / ${status.messageName || t("自动", "auto")}`
-              : t("当前未绑定协议", "No protocol bound"))}
-          {bindProtocol &&
-            !bindMessage &&
-            !bindProtocol.schema.messageTypeField &&
-            ` · ${t("自动识别需在协议 YAML 设置 protocol.messageTypeField", "Auto identify requires protocol.messageTypeField in YAML")}`}
-        </small>
-      </form>
-      <div className="tcp-send">
-        <div className="tcp-send-heading">
-          <strong>{t("发送数据", "Send data")}</strong>
-          <select
-            aria-label={t("数据格式", "Data format")}
-            value={encoding}
-            onChange={(event) => {
-              setEncoding(event.target.value);
-              setMessageDraft(null);
-              setChecked(null);
-            }}
-          >
-            <option value="hex">HEX</option>
-            <option value="text">UTF-8</option>
-          </select>
-          <select
-            aria-label={t("发送目标", "Send target")}
-            value={peer}
-            onChange={(event) => {
-              setPeer(event.target.value);
-              setChecked(null);
-            }}
-          >
-            <option value="">{t("选择连接", "Select peer")}</option>
-            {status.peers.map((item) => (
-              <option key={item.id} value={item.id}>
-                {item.address} #{item.id}
-              </option>
-            ))}
-          </select>
-        </div>
-        <textarea
-          aria-label={t("发送内容", "Payload")}
-          value={input}
-          onChange={(event) => {
-            setInput(event.target.value);
-            setMessageDraft(null);
-            setChecked(null);
-          }}
-          rows={3}
-          maxLength={262144}
-          placeholder={encoding === "hex" ? "01 03 00 00 00 02" : "UTF-8"}
-        />
-        <small>
-          {messageDraft
-            ? `${t("报文源", "Message source")}: ${messageDraft.relativePath} / ${messageDraft.messageName}`
-            : t(
-                "支持 {{变量名}}；内置 random、sequence、timestamp。",
-                "Use {{name}}; built-ins: random, sequence, timestamp.",
-              )}
-        </small>
-        <div className="tcp-send-schedule">
-          <label>
-            {t("间隔 (毫秒)", "Interval (ms)")}
-            <input
-              aria-label={t("发送间隔", "Send interval")}
-              type="number"
-              min="50"
-              max="60000"
-              value={intervalMs}
-              onChange={(event) => setIntervalMs(event.target.value)}
-            />
-          </label>
-          <label>
-            {t("重复次数", "Repeat count")}
-            <input
-              aria-label={t("重复次数", "Repeat count")}
-              type="number"
-              min="1"
-              max="1000"
-              value={repeatCount}
-              onChange={(event) => setRepeatCount(event.target.value)}
-            />
-          </label>
-          <label>
-            {t(
-              "批量内容（每行一条原始报文；空白时使用上方内容或报文源）",
-              "Batch payloads (one raw payload per line; empty uses the payload or message source above)",
-            )}
-            <textarea
-              aria-label={t("批量内容", "Batch payloads")}
-              rows={2}
-              maxLength={262144}
-              value={batch}
-              onChange={(event) => setBatch(event.target.value)}
-              placeholder={encoding === "hex" ? "01 02\n03 04" : "first\nsecond"}
-            />
-          </label>
-        </div>
-        {checked && (
-          <div className="tcp-send-preview" role="status">
-            <span>
-              {t("生效值", "Effective value")}: {checked.effective}
-            </span>
-            <code>HEX: {checked.hex}</code>
-          </div>
-        )}
-        <div className="tcp-send-footer">
-          <small role="status">
-            {runProgress && running
-              ? `${t("发送进度", "Progress")}: ${runProgress}`
-              : notice ||
-                (messageDraft
-                  ? t(
-                      "每次发送按协议重算长度与校验。",
-                      "Length and checksum are recalculated for every message send.",
-                    )
-                  : t(
-                      mode === "udp"
-                        ? "单次最多 65507 字节；不自动添加换行或校验码。"
-                        : "单次最多 64 KiB；不自动添加换行或校验码。",
-                      mode === "udp"
-                        ? "Up to 65507 bytes; no automatic newline or checksum."
-                        : "Up to 64 KiB; no automatic newline or checksum.",
-                    ))}
-          </small>
-          <button
-            type="button"
-            disabled={busy || running || (encoding === "hex" ? !input.trim() : !input.length)}
-            onClick={() => void checkPayload()}
-          >
-            {t("检查生效值", "Check effective value")}
-          </button>
-          <button
-            data-action="send"
-            type="button"
-            disabled={
-              busy ||
-              running ||
-              !connected ||
-              !peer ||
-              (encoding === "hex" ? !input.trim() : !input.length)
-            }
-            onClick={() => void send()}
-          >
-            <Send size={14} />
-            {t("发送", "Send")}
-          </button>
-          {running ? (
-            <button type="button" onClick={stopRun}>
-              {t("停止发送", "Stop sending")}
-            </button>
-          ) : (
-            <button
-              type="button"
-              disabled={busy || !connected || !peer || (!batch.trim() && !input.trim())}
-              onClick={() => void startRun()}
-            >
-              {t("定时 / 批量发送", "Timed / batch send")}
-            </button>
+          {bindProtocol && (
+            <label>
+              {t("消息", "Message")}
+              <select
+                aria-label={t("绑定消息", "Bound message")}
+                value={bindMessage}
+                onChange={(event) => {
+                  setBindMessage(event.target.value);
+                  setBindStatus("");
+                }}
+              >
+                <option value="">{t("自动识别", "Auto identify")}</option>
+                {bindProtocol.schema.messages.map((item) => (
+                  <option key={item.name} value={item.name}>
+                    {item.displayName || item.name}
+                  </option>
+                ))}
+              </select>
+            </label>
           )}
-        </div>
-      </div>
-      <div className="tcp-log-toolbar">
-        {history && (
-          <span>
-            {t("历史记录（只读）", "History (read only)")} · {history.session}
-          </span>
-        )}
-        <strong>{t("收发记录", "Traffic")}</strong>
-        {history ? (
-          <span>
-            {history.records.length} {t("条记录", "records")}
-          </span>
-        ) : (
-          <span>
-            <ArrowUp size={12} /> {status.sent} B <ArrowDown size={12} /> {status.received} B ·{" "}
-            {t("排队", "Queued")} {status.queued} B
-          </span>
-        )}
-        <select
-          aria-label={t("记录方向", "Direction")}
-          value={direction}
-          onChange={(event) => setDirection(event.target.value)}
-        >
-          <option value="all">{t("全部", "All")}</option>
-          <option>TX</option>
-          <option>RX</option>
-          <option>FRAME</option>
-          <option>SYS</option>
-        </select>
-        <input
-          aria-label={t("筛选记录", "Filter records")}
-          placeholder={t("搜索 HEX / 地址 / 事件", "Search HEX / address / event")}
-          value={search}
-          onChange={(event) => setSearch(event.target.value)}
-        />
-        <label>
-          <input
-            type="checkbox"
-            checked={follow}
-            onChange={(event) => setFollow(event.target.checked)}
-          />
-          {t("跟随", "Follow")}
-        </label>
-        <button type="button" onClick={() => void archive("open")}>
-          {t("导入", "Import")}
-        </button>
-        <button type="button" onClick={() => void archive("save")}>
-          {t("保存 / 导出", "Save / export")}
-        </button>
-        {history && (
-          <button
-            type="button"
-            onClick={() => {
-              ++importVersion.current;
-              setHistory(null);
-              setSelected(null);
-            }}
-          >
-            {t("返回实时", "Back to live")}
+          <button type="submit" disabled={busy}>
+            {t("应用", "Apply")}
           </button>
-        )}
-        <button
-          type="button"
-          disabled={busy || shownRecords.length === 0}
-          title={t("清空记录", "Clear records")}
-          aria-label={t("清空记录", "Clear records")}
-          onClick={() => void clear()}
-        >
-          <Trash2 size={14} />
-        </button>
-      </div>
-      <details className="traffic-filters traffic-capture">
-        <summary>{t("PCAP 导入与分析", "PCAP import and analysis")}</summary>
-        <form
-          onSubmit={(event) => {
-            event.preventDefault();
-            void importCapture();
-          }}
-        >
-          <label>
-            {t("捕获本机 IPv4", "Captured local IPv4")}
-            <input
-              aria-label={t("捕获本机 IPv4", "Captured local IPv4")}
-              required
-              maxLength={15}
-              value={captureIp}
-              onChange={(event) => setCaptureIp(event.target.value)}
-              placeholder="192.168.1.10"
-            />
-          </label>
-          <button type="submit" disabled={importingCapture || busy}>
-            {t("选择 PCAP（仅离线）", "Choose PCAP (offline only)")}
-          </button>
-          <small>
-            {t(
-              "支持经典 PCAP（大小端、微秒 / 纳秒）、Ethernet（含最多三层 VLAN）、未分片 IPv4、TCP / UDP；最多 16 MiB / 100000 包 / 128 连接。复用当前已应用的分帧和协议绑定；TCP 分帧关闭时仅显示原始段，UDP 按数据报解析。PCAPNG、IPv6、IP 分片及其他链路显式报告不支持；截断、缺包、冲突重叠及未完成帧见 SYS。TCP 每方向最多 1 MiB、总段缓存 4 MiB；网络校验和不验证。导入不会连接或发包，失败保留当前历史。",
-              "Classic PCAP (both endian orders, micro/nanoseconds), Ethernet (up to three VLAN tags), unfragmented IPv4 TCP/UDP; 16 MiB / 100000 packets / 128 connections. Uses currently applied framing and protocol binding. TCP framing off keeps raw segments; UDP decodes datagrams. PCAPNG, IPv6, fragments and other links are explicitly unsupported. SYS reports truncation, gaps, overlaps and partial frames. TCP: 1 MiB per direction, 4 MiB segment cache; transport checksums are not verified. Import never connects or sends; failure preserves history.",
-            )}
+          <small className="tcp-config-note" role="status">
+            {bindStatus ||
+              (status.protocolPath
+                ? `${t("当前", "Current")}: ${status.protocolPath} / ${status.messageName || t("自动", "auto")}`
+                : t("当前未绑定协议", "No protocol bound"))}
+            {bindProtocol &&
+              !bindMessage &&
+              !bindProtocol.schema.messageTypeField &&
+              ` · ${t("自动识别需在协议 YAML 设置 protocol.messageTypeField", "Auto identify requires protocol.messageTypeField in YAML")}`}
           </small>
         </form>
-      </details>
-      {history && visible && (
-        <TrafficReplay
-          records={history.records}
-          savedAt={history.savedAt}
-          reset={replayReset}
-          peers={status.peers}
-          enabled={connected && !busy && !running && !sending.current}
-          locale={locale}
-          onTime={setReplayTime}
-          onSend={replaySend}
-          onActive={(value) => {
-            replayActive.current = value;
+        <form
+          className="tcp-framing tcp-frame-config"
+          hidden={mode === "udp"}
+          onChange={() => setFrameStatus("")}
+          onSubmit={(event) => {
+            event.preventDefault();
+            void configureFrames();
           }}
-          redact={redact}
-        />
-      )}
-      <TrafficFilters
-        records={shownRecords}
-        filters={filters}
-        onChange={setFilters}
-        locale={locale}
-        session={history?.session ?? session}
-        device={status.device ?? ""}
-        sensitive={redact(status.device ?? "") !== (status.device ?? "")}
-        disabled={busy || Boolean(history)}
-        onDevice={(identifier) => act("device", identifier)}
-      />
-      <p className="tcp-log-hint" role="status">
-        {t("筛选结果", "Filtered records")}: {filtered.length}/{shownRecords.length} ·
-        {mode === "udp"
-          ? t(
-              "UDP：每条 RX / FRAME 保留一个完整数据报，不应用字节流分帧。",
-              "UDP: each RX / FRAME preserves one datagram; stream framing is bypassed.",
-            )
-          : ""}
-        {mode !== "udp" &&
-          t(
-            "TCP / 串口是字节流：RX 保留原始接收块，FRAME 表示完整帧。",
-            "TCP / serial are byte streams: RX keeps raw chunks; FRAME contains completed frames.",
-          )}{" "}
-        {t(
-          "会话最多保留 1000 条 / 4 MiB；保存导出尚未淘汰的记录。",
-          "Sessions keep 1000 entries / 4 MiB; save exports retained records.",
-        )}{" "}
-        {(history?.dropped ?? status.dropped) > 0 &&
-          `${t("已淘汰", "Evicted")}: ${history?.dropped ?? status.dropped}`}
-      </p>
-      <TrafficCorrelation
-        records={visibleRecords}
-        protocols={protocols}
-        rule={history ? (history.correlation ?? null) : correlation}
-        onRule={(rule) =>
-          history
-            ? setHistory({ ...history, correlation: rule ?? undefined })
-            : setCorrelation(rule)
-        }
-        onSelect={setSelected}
-        locale={locale}
-        savedAt={
-          history
-            ? replayTime === null
-              ? history.savedAt
-              : new Date(replayTime).toISOString()
-            : undefined
-        }
-        dropped={history?.dropped ?? status.dropped}
-        redact={redact}
-      />
-      <div className="tcp-log" ref={table}>
-        <table>
-          <thead>
-            <tr>
-              <th>{t("时间", "Time")}</th>
-              <th>{t("方向", "Dir")}</th>
-              <th>{t("连接", "Peer")}</th>
-              <th>{t("设备 / 消息", "Device / message")}</th>
-              <th>{t("字节", "Bytes")}</th>
-              <th>{t("数据 / 事件", "Data / event")}</th>
-            </tr>
-          </thead>
-          <tbody>
-            {filtered.map((item) => (
-              <tr key={item.id} className={selected?.id === item.id ? "selected" : ""}>
-                <td>
-                  {new Date(item.time).toLocaleTimeString(locale, { hour12: false })}.
-                  {String(item.time % 1000).padStart(3, "0")}
-                </td>
-                <td className={`tcp-dir-${item.direction}`}>
-                  {item.direction === "FRAME" ? `FRAME ${item.flow ?? "RX"}` : item.direction}
-                </td>
-                <td>
-                  {item.address} {item.peer > 0 && `#${item.peer}`}
-                </td>
-                <td
-                  title={`${deviceValue(item, filters.deviceField) || "—"} / ${item.parsed?.messageName ?? "—"}`}
+        >
+          <strong>{t("分帧设置", "Framing")}</strong>
+          <label>
+            {t("规则", "Rule")}
+            <select value={frameMode} onChange={(event) => setFrameMode(event.target.value)}>
+              <option value="off">{t("关闭", "Off")}</option>
+              <option value="fixed">{t("固定长度", "Fixed length")}</option>
+              <option value="length">{t("长度字段", "Length field")}</option>
+              <option value="delimiter">{t("分隔符", "Delimiter")}</option>
+            </select>
+          </label>
+          {frameMode === "fixed" && (
+            <label>
+              {t("帧字节数", "Frame bytes")}
+              <input
+                type="number"
+                min="1"
+                max="1048576"
+                required
+                value={frameSize}
+                onChange={(event) => setFrameSize(event.target.value)}
+              />
+            </label>
+          )}
+          {frameMode === "length" && (
+            <>
+              <label>
+                {t("字段偏移", "Field offset")}
+                <input
+                  type="number"
+                  min="0"
+                  max="1048575"
+                  required
+                  value={lengthOffset}
+                  onChange={(event) => setLengthOffset(event.target.value)}
+                />
+              </label>
+              <label>
+                {t("字段宽度", "Field width")}
+                <select
+                  value={lengthWidth}
+                  onChange={(event) => setLengthWidth(event.target.value)}
                 >
-                  {deviceValue(item, filters.deviceField) || "—"}
-                  {item.parsed?.messageName && <small> / {item.parsed.messageName}</small>}
-                </td>
-                <td>{item.size}</td>
-                <td>
-                  <button
-                    type="button"
-                    onClick={() => setSelected(item)}
-                    title={item.detail || item.hex.slice(0, 200)}
-                  >
-                    {item.direction === "FRAME"
-                      ? `${item.detail} · ${item.hex.slice(0, 150)}`
-                      : item.detail || item.hex.slice(0, 150)}
-                    {item.hex.length > 150 ? "…" : ""}
-                  </button>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-        {filtered.length === 0 && (
-          <p className="tcp-empty">{t("暂无收发记录", "No traffic records")}</p>
-        )}
-      </div>
-      {selectedRecord && (
-        <div className="tcp-record-detail">
-          <div>
-            <strong>
-              {selectedRecord.direction} · {selectedRecord.address} · {selectedRecord.size} B
-            </strong>
+                  <option value="1">1 B</option>
+                  <option value="2">2 B</option>
+                  <option value="4">4 B</option>
+                </select>
+              </label>
+              <label>
+                {t("附加字节数", "Extra bytes")}
+                <input
+                  type="number"
+                  min="0"
+                  max="1048576"
+                  required
+                  value={lengthAdjustment}
+                  onChange={(event) => setLengthAdjustment(event.target.value)}
+                />
+              </label>
+              <label>
+                {t("字节序", "Byte order")}
+                <select
+                  value={lengthEndian}
+                  onChange={(event) => setLengthEndian(event.target.value)}
+                >
+                  <option value="big">Big</option>
+                  <option value="little">Little</option>
+                </select>
+              </label>
+            </>
+          )}
+          {frameMode === "delimiter" && (
+            <label>
+              {t("分隔符 HEX", "Delimiter HEX")}
+              <input
+                value={delimiter}
+                required
+                placeholder="0D 0A"
+                onChange={(event) => setDelimiter(event.target.value)}
+              />
+            </label>
+          )}
+          <button type="submit" disabled={busy}>
+            {t("应用", "Apply")}
+          </button>
+          {mode === "serial" && (
             <button
+              className="serial-frame-more"
               type="button"
-              disabled={!selectedRecord.hex}
-              onClick={(event) => {
-                const owner = event.currentTarget.ownerDocument.defaultView ?? window;
-                void owner.navigator.clipboard
-                  .writeText(selectedRecord.hex)
-                  .then(() => setNotice(t("HEX 已复制", "HEX copied")))
-                  .catch(() => setError(t("复制失败", "Copy failed")));
-              }}
+              aria-expanded={configOpen}
+              onClick={() => setConfigOpen(!configOpen)}
             >
-              {t("复制 HEX", "Copy HEX")}
+              {t("参数", "Options")}
             </button>
-            <button
-              type="button"
-              disabled={!selectedRecord.hex}
-              onClick={() => onDebug(selectedRecord)}
+          )}
+          <small className="tcp-config-note" role="status">
+            {frameStatus ||
+              t(
+                "帧长 = 长度字段值 + 附加字节数；上限 1 MiB，残帧空闲 5 秒后丢弃",
+                "Frame size = length value + extra bytes; 1 MiB limit, 5s partial-frame timeout",
+              )}
+          </small>
+        </form>
+        <button
+          className="tcp-config-more"
+          hidden={mode === "serial"}
+          type="button"
+          aria-expanded={configOpen}
+          onClick={() => setConfigOpen(!configOpen)}
+        >
+          {t("更多设置", "More settings")}
+        </button>
+        {mode === "udp" && (
+          <div className="udp-datagram-rule">
+            {t("分帧", "Framing")}
+            <span
+              title={t(
+                "每个 UDP 数据报独立解析，不使用 TCP 字节流分帧",
+                "Each UDP datagram is decoded independently; stream framing is bypassed",
+              )}
             >
-              {t("送入调试", "Open in Debug")}
-            </button>
-            <button
-              type="button"
-              aria-label={t("关闭详情", "Close details")}
-              onClick={() => setSelected(null)}
-            >
-              <X size={14} />
-            </button>
+              {t("完整 UDP 数据报", "Complete UDP datagram")}
+            </span>
           </div>
-          {selectedRecord.detail && <p>{selectedRecord.detail}</p>}
-          {selectedRecord.parsed && (
+        )}
+      </section>
+      <div className="tcp-body">
+        {mode === "server" && (
+          <ServerPeers
+            peers={status.peers}
+            records={records.map(redactRecord)}
+            selected={peer}
+            listening={connected}
+            locale={locale}
+            redact={redact}
+            onSelect={(id) => {
+              setPeer(id);
+              setChecked(null);
+            }}
+            onMenu={setPeerMenu}
+          />
+        )}
+        <section
+          className="tcp-traffic-panel"
+          data-view={trafficView}
+          aria-label={t("收发记录面板", "Traffic panel")}
+        >
+          <div className="tcp-traffic-heading">
             <div
-              className="debug-field-list"
-              aria-label={t("协议解析结果", "Protocol parse result")}
+              className="tcp-section-tabs"
+              role="tablist"
+              aria-label={t("记录视图", "Traffic views")}
             >
-              <p role={selectedRecord.parsed.status === "ok" ? "status" : "alert"}>
-                {selectedRecord.parsed.status === "ok"
-                  ? t("解析成功", "Decoded")
-                  : selectedRecord.parsed.status === "unmatched"
-                    ? t("未匹配消息", "Message not matched")
-                    : t("解析失败", "Decode failed")}
-                {selectedRecord.parsed.messageName && ` · ${selectedRecord.parsed.messageName}`}
-                {selectedRecord.parsed.checksum === "pass" &&
-                  ` · ${t("校验通过", "Checksum passed")}`}
-                {selectedRecord.parsed.checksum === "fail" &&
-                  ` · ${t("校验失败", "Checksum failed")}`}
-                {selectedRecord.parsed.error && ` · ${selectedRecord.parsed.error}`}
-              </p>
-              {selectedRecord.parsed.fields.map((field) => (
-                <div key={field.name} className="debug-field-preview">
-                  <strong>{field.displayName || field.name}</strong>
-                  <small>
-                    {field.name} · {field.type} · {field.offset}–{field.offset + field.length - 1}
-                  </small>
-                  <code>
-                    {field.enumName === undefined
-                      ? field.value
-                      : field.enumName
-                        ? `${field.enumName} (${field.value})`
-                        : `${t("未知枚举值", "Unknown enum")} (${field.value})`}
-                  </code>
-                  {field.bits?.map((bit) => (
-                    <small key={bit.name}>
-                      {bit.displayName || bit.name}: {bit.value} · bit {bit.bitOffset}–
-                      {bit.bitOffset + bit.width - 1} · byte {bit.offset}–
-                      {bit.offset + bit.length - 1}
-                    </small>
-                  ))}
-                </div>
+              {[
+                ["records", t("收发记录", "Traffic")],
+                ["timeline", t("时间线", "Timeline")],
+                ...(mode === "serial" || mode === "udp"
+                  ? [["statistics", t("统计", "Statistics")]]
+                  : []),
+                ["correlation", t("关联分析", "Correlation")],
+                ["replay", t("回放", "Replay")],
+              ].map(([id, label]) => (
+                <button
+                  key={id}
+                  type="button"
+                  role="tab"
+                  aria-selected={trafficView === id}
+                  onClick={() => setTrafficView(id)}
+                >
+                  {label}
+                </button>
               ))}
             </div>
+          </div>
+          <div className="tcp-log-toolbar">
+            {(mode === "server" || detachedClient) && (
+              <>
+                <select
+                  hidden={mode !== "server"}
+                  aria-label={t("客户端筛选", "Client filter")}
+                  value={clientFilter}
+                  onChange={(event) => {
+                    setClientFilter(event.target.value);
+                    setSelected(null);
+                  }}
+                >
+                  <option value="">{t("全部客户端", "All clients")}</option>
+                  {[
+                    ...new Map(
+                      shownRecords.filter((item) => item.peer > 0).map((item) => [item.peer, item]),
+                    ).values(),
+                  ].map((item) => (
+                    <option key={item.peer} value={item.peer}>
+                      {clientLabel(item.peer)} · {item.address}
+                    </option>
+                  ))}
+                </select>
+                <select
+                  aria-label={t("记录类型", "Record type")}
+                  value={recordType}
+                  onChange={(event) => {
+                    setRecordType(event.target.value);
+                    setSelected(null);
+                  }}
+                >
+                  <option value="all">{t("全部类型", "All types")}</option>
+                  <option value="FRAME">FRAME</option>
+                  <option value="raw">{t("原始块", "Raw chunks")}</option>
+                  <option value="SYS">SYS</option>
+                </select>
+              </>
+            )}
+            {history && (
+              <span>
+                {t("历史记录（只读）", "History (read only)")} · {history.session}
+              </span>
+            )}
+
+            {mode === "serial" ? (
+              <div
+                className="serial-direction-tabs"
+                role="group"
+                aria-label={t("记录方向", "Direction")}
+              >
+                {["all", "TX", "RX", "FRAME", "SYS"].map((value) => (
+                  <button
+                    type="button"
+                    key={value}
+                    aria-pressed={direction === value}
+                    onClick={() => setDirection(value)}
+                  >
+                    {value === "all" ? t("全部", "All") : value}
+                  </button>
+                ))}
+              </div>
+            ) : (
+              <select
+                aria-label={t("记录方向", "Direction")}
+                value={direction}
+                onChange={(event) => setDirection(event.target.value)}
+              >
+                <option value="all">{t("全部方向", "All directions")}</option>
+                <option>TX</option>
+                <option>RX</option>
+                <option>FRAME</option>
+                <option>SYS</option>
+              </select>
+            )}
+            <label className="tcp-search">
+              <Search size={14} />
+              <input
+                aria-label={t("筛选记录", "Filter records")}
+                placeholder={t("搜索消息、HEX、地址…", "Search message, HEX, address…")}
+                value={search}
+                onChange={(event) => setSearch(event.target.value)}
+              />
+            </label>
+            {mode === "udp" && (
+              <select
+                aria-label={t("消息筛选", "Message filter")}
+                value={udpMessage}
+                onChange={(event) => {
+                  setUdpMessage(event.target.value);
+                  setSelected(null);
+                }}
+              >
+                <option value="">{t("全部消息", "All messages")}</option>
+                {[
+                  ...new Set(
+                    shownRecords
+                      .map((item) => item.parsed?.messageName)
+                      .filter((name): name is string => Boolean(name)),
+                  ),
+                ].map((name) => (
+                  <option key={name} value={name}>
+                    {name}
+                  </option>
+                ))}
+              </select>
+            )}
+            <select
+              className="tcp-parse-filter"
+              aria-label={t("解析状态筛选", "Parse status filter")}
+              value={parseFilter}
+              onChange={(event) => {
+                setParseFilter(event.target.value);
+                setSelected(null);
+              }}
+            >
+              <option value="all">{t("全部状态", "All states")}</option>
+              <option value="ok">{t("解析成功", "Decoded")}</option>
+              <option value="error">{t("解析失败", "Decode failed")}</option>
+              <option value="unmatched">{t("未匹配", "Unmatched")}</option>
+              <option value="unparsed">{t("未解析", "Not decoded")}</option>
+            </select>
+            <label>
+              <input
+                type="checkbox"
+                checked={follow}
+                onChange={(event) => setFollow(event.target.checked)}
+              />
+              {t("自动滚动", "Auto scroll")}
+            </label>
+            {mode === "serial" && (
+              <>
+                <small className="serial-record-count">
+                  {filtered.length} / {shownRecords.length}
+                </small>
+                <button
+                  type="button"
+                  aria-pressed={Boolean(pausedRecords)}
+                  onClick={() => setPausedRecords(pausedRecords ? null : [...visibleRecords])}
+                >
+                  {pausedRecords ? <Play size={13} /> : <Pause size={13} />}
+                  {pausedRecords ? t("继续显示", "Resume") : t("暂停显示", "Pause")}
+                </button>
+              </>
+            )}
+            <button
+              className="tcp-archive-action"
+              hidden={mode === "server"}
+              type="button"
+              onClick={() => void archive("open")}
+            >
+              {t("导入", "Import")}
+            </button>
+            <button
+              className="tcp-archive-action"
+              hidden={mode === "server"}
+              type="button"
+              onClick={() => void archive("save")}
+            >
+              {t("保存 / 导出", "Save / export")}
+            </button>
+            <button
+              className="tcp-archive-action"
+              type="button"
+              onClick={() => {
+                setCaptureOpen(true);
+                setTrafficView("records");
+              }}
+            >
+              {t("导入 PCAP", "Import PCAP")}
+            </button>
+            {history && (
+              <button
+                type="button"
+                onClick={() => {
+                  ++importVersion.current;
+                  setHistory(null);
+                  setSelected(null);
+                }}
+              >
+                {t("返回实时", "Back to live")}
+              </button>
+            )}
+            <button
+              type="button"
+              disabled={busy || shownRecords.length === 0}
+              title={t("清空记录", "Clear records")}
+              aria-label={t("清空记录", "Clear records")}
+              onClick={() => void clear()}
+            >
+              <Trash2 size={14} />
+            </button>
+          </div>
+          <details
+            className="tcp-advanced-tools"
+            open={filterOpen}
+            onToggle={(event) => setFilterOpen(event.currentTarget.open)}
+          >
+            <summary>
+              <Filter size={13} />
+              {t("筛选与文件工具", "Filters and files")}
+            </summary>
+            {(mode === "server" || mode === "udp" || detachedClient) && (
+              <div className="tcp-server-file-tools">
+                <button type="button" onClick={() => void archive("open")}>
+                  {t("导入记录", "Import archive")}
+                </button>
+                <button type="button" onClick={() => void archive("save")}>
+                  {t("保存 / 导出", "Save / export")}
+                </button>
+              </div>
+            )}
+            {detachedClient && (
+              <label>
+                <input
+                  type="checkbox"
+                  checked={follow}
+                  onChange={(event) => setFollow(event.target.checked)}
+                />
+                {t("自动滚动", "Auto scroll")}
+              </label>
+            )}
+            <button
+              type="button"
+              className="tcp-archive-action"
+              onClick={() => {
+                setCaptureOpen(true);
+                setTrafficView("records");
+              }}
+            >
+              {t("导入 PCAP", "Import PCAP")}
+            </button>
+            <details className="traffic-filters traffic-capture" hidden>
+              <summary>{t("PCAP 导入与分析", "PCAP import and analysis")}</summary>
+              <form
+                onSubmit={(event) => {
+                  event.preventDefault();
+                  void importCapture();
+                }}
+              >
+                <label>
+                  {t("捕获本机 IPv4", "Captured local IPv4")}
+                  <input
+                    aria-label={t("捕获本机 IPv4", "Captured local IPv4")}
+                    required
+                    maxLength={15}
+                    value={captureIp}
+                    onChange={(event) => setCaptureIp(event.target.value)}
+                    placeholder="192.168.1.10"
+                  />
+                </label>
+                <button type="submit" disabled={importingCapture || busy}>
+                  {t("选择 PCAP（仅离线）", "Choose PCAP (offline only)")}
+                </button>
+                <small>
+                  {t(
+                    "支持经典 PCAP（大小端、微秒 / 纳秒）、Ethernet（含最多三层 VLAN）、未分片 IPv4、TCP / UDP；最多 16 MiB / 100000 包 / 128 连接。复用当前已应用的分帧和协议绑定；TCP 分帧关闭时仅显示原始段，UDP 按数据报解析。PCAPNG、IPv6、IP 分片及其他链路显式报告不支持；截断、缺包、冲突重叠及未完成帧见 SYS。TCP 每方向最多 1 MiB、总段缓存 4 MiB；网络校验和不验证。导入不会连接或发包，失败保留当前历史。",
+                    "Classic PCAP (both endian orders, micro/nanoseconds), Ethernet (up to three VLAN tags), unfragmented IPv4 TCP/UDP; 16 MiB / 100000 packets / 128 connections. Uses currently applied framing and protocol binding. TCP framing off keeps raw segments; UDP decodes datagrams. PCAPNG, IPv6, fragments and other links are explicitly unsupported. SYS reports truncation, gaps, overlaps and partial frames. TCP: 1 MiB per direction, 4 MiB segment cache; transport checksums are not verified. Import never connects or sends; failure preserves history.",
+                  )}
+                </small>
+              </form>
+            </details>
+            <TrafficFilters
+              records={shownRecords}
+              filters={filters}
+              onChange={setFilters}
+              locale={locale}
+              session={history?.session ?? session}
+              device={status.device ?? ""}
+              sensitive={redact(status.device ?? "") !== (status.device ?? "")}
+              disabled={busy || Boolean(history)}
+              onDevice={(identifier) => act("device", identifier)}
+            />
+            <p className="tcp-log-hint" role="status">
+              {t("筛选结果", "Filtered records")}: {filtered.length}/{shownRecords.length} ·
+              {mode === "udp"
+                ? t(
+                    "UDP：每条 RX / FRAME 保留一个完整数据报，不应用字节流分帧。",
+                    "UDP: each RX / FRAME preserves one datagram; stream framing is bypassed.",
+                  )
+                : ""}
+              {mode !== "udp" &&
+                t(
+                  "TCP / 串口是字节流：RX 保留原始接收块，FRAME 表示完整帧。",
+                  "TCP / serial are byte streams: RX keeps raw chunks; FRAME contains completed frames.",
+                )}{" "}
+              {t(
+                "会话最多保留 1000 条 / 4 MiB；保存导出尚未淘汰的记录。",
+                "Sessions keep 1000 entries / 4 MiB; save exports retained records.",
+              )}{" "}
+              {(history?.dropped ?? status.dropped) > 0 &&
+                `${t("已淘汰", "Evicted")}: ${history?.dropped ?? status.dropped}`}
+            </p>
+          </details>
+          <div
+            className="tcp-analysis-view"
+            hidden={trafficView !== "correlation" && trafficView !== "timeline"}
+          >
+            <TrafficCorrelation
+              view={trafficView === "timeline" ? "timeline" : "correlation"}
+              records={visibleRecords}
+              protocols={protocols}
+              rule={history ? (history.correlation ?? null) : correlation}
+              onRule={(rule) =>
+                history
+                  ? setHistory({ ...history, correlation: rule ?? undefined })
+                  : setCorrelation(rule)
+              }
+              onSelect={locateCorrelationRecord}
+              locale={locale}
+              savedAt={
+                history
+                  ? replayTime === null
+                    ? history.savedAt
+                    : new Date(replayTime).toISOString()
+                  : undefined
+              }
+              dropped={history?.dropped ?? status.dropped}
+              redact={redact}
+            />
+          </div>
+          <div className="tcp-replay-view" hidden={trafficView !== "replay"}>
+            {history && visible && (
+              <TrafficReplay
+                records={history.records}
+                savedAt={history.savedAt}
+                reset={replayReset}
+                peers={status.peers}
+                enabled={connected && !busy && !running && !sending.current}
+                locale={locale}
+                onTime={setReplayTime}
+                onSend={replaySend}
+                onActive={(value) => {
+                  replayActive.current = value;
+                }}
+                redact={redact}
+              />
+            )}
+            {!history && (
+              <div className="tcp-detail-empty">
+                <strong>{t("导入历史记录以开始回放", "Import a traffic archive to replay")}</strong>
+                <p>{t("导入不会连接或发送报文", "Importing never connects or sends packets")}</p>
+                <button type="button" onClick={() => void archive("open")}>
+                  {t("导入记录", "Import archive")}
+                </button>
+              </div>
+            )}
+          </div>
+          {(mode === "serial" || mode === "udp") && trafficView === "statistics" && (
+            <div className="serial-statistics udp-statistics">
+              <h3>{t("当前收发记录统计", "Current traffic statistics")}</h3>
+              <p>
+                {t(
+                  "基于当前保留的记录；FRAME 单独计数，不重复累计到原始收发字节。",
+                  "Based on retained records. Frames are counted separately from raw TX/RX bytes.",
+                )}
+              </p>
+              <table>
+                <thead>
+                  <tr>
+                    <th>{t("方向 / 类型", "Direction / type")}</th>
+                    <th>{t("记录数", "Records")}</th>
+                    <th>{t("字节数", "Bytes")}</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {["TX", "RX", "FRAME", "SYS"].map((value) => {
+                    const items = shownRecords.filter((item) => item.direction === value);
+                    return (
+                      <tr key={value}>
+                        <td>{value}</td>
+                        <td>{items.length}</td>
+                        <td>{items.reduce((sum, item) => sum + item.size, 0)}</td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
           )}
-          <pre>{selected.hex || selected.detail}</pre>
-        </div>
-      )}
+          <div className="tcp-log" ref={table} hidden={trafficView !== "records"}>
+            <table>
+              <thead>
+                <tr>
+                  {(mode === "server" || mode === "udp") && <th>#</th>}
+                  <th>{t("时间", "Time")}</th>
+                  <th>{t("方向", "Direction")}</th>
+                  {mode === "server" && <th>{t("客户端", "Client")}</th>}
+                  {mode === "udp" ? (
+                    <>
+                      <th>{t("来源地址:端口", "Source endpoint")}</th>
+                      <th>{t("目标 / 本地绑定", "Target / local bind")}</th>
+                    </>
+                  ) : (
+                    <th>{t("类型", "Type")}</th>
+                  )}
+                  <th>{t("消息", "Message")}</th>
+                  <th>{t("长度", "Bytes")}</th>
+                  <th>{t("HEX 数据摘要", "HEX preview")}</th>
+                  <th>{t("解析状态", "Parse state")}</th>
+                </tr>
+              </thead>
+              <tbody>
+                {filtered.map((item, index) => (
+                  <tr
+                    key={item.id}
+                    className={selected?.id === item.id ? "selected" : ""}
+                    onClick={() => setSelected(item)}
+                    aria-selected={selected?.id === item.id}
+                  >
+                    {mode === "server" && <td>{index + 1}</td>}
+                    {mode === "udp" && <td>{item.id}</td>}
+                    <td>
+                      {new Date(item.time).toLocaleTimeString(locale, { hour12: false })}.
+                      {String(item.time % 1000).padStart(3, "0")}
+                    </td>
+                    <td
+                      className={`tcp-dir-${(mode === "serial" || detachedClient) && item.direction === "FRAME" ? (item.flow ?? "RX") : item.direction}`}
+                    >
+                      <span>
+                        {item.direction === "TX" ||
+                        ((mode === "serial" || detachedClient) &&
+                          item.direction === "FRAME" &&
+                          item.flow === "TX") ? (
+                          <ArrowUp size={12} />
+                        ) : item.direction === "RX" ||
+                          ((mode === "serial" || detachedClient) &&
+                            item.direction === "FRAME" &&
+                            (item.flow ?? "RX") === "RX") ? (
+                          <ArrowDown size={12} />
+                        ) : (
+                          <Circle size={10} />
+                        )}
+                        {item.direction === "FRAME"
+                          ? mode === "server" ||
+                            mode === "udp" ||
+                            mode === "serial" ||
+                            detachedClient
+                            ? (item.flow ?? "RX")
+                            : `FRAME ${item.flow ?? "RX"}`
+                          : item.direction}
+                      </span>
+                    </td>
+                    {mode === "server" && (
+                      <td title={item.address}>{item.peer > 0 ? clientLabel(item.peer) : "—"}</td>
+                    )}
+                    {mode === "udp" ? (
+                      <>
+                        <td>
+                          {
+                            udpEndpoints(
+                              item,
+                              history ? "" : redact(udpBindings.current.get(item.id) ?? ""),
+                            ).source
+                          }
+                        </td>
+                        <td
+                          title={t(
+                            "接收时显示本地绑定端点",
+                            "Received packets show the local bind endpoint",
+                          )}
+                        >
+                          {
+                            udpEndpoints(
+                              item,
+                              history ? "" : redact(udpBindings.current.get(item.id) ?? ""),
+                            ).target
+                          }
+                        </td>
+                      </>
+                    ) : (
+                      <td>
+                        {item.direction === "SYS"
+                          ? detachedClient
+                            ? t("系统", "System")
+                            : t("事件", "Event")
+                          : item.direction === "FRAME"
+                            ? detachedClient
+                              ? "FRAME"
+                              : t("完整帧", "Frame")
+                            : t("原始块", "Raw")}
+                      </td>
+                    )}
+                    <td
+                      title={`${item.address} #${item.peer} · ${deviceValue(item, filters.deviceField) || "—"}`}
+                    >
+                      {item.parsed?.messageName || item.detail || "—"}
+                    </td>
+                    <td>{item.hex ? item.size : "—"}</td>
+                    <td>
+                      <button
+                        type="button"
+                        onClick={() => setSelected(item)}
+                        title={item.detail || item.hex.slice(0, 200)}
+                      >
+                        {item.hex.slice(0, 150) || item.detail || "—"}
+                        {item.hex.length > 150 ? "…" : ""}
+                      </button>
+                    </td>
+                    <td>
+                      <span className={`tcp-parse-state ${item.parsed?.status ?? "unparsed"}`}>
+                        {item.parsed?.status === "ok" ? (
+                          <CheckCircle size={13} />
+                        ) : item.parsed?.status === "error" ? (
+                          <XCircle size={13} />
+                        ) : null}
+                        {item.parsed?.status === "ok"
+                          ? t("解析成功", "Decoded")
+                          : item.parsed?.status === "error"
+                            ? t("解析失败", "Failed")
+                            : item.parsed?.status === "unmatched"
+                              ? t("未匹配", "Unmatched")
+                              : item.direction === "SYS"
+                                ? "—"
+                                : t("未解析", "Not decoded")}
+                      </span>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+            {filtered.length === 0 &&
+              (mode === "serial" ? (
+                <div className="tcp-detail-empty serial-empty">
+                  <Inbox size={32} />
+                  <strong>
+                    {shownRecords.length
+                      ? t("没有匹配的记录", "No matching records")
+                      : connected
+                        ? t("暂无收发记录", "No traffic records")
+                        : t("串口尚未打开", "Serial port closed")}
+                  </strong>
+                  <p>
+                    {shownRecords.length
+                      ? t("调整筛选条件以查看记录", "Adjust filters to view records")
+                      : connected
+                        ? t("发送报文或等待设备数据", "Send a packet or wait for device data")
+                        : t(
+                            "请检查串口配置并打开串口以开始通信",
+                            "Check the configuration and open the port to start",
+                          )}
+                  </p>
+                </div>
+              ) : (
+                <p className="tcp-empty">{t("暂无收发记录", "No traffic records")}</p>
+              ))}
+          </div>
+        </section>
+        <section className="tcp-send" aria-label={t("发送报文", "Send packet")}>
+          {mode === "serial" && !connected && (
+            <p className="serial-send-unavailable" role="status">
+              <AlertTriangle size={14} />
+              {t("串口未打开，无法发送数据", "Serial port closed; sending unavailable")}
+            </p>
+          )}
+          <div className="tcp-section-tabs" role="tablist" aria-label={t("发送方式", "Send modes")}>
+            {[
+              ["single", t("发送报文", "Send packet")],
+              ["timed", t("定时发送", "Timed send")],
+              ["batch", t("批量发送", "Batch send")],
+              ["variables", t("变量引用", "Variables")],
+            ].map(([id, label]) => (
+              <button
+                key={id}
+                type="button"
+                role="tab"
+                aria-selected={sendView === id}
+                onClick={() => setSendView(id)}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+          <div className="tcp-send-content">
+            {(mode === "udp" || detachedClient) && (
+              <UdpTemplates
+                protocol={bindProtocol}
+                locale={locale}
+                input={input}
+                onError={setError}
+                onLoad={(message, hex) => {
+                  setInput(hex);
+                  setMessageDraft(message);
+                  setEncoding("hex");
+                  setChecked(null);
+                }}
+              />
+            )}
+            <div className="tcp-send-heading">
+              <strong>
+                {mode === "server" ? t("发送目标", "Send target") : t("发送内容", "Payload")}
+              </strong>
+              {mode === "serial" || detachedClient ? (
+                <div
+                  className="serial-format-tabs"
+                  role="group"
+                  aria-label={t("数据格式", "Data format")}
+                >
+                  {[
+                    ["hex", "HEX"],
+                    ["text", "UTF-8"],
+                  ].map(([value, label]) => (
+                    <button
+                      type="button"
+                      key={value}
+                      aria-pressed={encoding === value}
+                      onClick={() => {
+                        setEncoding(value);
+                        setMessageDraft(null);
+                        setChecked(null);
+                      }}
+                    >
+                      {label}
+                    </button>
+                  ))}
+                </div>
+              ) : (
+                <select
+                  aria-label={t("数据格式", "Data format")}
+                  value={encoding}
+                  onChange={(event) => {
+                    setEncoding(event.target.value);
+                    setMessageDraft(null);
+                    setChecked(null);
+                  }}
+                >
+                  <option value="hex">HEX</option>
+                  <option value="text">UTF-8</option>
+                </select>
+              )}
+              <select
+                hidden={mode === "serial"}
+                aria-label={t("发送目标", "Send target")}
+                value={peer}
+                onChange={(event) => {
+                  setPeer(event.target.value);
+                  setChecked(null);
+                }}
+              >
+                <option value="">{t("选择连接", "Select peer")}</option>
+                {status.peers.map((item) => (
+                  <option key={item.id} value={item.id}>
+                    {mode === "server"
+                      ? `${clientLabel(item.id)} (${item.address})`
+                      : `${item.address} #${item.id}`}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <textarea
+              onKeyDown={(event) => {
+                if (event.key === "Enter" && event.ctrlKey && connected && peer && input.trim()) {
+                  event.preventDefault();
+                  void send();
+                }
+              }}
+              aria-label={t("发送内容", "Payload")}
+              value={input}
+              onChange={(event) => {
+                setInput(event.target.value);
+                setMessageDraft(null);
+                setChecked(null);
+              }}
+              rows={mode === "serial" ? 1 : 3}
+              maxLength={262144}
+              placeholder={encoding === "hex" ? "01 03 00 00 00 02" : "UTF-8"}
+            />
+            {(mode === "serial" || mode === "udp" || detachedClient) && (
+              <small className={mode === "udp" ? "udp-byte-count" : "serial-byte-count"}>
+                {encoding === "text"
+                  ? new TextEncoder().encode(input).length + " bytes"
+                  : /^(?:[0-9a-f]{2}\s*)*$/i.test(input.trim())
+                    ? input.replace(/\s/g, "").length / 2 + " bytes"
+                    : mode === "udp"
+                      ? t("发送时解析", "On send")
+                      : t("变量与字节数在发送时解析", "Variables and byte count resolve on send")}
+              </small>
+            )}
+            <small>
+              {messageDraft
+                ? `${t("报文源", "Message source")}: ${messageDraft.relativePath} / ${messageDraft.messageName}`
+                : t(
+                    "支持 {{变量名}}；内置 random、sequence、timestamp。",
+                    "Use {{name}}; built-ins: random, sequence, timestamp.",
+                  )}
+            </small>
+            <div
+              className="tcp-send-schedule"
+              hidden={sendView !== "timed" && sendView !== "batch"}
+            >
+              <label>
+                {t("间隔 (毫秒)", "Interval (ms)")}
+                <input
+                  aria-label={t("发送间隔", "Send interval")}
+                  type="number"
+                  min="50"
+                  max="60000"
+                  value={intervalMs}
+                  onChange={(event) => setIntervalMs(event.target.value)}
+                />
+              </label>
+              <label>
+                {t("重复次数", "Repeat count")}
+                <input
+                  aria-label={t("重复次数", "Repeat count")}
+                  type="number"
+                  min="1"
+                  max="1000"
+                  value={repeatCount}
+                  onChange={(event) => setRepeatCount(event.target.value)}
+                />
+              </label>
+              <label hidden={sendView !== "batch"}>
+                {t(
+                  "批量内容（每行一条原始报文；空白时使用上方内容或报文源）",
+                  "Batch payloads (one raw payload per line; empty uses the payload or message source above)",
+                )}
+                <textarea
+                  aria-label={t("批量内容", "Batch payloads")}
+                  rows={2}
+                  maxLength={262144}
+                  value={batch}
+                  onChange={(event) => setBatch(event.target.value)}
+                  placeholder={encoding === "hex" ? "01 02\n03 04" : "first\nsecond"}
+                />
+              </label>
+            </div>
+            <div className="tcp-variable-tools" hidden={sendView !== "variables"}>
+              {["sequence", "random", "timestamp"].map((name) => (
+                <button
+                  key={name}
+                  type="button"
+                  onClick={() => {
+                    setInput((value) => `${value}{{${name}}}`);
+                    setMessageDraft(null);
+                    setChecked(null);
+                  }}
+                >{`{{${name}}}`}</button>
+              ))}
+              <small>
+                {t(
+                  "项目环境变量使用 {{变量名}}；发送时读取当前环境。",
+                  "Use {{name}} for environment variables; resolved when sending.",
+                )}
+              </small>
+            </div>
+            <label className="tcp-clear-after-send">
+              <input
+                type="checkbox"
+                checked={clearAfterSend}
+                onChange={(event) => setClearAfterSend(event.target.checked)}
+              />
+              {t("发送成功后清空", "Clear after successful send")}
+            </label>
+            {checked && (
+              <div className="tcp-send-preview" role="status">
+                <span>
+                  {t("生效值", "Effective value")}: {checked.effective}
+                </span>
+                <code>HEX: {checked.hex}</code>
+              </div>
+            )}
+            <div className="tcp-send-footer">
+              <small
+                role="status"
+                className={
+                  mode === "udp" && !notice && !(runProgress && running) ? "udp-send-hint" : ""
+                }
+              >
+                {runProgress && running
+                  ? `${t("发送进度", "Progress")}: ${runProgress}`
+                  : notice ||
+                    (messageDraft
+                      ? t(
+                          "每次发送按协议重算长度与校验。",
+                          "Length and checksum are recalculated for every message send.",
+                        )
+                      : t(
+                          mode === "udp"
+                            ? "单次最多 65507 字节；不自动添加换行或校验码。"
+                            : "单次最多 64 KiB；不自动添加换行或校验码。",
+                          mode === "udp"
+                            ? "Up to 65507 bytes; no automatic newline or checksum."
+                            : "Up to 64 KiB; no automatic newline or checksum.",
+                        ))}
+              </small>
+              <button
+                type="button"
+                disabled={busy || running || (encoding === "hex" ? !input.trim() : !input.length)}
+                onClick={() => void checkPayload()}
+              >
+                {t("检查生效值", "Check effective value")}
+              </button>
+              {mode === "serial" && (
+                <button
+                  type="button"
+                  disabled={busy || running || !input}
+                  onClick={() => {
+                    setInput("");
+                    setMessageDraft(null);
+                    setChecked(null);
+                  }}
+                >
+                  {t("清空", "Clear")}
+                </button>
+              )}
+              <button
+                data-action="send"
+                type="button"
+                disabled={
+                  busy ||
+                  running ||
+                  !connected ||
+                  !peer ||
+                  (encoding === "hex" ? !input.trim() : !input.length)
+                }
+                onClick={() => void send()}
+              >
+                <Send size={14} />
+                {mode === "serial" || mode === "udp" || detachedClient
+                  ? t("发送 (Ctrl+Enter)", "Send (Ctrl+Enter)")
+                  : t("发送", "Send")}
+              </button>
+              {running ? (
+                <button type="button" onClick={stopRun}>
+                  {t("停止发送", "Stop sending")}
+                </button>
+              ) : sendView === "timed" || sendView === "batch" ? (
+                <button
+                  type="button"
+                  disabled={busy || !connected || !peer || (!batch.trim() && !input.trim())}
+                  onClick={() => void startRun()}
+                >
+                  {sendView === "batch"
+                    ? t("开始批量发送", "Start batch send")
+                    : t("开始定时发送", "Start timed send")}
+                </button>
+              ) : null}
+            </div>
+          </div>
+          {mode === "server" && (
+            <aside className="tcp-server-queue" aria-label={t("发送队列", "Send queue")}>
+              <h3>
+                {t("发送队列", "Send queue")} <small>({status.queued} B)</small>
+              </h3>
+              {running || status.queued > 0 ? (
+                <div className="tcp-queue-active">
+                  <Inbox size={28} />
+                  <strong>
+                    {running
+                      ? t("发送任务运行中", "Send task running")
+                      : t("等待写入连接", "Waiting for socket write")}
+                  </strong>
+                  <p>{running ? runProgress : `${status.queued} bytes`}</p>
+                  <small>
+                    {t("目标", "Target")}: {peer ? clientLabel(Number(peer)) : "—"}
+                  </small>
+                  {running && (
+                    <button type="button" onClick={stopRun}>
+                      {t("停止发送", "Stop sending")}
+                    </button>
+                  )}
+                </div>
+              ) : (
+                <div className="tcp-detail-empty">
+                  <Inbox size={30} />
+                  <p>{t("暂无发送任务", "No pending sends")}</p>
+                </div>
+              )}
+            </aside>
+          )}
+        </section>
+        {mode === "udp" ? (
+          <UdpRecordDetail
+            record={selectedRecord}
+            endpoints={udpEndpoints(
+              selectedRecord,
+              history || !selectedRecord
+                ? ""
+                : redact(udpBindings.current.get(selectedRecord.id) ?? ""),
+            )}
+            locale={locale}
+            onDebug={onDebug}
+            onCopy={(record) => {
+              const owner = table.current?.ownerDocument.defaultView ?? window;
+              void owner.navigator.clipboard
+                .writeText(record.hex)
+                .then(() => setNotice(t("HEX 已复制", "HEX copied")))
+                .catch(() => setError(t("复制失败", "Copy failed")));
+            }}
+          />
+        ) : mode === "server" ? (
+          <ServerRecordDetail
+            record={selectedRecord}
+            locale={locale}
+            index={filtered.findIndex((item) => item.id === selected?.id)}
+            total={filtered.length}
+            onStep={(step) => {
+              const index = filtered.findIndex((item) => item.id === selected?.id);
+              if (index >= 0 && filtered[index + step]) setSelected(filtered[index + step]);
+            }}
+            onDebug={onDebug}
+            onCopy={(record) => {
+              const owner = table.current?.ownerDocument.defaultView ?? window;
+              void owner.navigator.clipboard
+                .writeText(record.hex)
+                .then(() => setNotice(t("HEX 已复制", "HEX copied")))
+                .catch(() => setError(t("复制失败", "Copy failed")));
+            }}
+          />
+        ) : (
+          <TcpRecordDetail
+            compact={detachedClient}
+            collapsed={detachedClient && detailsCollapsed}
+            onLocate={() => {
+              setTrafficView("records");
+              table.current?.querySelector("tr.selected")?.scrollIntoView({ block: "nearest" });
+            }}
+            serial={mode === "serial"}
+            record={selectedRecord}
+            locale={locale}
+            onClose={() => (detachedClient ? setDetailsCollapsed(true) : setSelected(null))}
+            onDebug={onDebug}
+            onCopy={(record) => {
+              const owner = table.current?.ownerDocument.defaultView ?? window;
+              void owner.navigator.clipboard
+                .writeText(record.hex)
+                .then(() => setNotice(t("HEX 已复制", "HEX copied")))
+                .catch(() => setError(t("复制失败", "Copy failed")));
+            }}
+            previous={Boolean(
+              selected && filtered.findIndex((item) => item.id === selected.id) > 0,
+            )}
+            next={Boolean(
+              selected &&
+              filtered.findIndex((item) => item.id === selected.id) >= 0 &&
+              filtered.findIndex((item) => item.id === selected.id) < filtered.length - 1,
+            )}
+            onStep={(step) => {
+              const index = filtered.findIndex((item) => item.id === selected?.id);
+              if (index >= 0 && filtered[index + step]) setSelected(filtered[index + step]);
+            }}
+          />
+        )}
+        {detachedClient && detailsCollapsed && (
+          <button
+            className="tcp-detail-rail"
+            type="button"
+            onClick={() => setDetailsCollapsed(false)}
+            aria-label={t("展开详情", "Expand details")}
+          >
+            {t("详情已收起", "Details collapsed")}
+          </button>
+        )}
+      </div>
+      <footer className="tcp-statusbar">
+        <span className={`tcp-parse-state ${connected ? "ok" : "unparsed"}`}>
+          <Circle size={9} />
+          {stateLabel}
+        </span>
+        {mode === "server" && (
+          <>
+            <span>
+              {t("监听", "Bind")}: {active ? `${status.host}:${status.port}` : `${host}:${port}`}
+            </span>
+            <span>
+              {t("客户端", "Clients")}: {status.peers.length}
+            </span>
+          </>
+        )}
+        <span>
+          {t("发送", "TX")}: {status.sent} B
+        </span>
+        <span>
+          {t("接收", "RX")}: {status.received} B
+        </span>
+        <span>
+          {t("发送队列", "Queued")}: {status.queued} B
+        </span>
+        <span>
+          {t("记录", "Records")}: {filtered.length}/{shownRecords.length}
+        </span>
+        {running && (
+          <span>
+            {t("发送进度", "Progress")}: {runProgress}
+          </span>
+        )}
+        {history && <span>{t("历史记录（只读）", "History (read only)")}</span>}
+        {mode === "server" && (
+          <label className="tcp-server-follow">
+            <input
+              type="checkbox"
+              checked={follow}
+              onChange={(event) => setFollow(event.target.checked)}
+            />
+            {t("自动滚动", "Auto scroll")}
+          </label>
+        )}
+      </footer>
       <dialog
         ref={dialog}
         className="protocol-dialog tree-dialog tree-actions-dialog"
         onCancel={() => setPeerMenu(null)}
       >
-        <h2>{peerMenu?.address && redact(peerMenu.address)}</h2>
+        <h2>
+          {peerMenu && mode === "server" && `${clientLabel(peerMenu.id)} · `}
+          {peerMenu?.address && redact(peerMenu.address)}
+        </h2>
+        {mode === "server" && <p>{t("确认断开此客户端连接？", "Disconnect this client?")}</p>}
         {error && (
           <p className="tcp-error" role="alert">
             {redact(error)}

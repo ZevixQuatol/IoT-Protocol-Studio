@@ -1,0 +1,475 @@
+.tcp-workspace:has(.tcp-session-slot:not([hidden]) .tcp-serial-workbench) {
+  grid-template-columns: minmax(0, 1fr);
+}
+.tcp-workspace:has(.tcp-session-slot:not([hidden]) .tcp-serial-workbench) .tcp-session-sidebar {
+  display: none;
+}
+.tcp-workbench.tcp-serial-workbench {
+  --serial-warning: #d7af65;
+  --serial-error: #db776d;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 370px;
+  grid-template-rows: auto auto minmax(230px, 1fr) auto 28px;
+  gap: 8px 10px;
+  overflow: auto;
+}
+:root[data-theme="light"] .tcp-serial-workbench {
+  --serial-warning: #8d631f;
+  --serial-error: #af443a;
+}
+.tcp-serial-workbench > .tcp-connect {
+  grid-column: 1;
+  grid-row: 1;
+  align-items: flex-end;
+  gap: 8px 10px;
+  padding: 10px 12px;
+  position: relative;
+}
+.tcp-serial-workbench .serial-config-title {
+  order: -2;
+  flex: 1 0 100%;
+  align-self: center;
+  font-size: 13px;
+}
+.tcp-serial-workbench .tcp-connect > label:first-child {
+  position: absolute;
+  top: 6px;
+  right: 12px;
+  width: 110px;
+  font-size: 0;
+}
+.tcp-serial-workbench .tcp-connect > label {
+  width: auto;
+  flex: 0 1 auto;
+  min-width: 0;
+  gap: 6px;
+}
+.tcp-serial-workbench .tcp-connect input,
+.tcp-serial-workbench .tcp-connect select {
+  width: 84px;
+  height: 30px;
+  padding: 4px 8px;
+}
+.tcp-serial-workbench .tcp-connect > label:first-child select {
+  width: 110px;
+  height: 26px;
+}
+.tcp-serial-workbench .tcp-connect input[aria-label="串口设备"],
+.tcp-serial-workbench .tcp-connect input[aria-label="Serial device"] {
+  width: 102px;
+}
+.tcp-serial-workbench .tcp-connect input[aria-label="波特率"],
+.tcp-serial-workbench .tcp-connect input[aria-label="Baud rate"] {
+  width: 98px;
+}
+.tcp-serial-workbench .tcp-connect select[aria-label="数据位"],
+.tcp-serial-workbench .tcp-connect select[aria-label="Data bits"],
+.tcp-serial-workbench .tcp-connect select[aria-label="停止位"],
+.tcp-serial-workbench .tcp-connect select[aria-label="Stop bits"] {
+  width: 60px;
+}
+.tcp-serial-workbench .tcp-connection-state {
+  order: 1;
+  padding: 0;
+  margin-left: auto;
+  min-width: 125px;
+}
+.tcp-serial-workbench .tcp-connection-state.faulted {
+  color: var(--serial-error);
+}
+.tcp-serial-workbench .tcp-connect-action {
+  order: 2;
+  height: 31px;
+}
+.tcp-serial-workbench .tcp-connect:has(.tcp-connection-state.open) .tcp-connect-action {
+  color: #ed8a80;
+  border-color: #b6554e;
+  background: transparent;
+}
+.tcp-serial-workbench .tcp-effective-address {
+  order: 3;
+  height: 30px;
+}
+.tcp-serial-workbench .tcp-connect > small {
+  order: 4;
+  flex-basis: 100%;
+  color: var(--muted);
+}
+.tcp-serial-workbench > .tcp-configuration {
+  grid-column: 2;
+  grid-row: 1;
+  flex-direction: column;
+  flex-wrap: nowrap;
+  gap: 5px;
+  padding: 10px 12px;
+}
+.tcp-serial-workbench .tcp-configuration .tcp-framing {
+  flex: 0 0 auto;
+  width: 100%;
+  max-width: none;
+  border: 0;
+  padding: 0;
+  gap: 7px;
+}
+.tcp-serial-workbench .tcp-configuration .tcp-framing > strong {
+  width: 52px;
+  font-size: 11px;
+}
+.tcp-serial-workbench .tcp-configuration .tcp-framing > label:first-of-type {
+  flex: 1;
+}
+.tcp-serial-workbench .tcp-configuration .tcp-framing > label:first-of-type select {
+  width: 100%;
+  max-width: none;
+}
+.tcp-serial-workbench .tcp-configuration .tcp-frame-config > label:first-of-type {
+  font-size: 0;
+}
+.tcp-serial-workbench .tcp-configuration .tcp-frame-config > label:first-of-type select {
+  font-size: 12px;
+}
+.tcp-serial-workbench .tcp-connect:has(.tcp-connection-state.open) .tcp-effective-address,
+.tcp-serial-workbench .tcp-connect:has(.tcp-connection-state.open) > small {
+  display: none;
+}
+.tcp-serial-workbench .tcp-configuration .tcp-frame-config > label:not(:first-of-type) {
+  display: none;
+}
+.tcp-serial-workbench .tcp-configuration.expanded .tcp-frame-config > label {
+  display: flex;
+}
+.tcp-serial-workbench .tcp-config-more {
+  align-self: flex-end;
+  height: 21px;
+  padding: 2px 8px;
+  font-size: 11px;
+}
+.tcp-serial-workbench > .serial-alert {
+  grid-column: 1 / -1;
+  grid-row: 2;
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 11px 14px;
+  border: 1px solid #9d5149;
+  border-radius: 6px;
+  background: color-mix(in srgb, #ce6157 8%, var(--surface));
+  color: var(--text);
+}
+.serial-alert > svg {
+  flex-shrink: 0;
+  color: var(--serial-error);
+}
+.serial-alert > div {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.serial-alert strong {
+  font-size: 12px;
+}
+.serial-alert p {
+  margin: 5px 0;
+  color: var(--serial-error);
+  font:
+    11px/1.5 "Cascadia Code",
+    Consolas,
+    monospace;
+}
+.serial-alert small {
+  font-size: 11px;
+  color: var(--muted);
+}
+.tcp-serial-workbench > .serial-alert.interrupted {
+  border-color: #9b7e42;
+  background: color-mix(in srgb, #d7af65 6%, var(--surface));
+}
+.serial-alert.interrupted > svg,
+.serial-alert.interrupted p {
+  color: var(--serial-warning);
+}
+.tcp-serial-workbench .tcp-body {
+  display: contents;
+}
+.tcp-serial-workbench .tcp-traffic-panel {
+  grid-column: 1;
+  grid-row: 3;
+  position: relative;
+}
+.tcp-serial-workbench .tcp-send {
+  grid-column: 1;
+  grid-row: 4;
+  padding: 0 12px 10px;
+  gap: 6px;
+  min-height: min-content;
+  position: relative;
+}
+.tcp-serial-workbench .tcp-send-content {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto auto;
+  gap: 6px 8px;
+}
+.tcp-serial-workbench .tcp-send-heading {
+  position: absolute;
+  top: 4px;
+  right: 12px;
+}
+.tcp-serial-workbench .tcp-send-heading strong {
+  display: none;
+}
+.tcp-serial-workbench .tcp-send-content > textarea {
+  grid-column: 1;
+  grid-row: 2;
+  width: 100%;
+}
+.tcp-serial-workbench .tcp-send-content > .serial-byte-count {
+  grid-column: 1;
+  grid-row: 3;
+  justify-self: end;
+  align-self: center;
+}
+.tcp-serial-workbench .tcp-send-content > small:not(.serial-byte-count) {
+  grid-column: 2 / -1;
+  grid-row: 3;
+  text-align: right;
+}
+.tcp-serial-workbench .tcp-send-schedule,
+.tcp-serial-workbench .tcp-variable-tools,
+.tcp-serial-workbench .tcp-send-preview {
+  grid-column: 1 / -1;
+}
+.tcp-serial-workbench .tcp-clear-after-send {
+  grid-column: 1;
+  grid-row: 3;
+  justify-self: start;
+}
+.tcp-serial-workbench .tcp-send-footer small {
+  grid-column: 1 / -1;
+}
+.tcp-serial-workbench .tcp-send-footer > button {
+  grid-row: 2;
+}
+.tcp-serial-workbench .tcp-send-footer > button:first-of-type {
+  grid-column: 2;
+}
+.tcp-serial-workbench .tcp-send-footer > button:nth-of-type(2) {
+  grid-column: 3;
+}
+.tcp-serial-workbench .tcp-send-footer > button[data-action="send"] {
+  grid-column: 4;
+}
+.tcp-serial-workbench .tcp-send-footer > button:nth-of-type(4) {
+  grid-column: 1 / -1;
+  grid-row: auto;
+}
+.tcp-serial-workbench .tcp-detail-panel {
+  grid-column: 2;
+  grid-row: 3 / 5;
+}
+.tcp-serial-workbench > .tcp-statusbar {
+  grid-column: 1 / -1;
+  grid-row: 5;
+}
+.tcp-serial-workbench .tcp-peers {
+  display: none;
+}
+.tcp-serial-workbench .tcp-section-tabs {
+  min-height: 35px;
+  gap: 0;
+}
+.tcp-serial-workbench .tcp-section-tabs button {
+  padding: 8px 12px;
+  font-size: 12px;
+}
+.tcp-serial-workbench .tcp-log-toolbar {
+  padding: 7px 9px;
+  gap: 6px;
+}
+.serial-direction-tabs,
+.serial-format-tabs {
+  display: inline-flex;
+  gap: 3px;
+  flex-shrink: 0;
+}
+.tcp-serial-workbench .serial-direction-tabs button,
+.tcp-serial-workbench .serial-format-tabs button {
+  border-radius: 14px;
+  padding: 4px 10px;
+  height: 27px;
+  font-size: 11px;
+  color: var(--muted);
+}
+.tcp-serial-workbench button[aria-pressed="true"] {
+  color: var(--accent);
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+.tcp-serial-workbench .tcp-log-toolbar .tcp-search {
+  order: 0;
+  min-width: 130px;
+}
+.tcp-serial-workbench .tcp-log-toolbar select {
+  width: 90px;
+  height: 29px;
+}
+.tcp-serial-workbench .tcp-log-toolbar > button {
+  padding: 5px 7px;
+  font-size: 11px;
+}
+.serial-record-count {
+  color: var(--muted);
+}
+.tcp-serial-workbench .tcp-advanced-tools {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  z-index: 2;
+  margin: 0;
+}
+.tcp-serial-workbench .tcp-advanced-tools[open] {
+  top: 40px;
+  width: min(650px, calc(100% - 24px));
+  padding: 10px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--surface);
+}
+.tcp-serial-workbench .tcp-log th,
+.tcp-serial-workbench .tcp-log td {
+  height: 30px;
+  font-size: 12px;
+}
+.tcp-serial-workbench .tcp-log th:first-child {
+  width: 113px;
+}
+.tcp-serial-workbench .tcp-log th:nth-child(2) {
+  width: 80px;
+}
+.tcp-serial-workbench .tcp-log th:nth-child(3) {
+  width: 65px;
+}
+.tcp-serial-workbench .tcp-dir-TX,
+.tcp-serial-workbench .tcp-dir-FRAME:has(svg.feather-arrow-up) {
+  color: var(--accent);
+}
+.tcp-serial-workbench .tcp-dir-RX,
+.tcp-serial-workbench .tcp-dir-FRAME:has(svg.feather-arrow-down) {
+  color: #64b8e5;
+}
+.tcp-serial-workbench .serial-empty {
+  min-height: 180px;
+}
+.tcp-serial-workbench .tcp-send > .tcp-section-tabs {
+  margin: 0 -12px;
+}
+.tcp-serial-workbench .tcp-send textarea {
+  height: 38px;
+  min-height: 38px;
+  padding: 9px;
+}
+.tcp-serial-workbench .tcp-send-heading {
+  display: flex;
+  gap: 10px;
+}
+.tcp-serial-workbench .tcp-send-heading strong {
+  font-size: 12px;
+}
+.tcp-serial-workbench .serial-format-tabs button {
+  border-radius: 5px;
+  min-width: 65px;
+}
+.tcp-serial-workbench .tcp-send-content > small {
+  color: var(--muted);
+  font-size: 10px;
+}
+.serial-send-unavailable {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding-top: 8px;
+  margin: 0;
+  color: var(--serial-warning);
+  font-size: 11px;
+}
+.tcp-serial-workbench .tcp-send-footer {
+  display: contents;
+}
+@media (max-height: 720px) and (min-width: 901px) {
+  .tcp-workbench.tcp-serial-workbench {
+    grid-template-rows: auto auto minmax(170px, 1fr) auto 28px;
+  }
+}
+.tcp-serial-workbench .tcp-send-footer [data-action="send"] {
+  min-width: 158px;
+}
+.tcp-serial-workbench .tcp-field-scroll th,
+.tcp-serial-workbench .tcp-field-scroll td {
+  padding: 6px;
+}
+.serial-statistics {
+  overflow: auto;
+  padding: 12px;
+  font-size: 12px;
+}
+.serial-statistics h3 {
+  font-size: 13px;
+}
+.serial-statistics p {
+  color: var(--muted);
+  font-size: 11px;
+}
+.serial-statistics table {
+  width: 100%;
+  border-collapse: collapse;
+  text-align: left;
+}
+.serial-statistics th,
+.serial-statistics td {
+  padding: 12px;
+  border-bottom: 1px solid var(--line);
+}
+@media (max-width: 1200px) {
+  .tcp-workbench.tcp-serial-workbench {
+    grid-template-columns: minmax(0, 1fr) 310px;
+  }
+  .tcp-serial-workbench .tcp-connect {
+    gap: 8px;
+  }
+  .tcp-serial-workbench .tcp-log-toolbar .tcp-search {
+    flex-basis: 100%;
+    order: -1;
+  }
+}
+@media (max-width: 900px) {
+  .tcp-workbench.tcp-serial-workbench {
+    display: flex;
+    flex-direction: column;
+  }
+  .tcp-serial-workbench > .tcp-connect {
+    order: 1;
+    flex-shrink: 0;
+  }
+  .tcp-serial-workbench > .tcp-configuration {
+    order: 2;
+    flex-shrink: 0;
+  }
+  .tcp-serial-workbench > .serial-alert {
+    order: 3;
+    flex-shrink: 0;
+  }
+  .tcp-serial-workbench .tcp-traffic-panel {
+    order: 4;
+    flex: 0 0 280px;
+  }
+  .tcp-serial-workbench .tcp-send {
+    order: 5;
+    flex-shrink: 0;
+  }
+  .tcp-serial-workbench .tcp-detail-panel {
+    order: 6;
+    flex: 0 0 400px;
+  }
+  .tcp-serial-workbench > .tcp-statusbar {
+    order: 7;
+    flex-shrink: 0;
+  }
+}

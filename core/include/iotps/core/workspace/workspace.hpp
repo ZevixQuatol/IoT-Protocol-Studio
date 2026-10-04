@@ -82,11 +82,13 @@ struct EnvironmentVariable {
     std::string default_value;
     bool required{false};
     bool sensitive{false};
+    std::string description;
 };
 
 struct Environment {
     std::string name;
     std::vector<EnvironmentVariable> variables;
+    std::string description;
 };
 
 struct EnvironmentConfig {

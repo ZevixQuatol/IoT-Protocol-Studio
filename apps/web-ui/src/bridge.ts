@@ -325,25 +325,30 @@ export type EnvironmentVariable = {
   defaultValue: string;
   required: boolean;
   sensitive: boolean;
+  description?: string;
 };
 export type EnvironmentConfig = {
   active: string;
-  environments: { name: string; variables: EnvironmentVariable[] }[];
+  environments: { name: string; variables: EnvironmentVariable[]; description?: string }[];
 };
 export type EnvironmentResult =
   | { ok: true; config: EnvironmentConfig }
   | { ok: false; error: { code: string; message: string; path: string } };
 
 export async function environments(config?: EnvironmentConfig): Promise<EnvironmentResult> {
+  const metadata = config?.environments.some(
+    (item) => item.description || item.variables.some((variable) => variable.description),
+  );
   return window.iotpsEnvironments
     ? window.iotpsEnvironments(
         ...(config
           ? [
-              "save",
+              metadata ? "save_v2" : "save",
               config.active,
               String(config.environments.length),
               ...config.environments.flatMap((environment) => [
                 environment.name,
+                ...(metadata ? [environment.description ?? ""] : []),
                 String(environment.variables.length),
                 ...environment.variables.flatMap((variable) => [
                   variable.name,
@@ -351,6 +356,7 @@ export async function environments(config?: EnvironmentConfig): Promise<Environm
                   variable.defaultValue,
                   String(variable.required),
                   String(variable.sensitive),
+                  ...(metadata ? [variable.description ?? ""] : []),
                 ]),
               ]),
             ]
@@ -504,7 +510,8 @@ export type DebugDecodeResult =
       ranges?: { path: string; offset: number; length: number }[];
     }
   | DebugFailure;
-export type DebugFileResult = { ok: true; cancelled: boolean; content: string } | DebugFailure;
+export type DebugFileResult =
+  { ok: true; cancelled: boolean; content: string; path?: string; size?: number } | DebugFailure;
 const debugNativeRequired: DebugFailure = {
   ok: false,
   error: { code: "native_host_required", message: "This action requires the Windows desktop host" },
@@ -623,7 +630,7 @@ export async function getCoreInfo(): Promise<CoreInfo> {
   }
   return {
     product: "IoT Protocol Studio",
-    version: "0.1.0",
+    version: "1.0.0",
     platform: "Web preview",
     architecture: "browser",
     source: "browser-preview",

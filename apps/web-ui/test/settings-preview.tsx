@@ -16,6 +16,7 @@ import { detectInitialLocale, storeLocale, storeTheme, type Locale } from "../sr
 import type { Diagnostic } from "../src/diagnostics";
 import "../src/styles.css";
 import "../src/settings-workspace.css";
+import "../src/ui-consistency.css";
 
 const time = new Date(2026, 9, 4, 14, 22, 11, 328).getTime();
 const samples: Diagnostic[] = [

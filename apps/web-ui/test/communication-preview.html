@@ -1,0 +1,202 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>P07 UI verification fixture</title>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script>
+      // Browser-only verification fixture. No sockets, devices or filesystem writes.
+      localStorage.setItem(
+        "iotps.locale",
+        new URLSearchParams(location.search).get("locale") || "zh-CN",
+      );
+      localStorage.setItem(
+        "iotps.theme",
+        new URLSearchParams(location.search).get("theme") || "dark",
+      );
+      const protocolPath = "protocols/SensorLink/sensorlink.yaml";
+      const project = {
+        name: "Smart Sensor Demo",
+        rootPath: "D:\\Preview\\SmartSensorDemo",
+        description: "Browser verification fixture",
+        folders: [],
+        protocols: [
+          {
+            name: "SensorLink",
+            path: protocolPath,
+            content: "",
+            schema: {
+              version: "0.1",
+              protocolVersion: "1.0",
+              defaultByteOrder: "little",
+              messageTypeField: "msgType",
+              messages: [
+                { name: "ReadStatus", displayName: "ReadStatus", fields: [] },
+                { name: "StatusReply", displayName: "StatusReply", fields: [] },
+              ],
+            },
+          },
+        ],
+      };
+      window.iotpsWorkspaceCurrent = async () => ({
+        ok: true,
+        source: "browser-preview",
+        cancelled: false,
+        project,
+      });
+      window.iotpsEnvironments = async () => ({
+        ok: true,
+        config: { active: "Default", environments: [{ name: "Default", variables: [] }] },
+      });
+      const fields = [
+        ["header", "u16", "0x55AA", 0, 2],
+        ["msgType", "u8", "0x01", 2, 1],
+        ["sequence", "u16", "0x0002 (2)", 3, 2],
+        ["deviceId", "u32", "0x1A260001", 5, 4],
+        ["temperature", "i16", "25.6", 9, 2],
+        ["flags", "u8", "0x00", 11, 1],
+        ["payloadLength", "u16", "0x0004 (4)", 12, 2],
+        ["payload", "bytes", "01 02 03 04", 14, 4],
+        ["crc", "u16", "0x5C4B", 18, 2],
+      ].map(([name, type, value, offset, length]) => ({
+        name,
+        displayName: name,
+        type,
+        value,
+        offset,
+        length,
+      }));
+      const payload = "55 AA 01 02 00 01 00 26 1A 00 01 00 04 00 01 02 03 04 4B 5C";
+      const base = new Date("2026-10-03T14:23:00+08:00").getTime();
+      const records = [
+        {
+          id: 1,
+          time: base,
+          direction: "SYS",
+          address: "127.0.0.1:9000",
+          peer: 1,
+          hex: "",
+          size: 0,
+          detail: "连接已建立",
+        },
+      ];
+      for (let i = 0; i < 6; i++) {
+        for (const flow of ["TX", "RX"]) {
+          const hex = flow === "RX" ? payload : "55 AA 00 01 00 01 00 26 1A 04 00 00 00 00 4B 5C";
+          records.push({
+            id: records.length + 1,
+            time: base + 12102 + i * 3200 + (flow === "RX" ? 43 : 0),
+            direction: "FRAME",
+            flow,
+            address: "127.0.0.1:9000",
+            peer: 1,
+            hex,
+            size: hex.split(" ").length,
+            detail: flow === "RX" ? "设备状态上报" : "读取设备状态",
+            parsed: {
+              protocolPath,
+              messageName: flow === "RX" ? "StatusReply" : "ReadStatus",
+              status: "ok",
+              checksum: "pass",
+              error: "",
+              fields: flow === "RX" ? fields : fields.slice(0, 4),
+            },
+          });
+        }
+      }
+      const sessions = new Map();
+      window.previewCalls = [];
+      window.iotpsTcp = async (id, action, ...args) => {
+        window.previewCalls.push([id, action, ...args]);
+        if (action === "create") {
+          if (!sessions.has(id))
+            sessions.set(id, {
+              ok: true,
+              kind: "tcp",
+              state: id === "tcp-1" ? "open" : "closed",
+              server: false,
+              host: "127.0.0.1",
+              port: 9000,
+              error: "",
+              sent: id === "tcp-1" ? 96 : 0,
+              received: id === "tcp-1" ? 120 : 0,
+              queued: 0,
+              dropped: 0,
+              retries: 0,
+              protocolPath,
+              messageName: "",
+              cursor: id === "tcp-1" ? records.length : 0,
+              peers: id === "tcp-1" ? [{ id: 1, address: "127.0.0.1:9000" }] : [],
+              records: id === "tcp-1" ? structuredClone(records) : [],
+            });
+          return { ok: true };
+        }
+        if (action === "destroy") {
+          sessions.delete(id);
+          return { ok: true };
+        }
+        if (action === "devices")
+          return { ok: true, serialDevices: ["COM3"], interfaces: ["0.0.0.0"] };
+        const state = sessions.get(id);
+        if (!state)
+          return { ok: false, error: { message: "Closed fixture session", code: "closed" } };
+        if (action === "poll")
+          return structuredClone({
+            ...state,
+            records: state.records.filter((item) => item.id > Number(args[0])),
+          });
+        if (["start", "udp", "serial"].includes(action)) {
+          state.state = "open";
+          state.server = args[0] === "server";
+          state.host = action === "start" ? args[1] : args[0];
+          state.port = Number(action === "start" ? args[2] : args[1]);
+          state.peers = [{ id: 1, address: `${state.host}:${state.port}` }];
+        }
+        if (action === "stop") {
+          state.state = "closed";
+          state.peers = [];
+        }
+        if (action === "bind") {
+          state.protocolPath = args[0] === "off" ? "" : args[0];
+          state.messageName = args[1] || "";
+        }
+        if (action === "clear") state.records = [];
+        if (action === "send") {
+          const size = args[1].trim().split(/\s+/).length;
+          state.sent += size;
+          state.records.push({
+            id: ++state.cursor,
+            time: Date.now(),
+            direction: "TX",
+            address: state.peers[0].address,
+            peer: 1,
+            hex: args[1],
+            size,
+            detail: "",
+          });
+        }
+        return { ok: true };
+      };
+      window.iotpsCorrelate = async () => ({ ok: true, rows: [] });
+      window.iotpsTrafficFile = async (action, content) =>
+        action === "save"
+          ? { ok: true, cancelled: false }
+          : {
+              ok: true,
+              cancelled: false,
+              content: JSON.stringify({
+                format: "iotps-traffic-v1",
+                session: "preview",
+                savedAt: new Date().toISOString(),
+                dropped: 0,
+                records,
+              }),
+            };
+      window.addEventListener("error", (event) => console.error(event.message));
+    </script>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

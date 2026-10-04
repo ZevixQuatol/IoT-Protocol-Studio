@@ -1,0 +1,521 @@
+.tcp-send-content {
+  display: contents;
+}
+.tcp-workbench.tcp-server-workbench {
+  display: grid;
+  grid-template-columns: 220px minmax(0, 1fr) 360px;
+  grid-template-rows: auto auto minmax(270px, 1fr) auto 28px;
+  gap: 8px 12px;
+  overflow: auto;
+}
+.tcp-server-workbench > .tcp-connect {
+  grid-column: 1 / 3;
+  grid-row: 1;
+}
+.tcp-server-workbench > .tcp-configuration {
+  grid-column: 1 / 3;
+  grid-row: 2;
+}
+.tcp-server-workbench > .tcp-statusbar {
+  grid-column: 1 / -1;
+  grid-row: 5;
+}
+.tcp-server-workbench > .tcp-error {
+  grid-column: 1 / -1;
+}
+.tcp-server-workbench .tcp-connect label:nth-child(2) {
+  flex: 0 1 190px;
+  width: 190px;
+  min-width: 140px;
+}
+.tcp-server-workbench .tcp-connect .tcp-effective-address:disabled,
+.tcp-server-workbench .tcp-connect:has(.tcp-connection-state.open) > small {
+  display: none;
+}
+.tcp-server-workbench .tcp-server-detail .tcp-field-scroll th,
+.tcp-server-workbench .tcp-server-detail .tcp-field-scroll td,
+.tcp-server-workbench .tcp-server-detail .tcp-field-scroll td button {
+  font-size: 11px;
+}
+.tcp-server-workbench .tcp-body {
+  display: contents;
+}
+.tcp-server-workbench .tcp-connect,
+.tcp-server-workbench .tcp-configuration,
+.tcp-server-workbench .tcp-traffic-panel,
+.tcp-server-workbench .tcp-send,
+.tcp-server-workbench .tcp-detail-panel,
+.tcp-server-peers {
+  border-radius: 8px;
+}
+.tcp-server-workbench .tcp-traffic-panel {
+  grid-column: 2;
+  grid-row: 3;
+}
+.tcp-server-workbench .tcp-send {
+  grid-column: 1 / 3;
+  grid-row: 4;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 205px;
+  gap: 8px 16px;
+}
+.tcp-server-workbench .tcp-send > .tcp-section-tabs {
+  grid-column: 1 / -1;
+}
+.tcp-server-workbench .tcp-send-content {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+}
+.tcp-server-workbench .tcp-send-heading {
+  display: flex;
+  flex-wrap: wrap;
+}
+.tcp-server-workbench .tcp-send-heading strong {
+  margin-right: 0;
+}
+.tcp-server-workbench .tcp-send-heading select:first-of-type {
+  order: 1;
+  margin-left: auto;
+}
+.tcp-server-workbench .tcp-send-heading select:last-child {
+  flex: 1;
+  max-width: none;
+}
+.tcp-server-workbench .tcp-send textarea {
+  height: 56px;
+  min-height: 56px;
+}
+.tcp-server-workbench .tcp-send-content > small {
+  font-size: 10px;
+  color: var(--muted);
+}
+.tcp-server-workbench .tcp-send-footer {
+  flex-wrap: wrap;
+}
+.tcp-server-workbench .tcp-send-footer small {
+  flex-basis: 100%;
+}
+.tcp-server-workbench .tcp-send-footer [data-action="send"] {
+  margin-left: auto;
+  min-width: 135px;
+  height: 40px;
+}
+.tcp-server-workbench .tcp-detail-panel {
+  grid-column: 3;
+  grid-row: 1 / 5;
+}
+.tcp-server-peers {
+  grid-column: 1;
+  grid-row: 3;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  min-width: 0;
+  border: 1px solid var(--line);
+  background: var(--surface);
+  overflow: hidden;
+}
+.tcp-server-peers .tcp-panel-heading {
+  padding: 13px 12px;
+  border-bottom: 1px solid var(--line);
+}
+.tcp-peer-limit {
+  color: var(--muted);
+  font-size: 10px;
+  white-space: nowrap;
+}
+.tcp-server-peer-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: 6px;
+}
+.tcp-server-peer {
+  position: relative;
+  display: flex;
+  align-items: center;
+  border: 1px solid transparent;
+  border-bottom-color: var(--line);
+  border-radius: 5px;
+  margin-bottom: 4px;
+}
+.tcp-server-peer.selected {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+.tcp-workbench .tcp-peer-select {
+  flex: 1;
+  min-width: 0;
+  align-items: flex-start;
+  justify-content: flex-start;
+  gap: 10px;
+  padding: 12px 8px;
+  border: 0;
+  background: transparent;
+  text-align: left;
+}
+.tcp-peer-select > svg {
+  position: absolute;
+  right: 32px;
+  top: 12px;
+  flex-shrink: 0;
+  margin-top: 2px;
+  color: var(--muted);
+}
+.tcp-server-peer.selected .tcp-peer-select > svg {
+  color: var(--accent);
+}
+.tcp-peer-select > span {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  min-width: 0;
+  width: 100%;
+}
+.tcp-peer-select strong {
+  font-size: 12px;
+  font-weight: 600;
+}
+.tcp-peer-select code,
+.tcp-offline-peer code {
+  font-family: "Cascadia Code", Consolas, monospace;
+  font-size: 12px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.tcp-peer-select small {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 10px;
+}
+.tcp-peer-select small svg {
+  fill: currentColor;
+}
+.tcp-workbench .tcp-peer-more {
+  align-self: flex-start;
+  margin-top: 11px;
+  padding: 5px;
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+}
+.tcp-server-peers > footer {
+  padding: 10px 12px;
+  border-top: 1px solid var(--line);
+  font-size: 10px;
+  color: var(--muted);
+}
+.tcp-offline-peers {
+  margin-top: 14px;
+  color: var(--muted);
+  font-size: 11px;
+}
+.tcp-offline-peers > summary {
+  cursor: pointer;
+  padding: 8px 5px;
+  border-bottom: 1px solid var(--line);
+}
+.tcp-offline-peer {
+  display: flex;
+  gap: 10px;
+  padding: 12px 8px;
+}
+.tcp-offline-peer > svg {
+  margin-top: 4px;
+  color: #d77770;
+  fill: currentColor;
+}
+.tcp-offline-peer > span {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  min-width: 0;
+}
+.tcp-offline-peer strong {
+  color: var(--text);
+  font-weight: 500;
+}
+.tcp-server-workbench .tcp-log-toolbar {
+  gap: 5px;
+  padding: 8px;
+}
+.tcp-server-workbench .tcp-log-toolbar select {
+  width: 91px;
+  font-size: 10px;
+}
+.tcp-server-workbench .tcp-log-toolbar .tcp-search {
+  flex-basis: 150px;
+}
+.tcp-server-file-tools {
+  display: flex;
+  gap: 8px;
+  padding: 8px 0;
+}
+.tcp-server-workbench .tcp-log-toolbar label:not(.tcp-search) {
+  display: none;
+}
+.tcp-server-workbench .tcp-log table {
+  min-width: 595px;
+}
+.tcp-server-workbench .tcp-log th,
+.tcp-server-workbench .tcp-log td {
+  padding: 6px 5px;
+  font-size: 11px;
+}
+.tcp-server-workbench .tcp-log th:nth-child(1) {
+  width: 25px;
+}
+.tcp-server-workbench .tcp-log th:nth-child(2) {
+  width: 94px;
+}
+.tcp-server-workbench .tcp-log th:nth-child(3) {
+  width: 46px;
+}
+.tcp-server-workbench .tcp-log th:nth-child(4) {
+  width: 46px;
+}
+.tcp-server-workbench .tcp-log th:nth-child(5) {
+  width: 48px;
+}
+.tcp-server-workbench .tcp-log th:nth-child(6) {
+  width: 87px;
+}
+.tcp-server-workbench .tcp-log th:nth-child(7) {
+  width: 34px;
+}
+.tcp-server-workbench .tcp-log th:nth-child(8) {
+  width: auto;
+}
+.tcp-server-workbench .tcp-log th:nth-child(9) {
+  width: 83px;
+}
+.tcp-server-workbench .tcp-log td:nth-child(8) {
+  font-family: "Cascadia Code", Consolas, monospace;
+}
+.tcp-server-workbench .tcp-dir-TX,
+.tcp-server-workbench .tcp-dir-RX,
+.tcp-server-workbench .tcp-dir-FRAME {
+  color: #5ab3d5;
+}
+.tcp-server-workbench .tcp-log tr.selected td:first-child {
+  box-shadow: inset 2px 0 var(--accent);
+}
+.tcp-server-workbench .tcp-section-tabs button[aria-selected="true"] {
+  background: var(--accent-soft);
+  border-radius: 5px 5px 0 0;
+}
+.tcp-server-queue {
+  min-width: 0;
+  border-left: 1px solid var(--line);
+  padding-left: 14px;
+  display: flex;
+  flex-direction: column;
+}
+.tcp-server-queue h3 {
+  margin: 0 0 8px;
+  font-size: 12px;
+  font-weight: 500;
+}
+.tcp-server-queue h3 small {
+  color: var(--muted);
+  font-size: 12px;
+}
+.tcp-server-queue .tcp-detail-empty,
+.tcp-queue-active {
+  flex: 1;
+  border: 1px solid var(--line);
+  border-radius: 5px;
+  min-height: 130px;
+  padding: 16px 8px;
+}
+.tcp-queue-active {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  font-size: 11px;
+  color: var(--muted);
+}
+.tcp-queue-active p {
+  margin: 0;
+}
+.tcp-server-summary {
+  display: grid;
+  grid-template-columns: 72px minmax(0, 1fr);
+  gap: 10px 14px;
+  margin: 0 0 18px;
+  font-size: 11px;
+}
+.tcp-server-summary dt {
+  color: var(--muted);
+}
+.tcp-server-summary dd {
+  margin: 0;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.tcp-server-detail .tcp-panel-heading {
+  padding: 12px;
+}
+.tcp-server-detail .tcp-panel-heading small {
+  color: var(--muted);
+}
+.tcp-server-detail .tcp-panel-heading button {
+  border: 1px solid var(--line);
+  border-radius: 5px;
+}
+.tcp-server-detail .tcp-detail-scroll {
+  padding-top: 8px;
+}
+.tcp-server-detail .tcp-section-tabs {
+  margin: 0 -12px 12px;
+  padding: 0 10px;
+  border-bottom: 1px solid var(--line);
+}
+.tcp-server-detail .tcp-section-tabs button {
+  padding: 9px 5px;
+}
+.tcp-server-hex {
+  border: 1px solid var(--line);
+  border-radius: 5px;
+  overflow: auto;
+  padding: 5px 2px;
+}
+.tcp-server-hex table {
+  border-collapse: collapse;
+  width: 100%;
+  font:
+    11px "Cascadia Code",
+    Consolas,
+    monospace;
+}
+.tcp-server-hex th {
+  color: var(--muted);
+  font-weight: 400;
+  padding: 5px 4px;
+}
+.tcp-server-hex td {
+  white-space: nowrap;
+}
+.tcp-server-hex td span {
+  display: inline-block;
+  padding: 5px 2px;
+  border-radius: 3px;
+}
+.tcp-server-hex td span.selected {
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+.tcp-server-ascii {
+  color: var(--muted);
+  border-left: 1px solid var(--line);
+  padding: 0 6px;
+}
+.tcp-server-fields h3 {
+  padding-top: 3px;
+}
+.tcp-server-raw pre {
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+  font:
+    12px "Cascadia Code",
+    Consolas,
+    monospace;
+  line-height: 1.8;
+}
+.tcp-server-checksum {
+  margin-top: 18px;
+  border-top: 1px solid var(--line);
+  padding-top: 5px;
+}
+.tcp-server-checksum p {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 9px;
+  border: 1px solid var(--line);
+  border-radius: 5px;
+  padding: 15px;
+  margin: 0;
+  font-size: 13px;
+}
+.tcp-server-detail-actions {
+  display: flex;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 7px;
+  margin-top: 12px;
+}
+.tcp-server-workbench .tcp-statusbar {
+  font-size: 11px;
+  gap: 12px;
+}
+.tcp-server-follow {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: auto;
+  white-space: nowrap;
+}
+@media (max-width: 1400px) {
+  .tcp-workbench.tcp-server-workbench {
+    grid-template-columns: 180px minmax(0, 1fr) 320px;
+  }
+  .tcp-server-workbench .tcp-send {
+    grid-template-columns: minmax(0, 1fr) 175px;
+  }
+}
+@media (max-width: 1150px) {
+  .tcp-workbench.tcp-server-workbench {
+    grid-template-columns: 165px minmax(0, 1fr);
+    grid-template-rows: auto auto 320px auto 440px 28px;
+  }
+  .tcp-server-workbench .tcp-detail-panel {
+    grid-column: 1 / 3;
+    grid-row: 5;
+    max-height: 440px;
+  }
+  .tcp-server-workbench > .tcp-statusbar {
+    grid-row: 6;
+  }
+}
+@media (max-width: 850px) {
+  .tcp-workbench.tcp-server-workbench {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: auto auto 230px 360px auto 440px 28px;
+  }
+  .tcp-server-workbench > .tcp-connect,
+  .tcp-server-workbench > .tcp-configuration {
+    grid-column: 1;
+  }
+  .tcp-server-peers {
+    grid-column: 1;
+    grid-row: 3;
+  }
+  .tcp-server-workbench .tcp-traffic-panel {
+    grid-column: 1;
+    grid-row: 4;
+  }
+  .tcp-server-workbench .tcp-send {
+    grid-column: 1;
+    grid-row: 5;
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .tcp-server-workbench .tcp-detail-panel {
+    grid-column: 1;
+    grid-row: 6;
+  }
+  .tcp-server-queue {
+    border-left: 0;
+    border-top: 1px solid var(--line);
+    padding: 12px 0 0;
+  }
+  .tcp-server-workbench > .tcp-statusbar {
+    grid-row: 7;
+  }
+}
